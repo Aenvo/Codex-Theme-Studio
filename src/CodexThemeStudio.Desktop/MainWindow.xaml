@@ -1,0 +1,889 @@
+<Window x:Class="CodexThemeStudio.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:CodexThemeStudio.Desktop.ViewModels"
+        xmlns:models="clr-namespace:CodexThemeStudio.Contracts.Models;assembly=CodexThemeStudio.Contracts"
+        mc:Ignorable="d"
+        Title="Codex Theme Studio"
+        Width="1240"
+        Height="780"
+        MinWidth="960"
+        MinHeight="620"
+        WindowStartupLocation="CenterScreen"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
+        <Style x:Key="NavigationButtonStyle" TargetType="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Margin" Value="0,2" />
+            <Setter Property="Padding" Value="14,10" />
+            <Setter Property="FontSize" Value="14" />
+        </Style>
+
+        <Style x:Key="PillStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+        </Style>
+
+        <Style x:Key="ThemeCardItemStyle" TargetType="ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Card"
+                                Padding="12"
+                                Background="{DynamicResource SurfaceBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="12">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Card" Property="BorderBrush"
+                                        Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Card" Property="Background"
+                                        Value="{DynamicResource AccentSoftBrush}" />
+                                <Setter TargetName="Card" Property="BorderBrush"
+                                        Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Card" Property="BorderThickness" Value="2" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="Card" Property="BorderBrush"
+                                        Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="226" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.RowSpan="2"
+                Background="#111827"
+                Padding="18,22">
+            <DockPanel LastChildFill="True">
+                <StackPanel DockPanel.Dock="Top">
+                    <TextBlock Foreground="White"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Text="Codex Theme Studio" />
+                    <TextBlock Margin="0,5,0,24"
+                               Foreground="#98A2B3"
+                               FontSize="12"
+                               Text="非 OpenAI 官方工具" />
+                    <Button Style="{StaticResource NavigationButtonStyle}"
+                            Foreground="White"
+                            Command="{Binding NavigateCommand}"
+                            CommandParameter="Current"
+                            Content="◉  当前主题" />
+                    <Button Style="{StaticResource NavigationButtonStyle}"
+                            Foreground="White"
+                            Command="{Binding NavigateCommand}"
+                            CommandParameter="All"
+                            Content="▦  全部主题" />
+                    <Button Style="{StaticResource NavigationButtonStyle}"
+                            Foreground="White"
+                            Command="{Binding NavigateCommand}"
+                            CommandParameter="Favorites"
+                            Content="★  收藏" />
+                    <Button Style="{StaticResource NavigationButtonStyle}"
+                            Foreground="White"
+                            Command="{Binding ImportCommand}"
+                            Content="⇩  导入" />
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Bottom"
+                            VerticalAlignment="Bottom">
+                    <Button Style="{StaticResource NavigationButtonStyle}"
+                            Foreground="White"
+                            Command="{Binding NavigateCommand}"
+                            CommandParameter="Settings"
+                            Content="⚙  设置" />
+                    <Border Margin="0,14,0,0"
+                            Padding="12"
+                            Background="#1D2939"
+                            CornerRadius="10">
+                        <StackPanel>
+                            <TextBlock Foreground="#98A2B3"
+                                       FontSize="11"
+                                       Text="当前选择" />
+                            <TextBlock Margin="0,3,0,0"
+                                       Foreground="White"
+                                       FontWeight="SemiBold"
+                                       Text="{Binding SelectedThemeName}"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding SelectedThemeName}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Column="1"
+              Margin="28,24,28,20">
+            <Grid Visibility="{Binding IsLibraryVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Left">
+                        <TextBlock FontSize="27"
+                                   FontWeight="SemiBold"
+                                   Text="{Binding PageTitle}" />
+                        <TextBlock Margin="0,5,0,0"
+                                   Foreground="{DynamicResource MutedTextBrush}"
+                                   Text="{Binding ThemeCountText}" />
+                    </StackPanel>
+                    <WrapPanel HorizontalAlignment="Right">
+                        <Button Command="{Binding CreateCommand}"
+                                Content="＋ 新建主题" />
+                        <Button Command="{Binding RefreshCommand}"
+                                Content="刷新" />
+                    </WrapPanel>
+                </DockPanel>
+
+                <Grid Grid.Row="1" Margin="0,22,0,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="180" />
+                        <ColumnDefinition Width="180" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="SearchBox"
+                             Margin="0,0,12,0"
+                             AutomationProperties.Name="搜索主题"
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="按名称或标签搜索（Ctrl+F）" />
+                    <ComboBox Grid.Column="1"
+                              Margin="0,0,12,0"
+                              AutomationProperties.Name="标签筛选"
+                              ItemsSource="{Binding AvailableTags}"
+                              SelectedItem="{Binding SelectedTag}" />
+                    <ComboBox Grid.Column="2"
+                              AutomationProperties.Name="排序方式"
+                              ItemsSource="{Binding SortOptions}"
+                              SelectedItem="{Binding SelectedSort}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock>
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="最近修改" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding}" Value="{x:Static vm:ThemeSort.Name}">
+                                                    <Setter Property="Text" Value="名称" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding}" Value="{x:Static vm:ThemeSort.RecentlyUsed}">
+                                                    <Setter Property="Text" Value="最近使用" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding}" Value="{x:Static vm:ThemeSort.FavoritesFirst}">
+                                                    <Setter Property="Text" Value="收藏优先" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </Grid>
+
+                <WrapPanel Grid.Row="2" Margin="0,0,0,14">
+                    <Button Command="{Binding ToggleFavoriteCommand}" Content="★ 收藏/取消" />
+                    <Button Command="{Binding EditCommand}" Content="编辑" />
+                    <Button Command="{Binding CopyCommand}" Content="复制" />
+                    <Button Command="{Binding ExportCommand}" Content="导出 .cttheme" />
+                    <Button Command="{Binding RenameCommand}" Content="重命名" />
+                    <Button Style="{StaticResource DangerButtonStyle}"
+                            Command="{Binding DeleteCommand}"
+                            Content="移入回收站" />
+                </WrapPanel>
+
+                <Grid Grid.Row="3">
+                    <ListBox ItemsSource="{Binding Themes}"
+                             SelectedItem="{Binding SelectedTheme}"
+                             ItemContainerStyle="{StaticResource ThemeCardItemStyle}"
+                             ScrollViewer.CanContentScroll="True"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling"
+                             KeyboardNavigation.DirectionalNavigation="Contained"
+                             AutomationProperties.Name="主题列表">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:ThemeCardViewModel}">
+                                <Grid Height="124">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="176" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Width="164"
+                                            Height="100"
+                                            Background="#D7DBE5"
+                                            CornerRadius="8"
+                                            ClipToBounds="True">
+                                        <Grid>
+                                            <Image Source="{Binding ThumbnailPath}"
+                                                   Stretch="UniformToFill"
+                                                   Visibility="{Binding HasThumbnail, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                            <StackPanel HorizontalAlignment="Center"
+                                                        VerticalAlignment="Center">
+                                                <StackPanel.Style>
+                                                    <Style TargetType="StackPanel">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasThumbnail}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </StackPanel.Style>
+                                                <TextBlock HorizontalAlignment="Center"
+                                                           FontSize="22"
+                                                           Text="◫" />
+                                                <TextBlock Margin="0,4,0,0"
+                                                           Foreground="{DynamicResource MutedTextBrush}"
+                                                           FontSize="11"
+                                                           Text="等待背景图片" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                    <StackPanel Grid.Column="1"
+                                                Margin="4,4,18,4"
+                                                VerticalAlignment="Center">
+                                        <DockPanel>
+                                            <TextBlock FontSize="17"
+                                                       FontWeight="SemiBold"
+                                                       Text="{Binding DisplayName}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding DisplayName}" />
+                                            <TextBlock Margin="8,1,0,0"
+                                                       Foreground="#E1A100"
+                                                       Text="★"
+                                                       Visibility="{Binding IsFavorite, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                        </DockPanel>
+                                        <TextBlock Margin="0,7,0,0"
+                                                   Foreground="{DynamicResource MutedTextBrush}"
+                                                   Text="{Binding TagsText}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Margin="0,6,0,0"
+                                                   Foreground="{DynamicResource MutedTextBrush}"
+                                                   FontSize="12"
+                                                   Text="{Binding LastUsedText}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2"
+                                                Width="132"
+                                                VerticalAlignment="Center">
+                                        <Border Style="{StaticResource PillStyle}"
+                                                Background="#D1FADF"
+                                                Visibility="{Binding IsPersistent, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <TextBlock Foreground="{DynamicResource SuccessBrush}"
+                                                       Text="持久主题" />
+                                        </Border>
+                                        <Border Margin="0,7,0,0"
+                                                Style="{StaticResource PillStyle}"
+                                                Background="#FEF0C7"
+                                                Visibility="{Binding IsTemporary, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <TextBlock Foreground="{DynamicResource WarningBrush}"
+                                                       Text="临时主题" />
+                                        </Border>
+                                        <TextBlock Margin="0,9,0,0"
+                                                   Foreground="{DynamicResource MutedTextBrush}"
+                                                   FontSize="12"
+                                                   Text="{Binding CompatibilityText}" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <StackPanel HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                IsHitTestVisible="False">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ThemeCountText}" Value="0 个主题">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock HorizontalAlignment="Center"
+                                   FontSize="30"
+                                   Text="◇" />
+                        <TextBlock Margin="0,9,0,0"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Text="没有符合条件的主题" />
+                        <TextBlock Margin="0,5,0,0"
+                                   Foreground="{DynamicResource MutedTextBrush}"
+                                   Text="清除筛选，或新建一个主题。" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <Grid Visibility="{Binding IsEditorVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <DockPanel Margin="0,0,0,16">
+                    <StackPanel DockPanel.Dock="Left">
+                        <TextBlock FontSize="27" FontWeight="SemiBold" Text="主题编辑器" />
+                        <TextBlock Margin="0,5,0,0"
+                                   Foreground="{DynamicResource MutedTextBrush}"
+                                   Text="所有修改先进入草稿；模拟预览不等同于真实 Codex 渲染验证。" />
+                    </StackPanel>
+                    <Border HorizontalAlignment="Right"
+                            Padding="10,5"
+                            Background="#FEF0C7"
+                            CornerRadius="12">
+                        <TextBlock Foreground="{DynamicResource WarningBrush}"
+                                   Text="模拟预览" />
+                    </Border>
+                </DockPanel>
+
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="340" />
+                        <ColumnDefinition Width="18" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="0,0,10,0">
+                            <TextBlock FontWeight="SemiBold" Text="基本信息" />
+                            <TextBlock Margin="0,10,0,4" Text="主题名称" />
+                            <TextBox Text="{Binding Editor.Name, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Margin="0,10,0,4" Text="外观" />
+                            <ComboBox ItemsSource="{Binding Editor.Variants}"
+                                      SelectedItem="{Binding Editor.Variant}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock>
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="自动" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding}" Value="{x:Static models:ThemeVariant.Light}">
+                                                            <Setter Property="Text" Value="浅色" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding}" Value="{x:Static models:ThemeVariant.Dark}">
+                                                            <Setter Property="Text" Value="深色" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+
+                            <Border Margin="0,16,0,0"
+                                    Padding="14"
+                                    AllowDrop="True"
+                                    Drop="OnEditorImageDrop"
+                                    DragOver="OnEditorImageDragOver"
+                                    Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10">
+                                <StackPanel>
+                                    <TextBlock FontWeight="SemiBold" Text="背景图片" />
+                                    <Border Height="118"
+                                            Margin="0,10,0,10"
+                                            Background="{DynamicResource SurfaceMutedBrush}"
+                                            CornerRadius="8"
+                                            ClipToBounds="True">
+                                        <Grid>
+                                            <Image Source="{Binding Editor.PreviewImagePath}"
+                                                   Stretch="UniformToFill" />
+                                            <TextBlock HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource MutedTextBrush}"
+                                                       Text="拖放 PNG / JPEG / WebP 到这里">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Editor.HasPreviewImage}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Grid>
+                                    </Border>
+                                    <Button HorizontalAlignment="Left"
+                                            Command="{Binding SelectImageCommand}"
+                                            Content="选择图片…" />
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Margin="0,16,0,8" FontWeight="SemiBold" Text="构图与显示" />
+                            <TextBlock Text="{Binding Editor.FocusX, StringFormat=焦点 X：{0:F2}}" />
+                            <Slider Minimum="0" Maximum="1" SmallChange="0.01"
+                                    Value="{Binding Editor.FocusX}" />
+                            <TextBlock Margin="0,6,0,0"
+                                       Text="{Binding Editor.FocusY, StringFormat=焦点 Y：{0:F2}}" />
+                            <Slider Minimum="0" Maximum="1" SmallChange="0.01"
+                                    Value="{Binding Editor.FocusY}" />
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Margin="0,0,6,0">
+                                    <TextBlock Margin="0,0,0,4" Text="安全区" />
+                                    <ComboBox ItemsSource="{Binding Editor.SafeAreas}"
+                                              SelectedItem="{Binding Editor.SafeArea}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock>
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Text" Value="自动" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding}" Value="{x:Static models:ThemeSafeArea.Left}">
+                                                                    <Setter Property="Text" Value="左侧" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding}" Value="{x:Static models:ThemeSafeArea.Right}">
+                                                                    <Setter Property="Text" Value="右侧" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding}" Value="{x:Static models:ThemeSafeArea.Center}">
+                                                                    <Setter Property="Text" Value="居中" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding}" Value="{x:Static models:ThemeSafeArea.None}">
+                                                                    <Setter Property="Text" Value="无" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding}" Value="{x:Static models:ThemeSafeArea.Top}">
+                                                                    <Setter Property="Text" Value="顶部" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding}" Value="{x:Static models:ThemeSafeArea.Bottom}">
+                                                                    <Setter Property="Text" Value="底部" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                    <TextBlock Margin="0,0,0,4" Text="图片适配" />
+                                    <ComboBox ItemsSource="{Binding Editor.ArtSizes}"
+                                              SelectedItem="{Binding Editor.ArtSize}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock>
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Text" Value="铺满（cover）" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding}" Value="{x:Static models:ThemeArtSize.Contain}">
+                                                                    <Setter Property="Text" Value="完整显示（contain）" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Margin="0,10,0,0"
+                                       Text="{Binding Editor.HomeOpacity, StringFormat=首页透明度：{0:P0}}" />
+                            <Slider Minimum="0" Maximum="1" Value="{Binding Editor.HomeOpacity}" />
+                            <TextBlock Margin="0,6,0,0"
+                                       Text="{Binding Editor.HomeOverlay, StringFormat=首页遮罩：{0:P0}}" />
+                            <Slider Minimum="0" Maximum="1" Value="{Binding Editor.HomeOverlay}" />
+                            <TextBlock Margin="0,8,0,4" Text="任务页模式" />
+                            <ComboBox ItemsSource="{Binding Editor.TaskModes}"
+                                      SelectedItem="{Binding Editor.TaskMode}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock>
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="弱化背景" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding}" Value="{x:Static models:ThemeTaskMode.Hidden}">
+                                                            <Setter Property="Text" Value="隐藏背景" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding}" Value="{x:Static models:ThemeTaskMode.Full}">
+                                                            <Setter Property="Text" Value="完整背景" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Margin="0,8,0,0"
+                                       Text="{Binding Editor.TaskOpacity, StringFormat=任务页透明度：{0:P0}}" />
+                            <Slider Minimum="0" Maximum="1" Value="{Binding Editor.TaskOpacity}" />
+                            <TextBlock Margin="0,6,0,0"
+                                       Text="{Binding Editor.TaskOverlay, StringFormat=任务页遮罩：{0:P0}}" />
+                            <Slider Minimum="0" Maximum="1" Value="{Binding Editor.TaskOverlay}" />
+                            <TextBlock Margin="0,6,0,0"
+                                       Text="{Binding Editor.Blur, StringFormat=模糊：{0:F0} px}" />
+                            <Slider Minimum="0" Maximum="64" Value="{Binding Editor.Blur}" />
+
+                            <TextBlock Margin="0,16,0,8" FontWeight="SemiBold" Text="颜色（#RRGGBB）" />
+                            <UniformGrid Columns="2">
+                                <StackPanel Margin="0,0,6,8">
+                                    <TextBlock Text="背景" />
+                                    <TextBox Text="{Binding Editor.BackgroundColor, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                                <StackPanel Margin="6,0,0,8">
+                                    <TextBlock Text="面板" />
+                                    <TextBox Text="{Binding Editor.PanelColor, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,6,8">
+                                    <TextBlock Text="强调" />
+                                    <TextBox Text="{Binding Editor.AccentColor, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                                <StackPanel Margin="6,0,0,8">
+                                    <TextBlock Text="正文" />
+                                    <TextBox Text="{Binding Editor.TextColor, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,6,8">
+                                    <TextBlock Text="弱化文字" />
+                                    <TextBox Text="{Binding Editor.MutedColor, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                                <StackPanel Margin="6,0,0,8">
+                                    <TextBlock Text="边框" />
+                                    <TextBox Text="{Binding Editor.BorderColor, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <Border Padding="12"
+                                    CornerRadius="8">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="#ECFDF3" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Editor.HasContrastWarning}" Value="True">
+                                                <Setter Property="Background" Value="#FEF3F2" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="{Binding Editor.ContrastMessage}"
+                                           TextWrapping="Wrap" />
+                            </Border>
+                            <Button Margin="0,12,0,16"
+                                    HorizontalAlignment="Left"
+                                    Command="{Binding Editor.ResetDefaultsCommand}"
+                                    Content="恢复主题默认值" />
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <ScrollViewer Grid.Column="2"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,10">
+                                <WrapPanel DockPanel.Dock="Left">
+                                    <Button Command="{Binding Editor.ShowHomePreviewCommand}"
+                                            Content="首页预览" />
+                                    <Button Command="{Binding Editor.ShowTaskPreviewCommand}"
+                                            Content="任务页预览" />
+                                    <Button Command="{Binding Editor.ShowLightPreviewCommand}"
+                                            Content="浅色" />
+                                    <Button Command="{Binding Editor.ShowDarkPreviewCommand}"
+                                            Content="深色" />
+                                </WrapPanel>
+                                <WrapPanel HorizontalAlignment="Right">
+                                    <CheckBox Margin="12,8,0,0"
+                                              IsChecked="{Binding Editor.IsSidebarVisible}"
+                                              Content="显示侧栏" />
+                                    <CheckBox Margin="14,8,0,0"
+                                              IsChecked="{Binding Editor.IsNarrowPreview}"
+                                              Content="窄窗口" />
+                                </WrapPanel>
+                            </DockPanel>
+                            <Border Width="{Binding Editor.PreviewWidth}"
+                                    Height="520"
+                                    HorizontalAlignment="Left"
+                                    Background="{Binding Editor.BackgroundColor}"
+                                    BorderBrush="{Binding Editor.BorderColor}"
+                                    BorderThickness="1"
+                                    CornerRadius="14"
+                                    ClipToBounds="True">
+                                <Grid x:Name="PreviewArtSurface"
+                                      MouseLeftButtonDown="OnPreviewFocusClick">
+                                    <Image Source="{Binding Editor.PreviewImagePath}"
+                                           Stretch="UniformToFill"
+                                           Opacity="{Binding Editor.PreviewOpacity}">
+                                        <Image.Effect>
+                                            <BlurEffect Radius="{Binding Editor.Blur}" />
+                                        </Image.Effect>
+                                    </Image>
+                                    <Border Background="{Binding Editor.BackgroundColor}"
+                                            Opacity="{Binding Editor.PreviewOverlay}" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="152" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Background="{Binding Editor.PanelColor}"
+                                                BorderBrush="{Binding Editor.BorderColor}"
+                                                BorderThickness="0,0,1,0"
+                                                Visibility="{Binding Editor.IsSidebarVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <StackPanel Margin="16,20">
+                                                <TextBlock Foreground="{Binding Editor.TextColor}"
+                                                           FontWeight="SemiBold"
+                                                           Text="Theme Studio" />
+                                                <Border Height="34" Margin="0,20,0,0"
+                                                        Background="{Binding Editor.AccentColor}"
+                                                        CornerRadius="7" />
+                                                <TextBlock Margin="0,18,0,0"
+                                                           Foreground="{Binding Editor.MutedColor}"
+                                                           Text="首页" />
+                                                <TextBlock Margin="0,12,0,0"
+                                                           Foreground="{Binding Editor.MutedColor}"
+                                                           Text="示例任务" />
+                                            </StackPanel>
+                                        </Border>
+                                        <Grid Grid.Column="1">
+                                            <StackPanel Width="310"
+                                                        HorizontalAlignment="Center"
+                                                        VerticalAlignment="Center">
+                                                <TextBlock HorizontalAlignment="Center"
+                                                           Foreground="{Binding Editor.TextColor}"
+                                                           FontSize="26"
+                                                           FontWeight="SemiBold"
+                                                           Text="{Binding Editor.PreviewTitle}" />
+                                                <TextBlock Margin="0,8,0,20"
+                                                           HorizontalAlignment="Center"
+                                                           Foreground="{Binding Editor.MutedColor}"
+                                                           Text="{Binding Editor.PreviewSubtitle}" />
+                                                <Border Height="88"
+                                                        Padding="14"
+                                                        Background="{Binding Editor.PanelColor}"
+                                                        BorderBrush="{Binding Editor.BorderColor}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="10">
+                                                    <TextBlock Foreground="{Binding Editor.TextColor}"
+                                                               TextWrapping="Wrap"
+                                                               Text="这是自制的界面占位，用于检查背景强度、面板颜色和文字可读性。" />
+                                                </Border>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Grid>
+                                    <Canvas IsHitTestVisible="False">
+                                        <Ellipse x:Name="FocusMarker"
+                                                 Width="22"
+                                                 Height="22"
+                                                 Stroke="White"
+                                                 StrokeThickness="2"
+                                                 Fill="#805A54E8" />
+                                    </Canvas>
+                                    <Border Margin="14"
+                                            Padding="8,4"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top"
+                                            Background="#CC111827"
+                                            CornerRadius="10">
+                                        <TextBlock Foreground="White"
+                                                   Text="{Binding Editor.PreviewVariantText}" />
+                                    </Border>
+                                </Grid>
+                            </Border>
+                            <TextBlock Margin="0,10,0,0"
+                                       Foreground="{DynamicResource MutedTextBrush}"
+                                       Text="点击预览可设置焦点；模拟预览不会连接或读取 Codex 页面。" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+
+                <DockPanel Grid.Row="2" Margin="0,14,0,0">
+                    <Button DockPanel.Dock="Left"
+                            Command="{Binding CancelDraftCommand}"
+                            Content="取消编辑" />
+                    <WrapPanel HorizontalAlignment="Right">
+                        <Button Command="{Binding SaveCopyCommand}"
+                                Content="另存为副本" />
+                        <Button Style="{StaticResource PrimaryButtonStyle}"
+                                Command="{Binding SaveDraftCommand}"
+                                Content="保存主题" />
+                    </WrapPanel>
+                </DockPanel>
+            </Grid>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          Visibility="{Binding IsSettingsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <StackPanel MaxWidth="820" HorizontalAlignment="Left">
+                    <TextBlock FontSize="27" FontWeight="SemiBold" Text="设置" />
+                    <TextBlock Margin="0,5,0,24"
+                               Foreground="{DynamicResource MutedTextBrush}"
+                               Text="查看存储占用、打开数据目录，或迁移到新的可写位置。" />
+                    <Border Padding="20"
+                            Background="{DynamicResource SurfaceBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="12">
+                        <StackPanel>
+                            <TextBlock FontSize="16" FontWeight="SemiBold" Text="数据位置" />
+                            <TextBlock Margin="0,8,0,0"
+                                       Text="{Binding DataRoot}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Margin="0,7,0,0"
+                                       Foreground="{DynamicResource MutedTextBrush}"
+                                       Text="{Binding StorageStatusText}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Margin="0,7,0,0"
+                                       Foreground="{DynamicResource MutedTextBrush}"
+                                       Text="{Binding StorageUsageText}" />
+                            <WrapPanel Margin="0,14,0,0">
+                                <Button Command="{Binding OpenDataRootCommand}"
+                                        Content="打开目录" />
+                                <Button Style="{StaticResource PrimaryButtonStyle}"
+                                        Command="{Binding MigrateStorageCommand}"
+                                        Content="迁移数据位置…" />
+                            </WrapPanel>
+                            <TextBlock Margin="0,10,0,0"
+                                       Foreground="{DynamicResource MutedTextBrush}"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Text="迁移会先复制、核对文件 SHA-256 并执行 SQLite 完整性检查；旧目录不会自动删除。" />
+                        </StackPanel>
+                    </Border>
+                    <Border Margin="0,14,0,0"
+                            Padding="20"
+                            Background="{DynamicResource SurfaceBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="12">
+                        <StackPanel>
+                            <TextBlock FontSize="16" FontWeight="SemiBold" Text="日志" />
+                            <TextBlock Margin="0,8,0,0"
+                                       Foreground="{DynamicResource MutedTextBrush}"
+                                       Text="仅保留最少必要的脱敏诊断信息。日志查看器将在后续任务完善。" />
+                        </StackPanel>
+                    </Border>
+                    <Border Margin="0,14,0,0"
+                            Padding="20"
+                            Background="{DynamicResource SurfaceBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="12">
+                        <StackPanel>
+                            <TextBlock FontSize="16" FontWeight="SemiBold" Text="关于" />
+                            <TextBlock Margin="0,8,0,0"
+                                       Text="Codex Theme Studio · Windows 本地主题管理器" />
+                            <TextBlock Margin="0,5,0,0"
+                                       Foreground="{DynamicResource MutedTextBrush}"
+                                       Text="非 OpenAI 官方产品；默认离线运行；外观跟随 Windows 设置。" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <Border Grid.Row="1"
+                Grid.Column="1"
+                Padding="18,14"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="260" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock FontWeight="SemiBold" Text="{Binding CodexStatusText}" />
+                    <TextBlock Margin="0,3,0,0"
+                               Foreground="{DynamicResource MutedTextBrush}"
+                               FontSize="11"
+                               Text="{Binding CodexStatusDetail}"
+                               TextTrimming="CharacterEllipsis"
+                               ToolTip="{Binding CodexStatusDetail}" />
+                </StackPanel>
+                <Border Grid.Column="1"
+                        Margin="12,0"
+                        Padding="12,8"
+                        CornerRadius="8">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding NotificationKind}" Value="Success">
+                                    <Setter Property="Background" Value="#ECFDF3" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding NotificationKind}" Value="Error">
+                                    <Setter Property="Background" Value="#FEF3F2" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel Orientation="Horizontal">
+                        <ProgressBar Width="54"
+                                     Height="4"
+                                     Margin="0,0,10,0"
+                                     IsIndeterminate="True"
+                                     Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <TextBlock VerticalAlignment="Center"
+                                   Text="{Binding NotificationMessage}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Margin="8,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource MutedTextBrush}"
+                                   Text="{Binding OperationText}" />
+                    </StackPanel>
+                </Border>
+                <WrapPanel Grid.Column="2" VerticalAlignment="Center">
+                    <Button Style="{StaticResource PrimaryButtonStyle}"
+                            Command="{Binding ApplyTemporaryCommand}"
+                            Content="临时应用" />
+                    <Button Command="{Binding SetPersistentCommand}"
+                            Content="设为持久主题" />
+                    <Button Command="{Binding RestoreCommand}"
+                            Content="还原外观" />
+                    <Button Style="{StaticResource DangerButtonStyle}"
+                            Command="{Binding DisablePersistenceCommand}"
+                            Content="停用持久化" />
+                </WrapPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "policy": "exact-version-allowlist",
+  "unknownVersionBehavior": "fail-closed",
+  "records": [
+    {
+      "version": "26.715.4045.0",
+      "architecture": "x64",
+      "packageFamilyName": "OpenAI.Codex_2p2nqsd0c76g0",
+      "status": "verified",
+      "verifiedAtUtc": "2026-07-20T00:00:00Z",
+      "electronVersion": "150.0.7871.124",
+      "rendererCompatibilityVersion": 1,
+      "notes": "任务 5、6 与 11 在当前用户注册的 Microsoft Store 包上验证。"
+    }
+  ]
+}

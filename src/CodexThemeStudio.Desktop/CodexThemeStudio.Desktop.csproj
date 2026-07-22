@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>CodexThemeStudio.Desktop</AssemblyName>
+    <RootNamespace>CodexThemeStudio.Desktop</RootNamespace>
+    <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CodexThemeStudio.Contracts\CodexThemeStudio.Contracts.csproj" />
+    <ProjectReference Include="..\CodexThemeStudio.ThemeCore\CodexThemeStudio.ThemeCore.csproj" />
+    <ProjectReference Include="..\CodexThemeStudio.Storage\CodexThemeStudio.Storage.csproj" />
+    <ProjectReference Include="..\CodexThemeStudio.CodexAdapter\CodexThemeStudio.CodexAdapter.csproj" />
+  </ItemGroup>
+
+</Project>

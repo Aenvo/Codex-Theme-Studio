@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net8.0": {
+      "codexthemestudio.contracts": {
+        "type": "Project"
+      },
+      "codexthemestudio.themecore": {
+        "type": "Project",
+        "dependencies": {
+          "CodexThemeStudio.Contracts": "[1.0.0, )"
+        }
+      }
+    },
+    "net8.0/win-x64": {}
+  }
+}

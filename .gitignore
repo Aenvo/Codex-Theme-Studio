@@ -1,0 +1,14 @@
+[Bb]in/
+[Oo]bj/
+[Tt]est[Rr]esults/
+artifacts/
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# The pinned Node runtime is a release input, not a source dependency.
+runtime/node/
+

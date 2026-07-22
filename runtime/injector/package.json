@@ -1,0 +1,13 @@
+{
+  "name": "codex-theme-studio-injector",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.18.0"
+  },
+  "scripts": {
+    "self-test": "node index.mjs self-test",
+    "test": "node --test security.test.mjs renderer-payload.test.mjs renderer-runtime.test.mjs main-runtime.test.mjs"
+  }
+}

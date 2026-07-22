@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>CodexThemeStudio.Agent</AssemblyName>
+    <RootNamespace>CodexThemeStudio.Agent</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CodexThemeStudio.Contracts\CodexThemeStudio.Contracts.csproj" />
+    <ProjectReference Include="..\CodexThemeStudio.Storage\CodexThemeStudio.Storage.csproj" />
+    <ProjectReference Include="..\CodexThemeStudio.CodexAdapter\CodexThemeStudio.CodexAdapter.csproj" />
+  </ItemGroup>
+
+</Project>

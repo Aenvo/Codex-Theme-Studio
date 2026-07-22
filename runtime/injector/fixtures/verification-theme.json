@@ -1,0 +1,33 @@
+{
+  "theme": {
+    "schemaVersion": 1,
+    "id": "1296cb77-2297-4992-af72-5c3cc40b32be",
+    "name": "Task 6 verification theme",
+    "variant": "dark",
+    "palette": {
+      "background": "#15101D",
+      "panel": "#241B30E8",
+      "accent": "#D06CF2",
+      "text": "#FAF5FC",
+      "muted": "#BDAFC4",
+      "border": "#4B3A57"
+    },
+    "art": {
+      "file": "verification.png",
+      "focusX": 0.5,
+      "focusY": 0.5,
+      "safeArea": "center",
+      "size": "cover",
+      "homeOpacity": 0.82,
+      "homeOverlay": 0.22,
+      "taskMode": "ambient",
+      "taskOpacity": 0.3,
+      "taskOverlay": 0.68,
+      "blur": 0
+    }
+  },
+  "image": {
+    "contentType": "image/png",
+    "base64": "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAASSURBVBhXY4iRb/iPjBlIFwAAIXAfoXwjkNQAAAAASUVORK5CYII="
+  }
+}

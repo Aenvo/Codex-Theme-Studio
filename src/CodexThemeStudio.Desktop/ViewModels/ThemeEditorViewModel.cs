@@ -1,0 +1,506 @@
+using System.IO;
+using CodexThemeStudio.Contracts.Interfaces;
+using CodexThemeStudio.Contracts.Models;
+using CodexThemeStudio.Contracts.Results;
+using CodexThemeStudio.Desktop.Infrastructure;
+using CodexThemeStudio.Storage;
+using CodexThemeStudio.ThemeCore;
+
+namespace CodexThemeStudio.Desktop.ViewModels;
+
+public sealed class ThemeEditorViewModel : ObservableObject
+{
+    private static readonly ThemePalette DefaultPalette = new(
+        "#111827",
+        "#1F2937",
+        "#6D5EF7",
+        "#F9FAFB",
+        "#9CA3AF",
+        "#374151");
+
+    private readonly IThemeRepository repository;
+    private readonly IImagePipeline imagePipeline;
+    private readonly IThemeAssetStore assetStore;
+    private readonly Func<string, string?> resolveDataPath;
+    private ThemeDraft? draft;
+    private bool isNew;
+    private string? previewImagePath;
+    private string? thumbnailRelativePath;
+    private bool isTaskPreview;
+    private bool isSidebarVisible = true;
+    private bool isNarrowPreview;
+    private string contrastMessage = "设置颜色后将检查文字对比度。";
+    private bool hasContrastWarning;
+
+    public ThemeEditorViewModel(
+        IThemeRepository repository,
+        IImagePipeline imagePipeline,
+        IThemeAssetStore assetStore,
+        Func<string, string?> resolveDataPath)
+    {
+        this.repository = repository;
+        this.imagePipeline = imagePipeline;
+        this.assetStore = assetStore;
+        this.resolveDataPath = resolveDataPath;
+        ResetDefaultsCommand = new RelayCommand(_ => ResetDefaults());
+        ShowHomePreviewCommand = new RelayCommand(_ => IsTaskPreview = false);
+        ShowTaskPreviewCommand = new RelayCommand(_ => IsTaskPreview = true);
+        ShowLightPreviewCommand = new RelayCommand(_ => Variant = ThemeVariant.Light);
+        ShowDarkPreviewCommand = new RelayCommand(_ => Variant = ThemeVariant.Dark);
+    }
+
+    public IReadOnlyList<ThemeVariant> Variants { get; } = Enum.GetValues<ThemeVariant>();
+
+    public IReadOnlyList<ThemeSafeArea> SafeAreas { get; } = Enum.GetValues<ThemeSafeArea>();
+
+    public IReadOnlyList<ThemeArtSize> ArtSizes { get; } = Enum.GetValues<ThemeArtSize>();
+
+    public IReadOnlyList<ThemeTaskMode> TaskModes { get; } = Enum.GetValues<ThemeTaskMode>();
+
+    public RelayCommand ResetDefaultsCommand { get; }
+
+    public RelayCommand ShowHomePreviewCommand { get; }
+
+    public RelayCommand ShowTaskPreviewCommand { get; }
+
+    public RelayCommand ShowLightPreviewCommand { get; }
+
+    public RelayCommand ShowDarkPreviewCommand { get; }
+
+    public bool HasDraft => draft is not null;
+
+    public bool IsNew => isNew;
+
+    public Guid ThemeId => draft?.Id ?? Guid.Empty;
+
+    public string Name
+    {
+        get => draft?.Name ?? string.Empty;
+        set
+        {
+            if (draft is not null && draft.Name != value)
+            {
+                draft.Name = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public ThemeVariant Variant
+    {
+        get => draft?.Variant ?? ThemeVariant.Auto;
+        set
+        {
+            if (draft is not null && draft.Variant != value)
+            {
+                draft.Variant = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(PreviewVariantText));
+            }
+        }
+    }
+
+    public string BackgroundColor
+    {
+        get => draft?.Palette.Background ?? DefaultPalette.Background;
+        set => SetPalette(draft is null ? null : draft.Palette with { Background = value });
+    }
+
+    public string PanelColor
+    {
+        get => draft?.Palette.Panel ?? DefaultPalette.Panel;
+        set => SetPalette(draft is null ? null : draft.Palette with { Panel = value });
+    }
+
+    public string AccentColor
+    {
+        get => draft?.Palette.Accent ?? DefaultPalette.Accent;
+        set => SetPalette(draft is null ? null : draft.Palette with { Accent = value });
+    }
+
+    public string TextColor
+    {
+        get => draft?.Palette.Text ?? DefaultPalette.Text;
+        set => SetPalette(draft is null ? null : draft.Palette with { Text = value });
+    }
+
+    public string MutedColor
+    {
+        get => draft?.Palette.Muted ?? DefaultPalette.Muted;
+        set => SetPalette(draft is null ? null : draft.Palette with { Muted = value });
+    }
+
+    public string BorderColor
+    {
+        get => draft?.Palette.Border ?? DefaultPalette.Border;
+        set => SetPalette(draft is null ? null : draft.Palette with { Border = value });
+    }
+
+    public double FocusX
+    {
+        get => draft?.Art.FocusX ?? 0.5;
+        set => SetArt(draft is null ? null : draft.Art with { FocusX = Math.Clamp(value, 0, 1) });
+    }
+
+    public double FocusY
+    {
+        get => draft?.Art.FocusY ?? 0.5;
+        set => SetArt(draft is null ? null : draft.Art with { FocusY = Math.Clamp(value, 0, 1) });
+    }
+
+    public ThemeSafeArea SafeArea
+    {
+        get => draft?.Art.SafeArea ?? ThemeSafeArea.Auto;
+        set => SetArt(draft is null ? null : draft.Art with { SafeArea = value });
+    }
+
+    public ThemeArtSize ArtSize
+    {
+        get => draft?.Art.Size ?? ThemeArtSize.Cover;
+        set => SetArt(draft is null ? null : draft.Art with { Size = value });
+    }
+
+    public double HomeOpacity
+    {
+        get => draft?.Art.HomeOpacity ?? 0.72;
+        set => SetArt(draft is null ? null : draft.Art with { HomeOpacity = Math.Clamp(value, 0, 1) });
+    }
+
+    public double HomeOverlay
+    {
+        get => draft?.Art.HomeOverlay ?? 0.28;
+        set => SetArt(draft is null ? null : draft.Art with { HomeOverlay = Math.Clamp(value, 0, 1) });
+    }
+
+    public ThemeTaskMode TaskMode
+    {
+        get => draft?.Art.TaskMode ?? ThemeTaskMode.Ambient;
+        set => SetArt(draft is null ? null : draft.Art with { TaskMode = value });
+    }
+
+    public double TaskOpacity
+    {
+        get => draft?.Art.TaskOpacity ?? 0.22;
+        set => SetArt(draft is null ? null : draft.Art with { TaskOpacity = Math.Clamp(value, 0, 1) });
+    }
+
+    public double TaskOverlay
+    {
+        get => draft?.Art.TaskOverlay ?? 0.62;
+        set => SetArt(draft is null ? null : draft.Art with { TaskOverlay = Math.Clamp(value, 0, 1) });
+    }
+
+    public double Blur
+    {
+        get => draft?.Art.Blur ?? 0;
+        set => SetArt(draft is null ? null : draft.Art with { Blur = Math.Clamp(value, 0, 64) });
+    }
+
+    public string? PreviewImagePath
+    {
+        get => previewImagePath;
+        private set
+        {
+            if (SetProperty(ref previewImagePath, value))
+            {
+                OnPropertyChanged(nameof(HasPreviewImage));
+            }
+        }
+    }
+
+    public bool HasPreviewImage => !string.IsNullOrWhiteSpace(PreviewImagePath);
+
+    public bool IsTaskPreview
+    {
+        get => isTaskPreview;
+        set
+        {
+            if (SetProperty(ref isTaskPreview, value))
+            {
+                OnPropertyChanged(nameof(PreviewTitle));
+                OnPropertyChanged(nameof(PreviewSubtitle));
+                OnPropertyChanged(nameof(PreviewOpacity));
+                OnPropertyChanged(nameof(PreviewOverlay));
+            }
+        }
+    }
+
+    public bool IsSidebarVisible
+    {
+        get => isSidebarVisible;
+        set => SetProperty(ref isSidebarVisible, value);
+    }
+
+    public bool IsNarrowPreview
+    {
+        get => isNarrowPreview;
+        set
+        {
+            if (SetProperty(ref isNarrowPreview, value))
+            {
+                OnPropertyChanged(nameof(PreviewWidth));
+            }
+        }
+    }
+
+    public double PreviewWidth => IsNarrowPreview ? 420 : 600;
+
+    public string PreviewTitle => IsTaskPreview ? "示例任务" : "今天想做什么？";
+
+    public string PreviewSubtitle =>
+        IsTaskPreview ? "这是模拟任务内容，不包含真实对话。" : "选择一个本地主题开始。";
+
+    public double PreviewOpacity => IsTaskPreview ? TaskOpacity : HomeOpacity;
+
+    public double PreviewOverlay => IsTaskPreview ? TaskOverlay : HomeOverlay;
+
+    public string PreviewVariantText => Variant switch
+    {
+        ThemeVariant.Light => "浅色预览",
+        ThemeVariant.Dark => "深色预览",
+        _ => "自动外观预览",
+    };
+
+    public string ContrastMessage
+    {
+        get => contrastMessage;
+        private set => SetProperty(ref contrastMessage, value);
+    }
+
+    public bool HasContrastWarning
+    {
+        get => hasContrastWarning;
+        private set => SetProperty(ref hasContrastWarning, value);
+    }
+
+    public void Begin(ThemePackage theme, bool newTheme, string? thumbnailPath = null)
+    {
+        draft = new ThemeDraft(theme);
+        isNew = newTheme;
+        thumbnailRelativePath = null;
+        PreviewImagePath = thumbnailPath ??
+            resolveDataPath(
+                $"{StorageLayout.GetThemeDirectory(theme.Id)}/{theme.Art.File}");
+        NotifyAll();
+        UpdateContrast();
+    }
+
+    public async Task<OperationResult> SelectImageAsync(
+        string sourceFile,
+        CancellationToken cancellationToken)
+    {
+        var currentDraft = draft;
+        if (currentDraft is null || !File.Exists(sourceFile))
+        {
+            return OperationResult.Failure(
+                OperationErrorCode.InvalidPath,
+                "请选择存在的 PNG、JPEG 或 WebP 图片。",
+                "theme_editor.image.path_invalid");
+        }
+
+        await using var stream = new FileStream(
+            sourceFile,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var processed = await imagePipeline.ProcessAsync(
+            stream,
+            Path.GetFileName(sourceFile),
+            currentDraft.Id,
+            cancellationToken);
+        if (!processed.IsSuccess)
+        {
+            return OperationResult.Failure(processed.Error!);
+        }
+
+        currentDraft.Art = currentDraft.Art with
+        {
+            File = processed.Value!.ThemeArtFileName,
+            TaskMode = processed.Value.SuggestedTaskMode switch
+            {
+                ImageTaskModeSuggestion.Off => ThemeTaskMode.Hidden,
+                ImageTaskModeSuggestion.Banner => ThemeTaskMode.Full,
+                _ => ThemeTaskMode.Ambient,
+            },
+        };
+        thumbnailRelativePath = processed.Value.CardThumbnail.RelativePath;
+        PreviewImagePath = resolveDataPath(processed.Value.EditorPreview.RelativePath);
+        NotifyArt();
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult<ThemePackage>> SaveAsync(
+        bool saveCopy,
+        string? copyName,
+        CancellationToken cancellationToken)
+    {
+        if (draft is null)
+        {
+            return OperationResult<ThemePackage>.Failure(
+                OperationErrorCode.Conflict,
+                "当前没有可保存的主题草稿。",
+                "theme_editor.draft_missing");
+        }
+
+        var theme = draft.Build();
+        if (saveCopy)
+        {
+            var newId = Guid.NewGuid();
+            var sourceRelative =
+                $"{StorageLayout.GetThemeDirectory(theme.Id)}/{theme.Art.File}";
+            var source = await assetStore.OpenReadAsync(sourceRelative, cancellationToken);
+            if (!source.IsSuccess)
+            {
+                return OperationResult<ThemePackage>.Failure(source.Error!);
+            }
+
+            await using (source.Value!)
+            {
+                var savedAsset = await assetStore.SaveAsync(
+                    newId,
+                    theme.Art.File,
+                    source.Value!,
+                    cancellationToken);
+                if (!savedAsset.IsSuccess)
+                {
+                    return OperationResult<ThemePackage>.Failure(savedAsset.Error!);
+                }
+            }
+
+            theme = theme with
+            {
+                Id = newId,
+                Name = string.IsNullOrWhiteSpace(copyName)
+                    ? $"{theme.Name} 副本"
+                    : copyName.Trim(),
+            };
+        }
+
+        var contrast = ThemeContrast.Assess(theme.Palette);
+        if (!contrast.IsSuccess)
+        {
+            return OperationResult<ThemePackage>.Failure(contrast.Error!);
+        }
+
+        var saved = await repository.SaveAsync(
+            theme,
+            new ThemeCreateOptions(
+                Tags: isNew ? ["自制"] : null,
+                ThumbnailRelativePath: thumbnailRelativePath),
+            cancellationToken);
+        return saved.IsSuccess
+            ? OperationResult<ThemePackage>.Success(theme)
+            : OperationResult<ThemePackage>.Failure(saved.Error!);
+    }
+
+    public void ResetDefaults()
+    {
+        if (draft is null)
+        {
+            return;
+        }
+
+        draft.Variant = ThemeVariant.Auto;
+        draft.Palette = DefaultPalette;
+        draft.Art = draft.Art with
+        {
+            FocusX = 0.5,
+            FocusY = 0.5,
+            SafeArea = ThemeSafeArea.Auto,
+            Size = ThemeArtSize.Cover,
+            HomeOpacity = 0.72,
+            HomeOverlay = 0.28,
+            TaskMode = ThemeTaskMode.Ambient,
+            TaskOpacity = 0.22,
+            TaskOverlay = 0.62,
+            Blur = 0,
+        };
+        NotifyAll();
+        UpdateContrast();
+    }
+
+    public void Cancel()
+    {
+        draft = null;
+        PreviewImagePath = null;
+        thumbnailRelativePath = null;
+        OnPropertyChanged(nameof(HasDraft));
+    }
+
+    private void SetPalette(ThemePalette? value)
+    {
+        if (draft is null || value is null || draft.Palette == value)
+        {
+            return;
+        }
+
+        draft.Palette = value;
+        NotifyPalette();
+        UpdateContrast();
+    }
+
+    private void SetArt(ThemeArt? value)
+    {
+        if (draft is null || value is null || draft.Art == value)
+        {
+            return;
+        }
+
+        draft.Art = value;
+        NotifyArt();
+    }
+
+    private void UpdateContrast()
+    {
+        if (draft is null)
+        {
+            return;
+        }
+
+        var result = ThemeContrast.Assess(draft.Palette);
+        HasContrastWarning = !result.IsSuccess || result.Value!.HasWarning;
+        ContrastMessage = result.IsSuccess
+            ? $"{result.Value!.UserMessage} 正文 {result.Value.TextRatio:F1}:1 · 辅助文字 {result.Value.MutedTextRatio:F1}:1"
+            : result.Error!.UserMessage;
+    }
+
+    private void NotifyAll()
+    {
+        OnPropertyChanged(nameof(HasDraft));
+        OnPropertyChanged(nameof(IsNew));
+        OnPropertyChanged(nameof(ThemeId));
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(Variant));
+        OnPropertyChanged(nameof(PreviewVariantText));
+        NotifyPalette();
+        NotifyArt();
+    }
+
+    private void NotifyPalette()
+    {
+        OnPropertyChanged(nameof(BackgroundColor));
+        OnPropertyChanged(nameof(PanelColor));
+        OnPropertyChanged(nameof(AccentColor));
+        OnPropertyChanged(nameof(TextColor));
+        OnPropertyChanged(nameof(MutedColor));
+        OnPropertyChanged(nameof(BorderColor));
+    }
+
+    private void NotifyArt()
+    {
+        OnPropertyChanged(nameof(FocusX));
+        OnPropertyChanged(nameof(FocusY));
+        OnPropertyChanged(nameof(SafeArea));
+        OnPropertyChanged(nameof(ArtSize));
+        OnPropertyChanged(nameof(HomeOpacity));
+        OnPropertyChanged(nameof(HomeOverlay));
+        OnPropertyChanged(nameof(TaskMode));
+        OnPropertyChanged(nameof(TaskOpacity));
+        OnPropertyChanged(nameof(TaskOverlay));
+        OnPropertyChanged(nameof(Blur));
+        OnPropertyChanged(nameof(PreviewOpacity));
+        OnPropertyChanged(nameof(PreviewOverlay));
+    }
+}
