@@ -50,3 +50,41 @@ public sealed class AsyncRelayCommand(
     public void NotifyCanExecuteChanged() =>
         CanExecuteChanged?.Invoke(this, EventArgs.Empty);
 }
+
+public sealed class AsyncRelayCommand<T>(
+    Func<T, Task> execute,
+    Predicate<T>? canExecute = null) : ICommand
+    where T : class
+{
+    private bool isExecuting;
+
+    public event EventHandler? CanExecuteChanged;
+
+    public bool CanExecute(object? parameter) =>
+        !isExecuting &&
+        parameter is T value &&
+        (canExecute?.Invoke(value) ?? true);
+
+    public async void Execute(object? parameter)
+    {
+        if (!CanExecute(parameter) || parameter is not T value)
+        {
+            return;
+        }
+
+        isExecuting = true;
+        NotifyCanExecuteChanged();
+        try
+        {
+            await execute(value);
+        }
+        finally
+        {
+            isExecuting = false;
+            NotifyCanExecuteChanged();
+        }
+    }
+
+    public void NotifyCanExecuteChanged() =>
+        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+}

@@ -2,9 +2,9 @@
 
 ## 范围
 
-任务 6 实现声明式主题 Payload、renderer 窗口识别、Style/Blob 装饰层、
-首页与任务页强度、主进程生命周期钩子及完整清理。任务 7 才会把这些内部能力
-封装为用户可见的临时应用、状态查询和完整还原语义。
+本模块实现声明式主题 Payload、renderer 窗口识别、Style/Blob 装饰层、
+首页与任务页强度、主进程生命周期钩子及完整清理；应用层已将这些能力封装为
+用户可见的临时应用、状态查询和完整还原语义。
 
 ## Payload
 
@@ -13,7 +13,8 @@ Injector 只从 UTF-8 JSON 标准输入读取主题，主题值不进入命令�
 
 - Schema v1、UUID、名称、枚举、颜色和数值范围；
 - PNG/JPEG/WebP Content-Type、Base64、16 MiB 上限和文件签名；
-- focus、safeArea、cover/contain、opacity、overlay、blur 和 variant。
+- crop focus、cover/contain/crop、opacity、overlay、blur 和 variant；
+- 旧 `safeArea` 字段继续校验以兼容 Schema v1，但不参与渲染。
 
 任务 3 的持久化枚举保持不变。Renderer 层确定映射：
 
@@ -50,7 +51,7 @@ Payload 由 `JSON.stringify` 整体序列化到固定程序，不把颜色、路
 - 根元素 Class、运行版本、generation 和 pageMode 标记。
 
 装饰层和子层固定使用 `pointer-events: none`。背景图片从白名单字节创建 Blob，
-支持 focus、safeArea、cover/contain 和 blur。首页使用 home opacity/overlay；
+支持裁切焦点、cover/contain/crop 和 blur。只有 crop 使用 focus；首页使用 home opacity/overlay；
 任务页支持 ambient、banner、off。
 
 Renderer 监听 DOM 变化、hash/popstate 和低频页面模式检查。重复 ensure 在相同

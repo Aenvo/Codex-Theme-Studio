@@ -16,18 +16,22 @@ Codex Theme Studio 是面向 Windows 10/11 x64 的本地 Codex 桌面端主题�
 ## 主要能力
 
 - 创建、复制、重命名、收藏、搜索、排序和删除本地主题。
+- 侧栏以“工作台”统一进入主题资料库；内容区可筛选“全部主题/当前主题”。默认使用独立卡片网格，也可通过右上角的图标分段切换器改为紧凑列表；两种展示都保留搜索、筛选、排序、选择和虚拟化滚动。
 - 导入与导出不含可执行代码的 `.cttheme` 主题包。
 - 选择 PNG、JPEG 或 WebP 背景并调整颜色、焦点、安全区、遮罩、透明度和模糊。
+- 六个主题颜色支持 `#RRGGBB` 与 CSS 顺序的 `#RRGGBBAA`，可在悬浮色板中调整色相、饱和度、明度和 Alpha。
+- 自动发现本机 OkkSkin 当前的 Doro 主题，以只读的“外部持久化”卡片展示；可以复制为普通本地主题后编辑。普通浏览、复制和主题切换不会修改 OkkSkin 配置。
 - 临时显示主题，或由用户明确启用当前用户级持久化。
-- 在主题间切换，单独还原 Codex 外观，或停用持久化。
+- 使用统一的“还原外观”停止当前临时主题；检测到 Theme Studio 或 OkkSkin 持久化时，经确认后同时停用对应启动项和 Agent，使后续 Codex 实例继续保持官方外观。
 - 将 DataRoot 安全迁移到新的空目录，并保留原目录作为恢复点。
 
 完整操作、数据位置、彻底清理和故障诊断见[用户指南](./docs/user-guide.md)。
 
 ## 支持边界
 
-- 只支持当前用户安装、身份与签名校验通过的 Microsoft Store Codex。
-- 当前经过真实验证的 Codex 版本为 `26.715.4045.0`；未知版本默认拒绝注入，Restore 仍可使用。
+- 自动检测当前用户安装的 Microsoft Store Codex；也可以在“设置 → Codex 连接”中手动选择一个明确的 EXE。手选来源按文件 SHA-256 提示并确认，不代表项目为第三方构建背书。
+- 当前经过真实验证的 Codex 版本为 `26.715.4045.0`、`26.715.10079.0` 和 `26.721.3404.0`。这些记录是兼容证据，不是运行白名单；未知版本在完整能力探测通过后可以临时使用。
+- 新 EXE 指纹首次临时显示会自动执行“应用 → 清理 → 重新应用”闭环；闭环成功后才开放持久化。项目不扫描任意目录或模糊匹配其他 Electron 进程。
 - 主题通过本机回环 Inspector 短时应用。操作结束后会关闭 Inspector，但 Codex 更新仍可能改变兼容性。
 - 第一版是解压即用的便携目录，不是单文件 EXE，不包含安装器和自动更新。
 - 该版本未签名，也未通过公开下载渠道发布。
@@ -44,13 +48,19 @@ Codex Theme Studio 是面向 Windows 10/11 x64 的本地 Codex 桌面端主题�
 
 ```powershell
 .\build.ps1
-.\package.ps1 -Version 1.0.0
+.\package.ps1
 ```
 
-第二条命令会执行 Release 验证、下载并校验固定 Node Runtime、生成 Windows x64 self-contained 目录、ZIP、哈希和发布清单。完整复现与验收步骤见[构建文档](./docs/building.md)和[发布流程](./docs/releasing.md)。
+第二条命令默认从 `Directory.Build.props` 读取版本，并执行 Release 验证、下载及校验固定 Node Runtime、生成 Windows x64 self-contained 目录、ZIP、哈希和发布清单。完整构建见[构建文档](./docs/building.md)，Windows PowerShell 5.1、原子写入和 Codex 更新闭环见[兼容性测试方案](./docs/testing/runtime-compatibility-plan.md)，发布步骤见[发布流程](./docs/releasing.md)；版本验收记录保留在源码仓库中，不嵌入被验收的 ZIP。
+
+仅在本地开发时，可以先关闭仍在运行的旧便携版 `CodexThemeManager.exe`，再双击 `Start-CodexThemeStudio.cmd`。该脚本会构建并启动当前源码的 Release Desktop 输出，不是最终用户的发布入口，也不会覆盖已有便携发布目录。UI 贡献者应同时遵循 [design.md](./design.md) 中的设计 token、图标与交互规范。
+
+项目可以通过包含 `.git` 和当前工作树的本地交接 ZIP 转移到另一台 Windows 机器，不要求存在 GitHub remote。交接 ZIP 与最终用户便携发布包用途不同；接收方应先校验随包 SHA-256 和交接清单，再阅读项目级 `AGENTS.md` 与[构建文档](./docs/building.md)中的“本地机器交接”步骤。
 
 ## 第三方组件
 
-依赖版本、许可证与归属见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。便携包附带对应 `LICENSES/` 文本。
+界面图标在设计与开发阶段通过 `icons0/i0` 从 Lucide 集合检索和选型，随后转换为随程序内置的原生 WPF Geometry；应用构建和运行不从在线图标服务加载资源。依赖版本、许可证与归属见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)，便携包附带对应 `LICENSES/` 文本。
 
-本仓库当前没有声明面向源代码的开放源代码许可证；第三方许可证只覆盖各自组件。
+## 许可证
+
+除另有说明外，本仓库的第一方源码依据 [Apache License 2.0](./LICENSE) 开放源代码。第三方组件和素材继续适用各自许可证与归属声明，详见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。Apache License 2.0 不授予 OpenAI、Codex 或其他第三方商标的使用权，本项目仍是非 OpenAI 官方产品。

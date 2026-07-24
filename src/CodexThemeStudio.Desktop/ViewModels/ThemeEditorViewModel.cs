@@ -11,12 +11,12 @@ namespace CodexThemeStudio.Desktop.ViewModels;
 public sealed class ThemeEditorViewModel : ObservableObject
 {
     private static readonly ThemePalette DefaultPalette = new(
-        "#111827",
-        "#1F2937",
-        "#6D5EF7",
-        "#F9FAFB",
-        "#9CA3AF",
-        "#374151");
+        "#080D18",
+        "#0F172A",
+        "#3B82F6",
+        "#F8FAFC",
+        "#94A3B8",
+        "#243244");
 
     private readonly IThemeRepository repository;
     private readonly IImagePipeline imagePipeline;
@@ -27,8 +27,6 @@ public sealed class ThemeEditorViewModel : ObservableObject
     private string? previewImagePath;
     private string? thumbnailRelativePath;
     private bool isTaskPreview;
-    private bool isSidebarVisible = true;
-    private bool isNarrowPreview;
     private string contrastMessage = "设置颜色后将检查文字对比度。";
     private bool hasContrastWarning;
 
@@ -45,13 +43,7 @@ public sealed class ThemeEditorViewModel : ObservableObject
         ResetDefaultsCommand = new RelayCommand(_ => ResetDefaults());
         ShowHomePreviewCommand = new RelayCommand(_ => IsTaskPreview = false);
         ShowTaskPreviewCommand = new RelayCommand(_ => IsTaskPreview = true);
-        ShowLightPreviewCommand = new RelayCommand(_ => Variant = ThemeVariant.Light);
-        ShowDarkPreviewCommand = new RelayCommand(_ => Variant = ThemeVariant.Dark);
     }
-
-    public IReadOnlyList<ThemeVariant> Variants { get; } = Enum.GetValues<ThemeVariant>();
-
-    public IReadOnlyList<ThemeSafeArea> SafeAreas { get; } = Enum.GetValues<ThemeSafeArea>();
 
     public IReadOnlyList<ThemeArtSize> ArtSizes { get; } = Enum.GetValues<ThemeArtSize>();
 
@@ -62,10 +54,6 @@ public sealed class ThemeEditorViewModel : ObservableObject
     public RelayCommand ShowHomePreviewCommand { get; }
 
     public RelayCommand ShowTaskPreviewCommand { get; }
-
-    public RelayCommand ShowLightPreviewCommand { get; }
-
-    public RelayCommand ShowDarkPreviewCommand { get; }
 
     public bool HasDraft => draft is not null;
 
@@ -82,20 +70,6 @@ public sealed class ThemeEditorViewModel : ObservableObject
             {
                 draft.Name = value;
                 OnPropertyChanged();
-            }
-        }
-    }
-
-    public ThemeVariant Variant
-    {
-        get => draft?.Variant ?? ThemeVariant.Auto;
-        set
-        {
-            if (draft is not null && draft.Variant != value)
-            {
-                draft.Variant = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(PreviewVariantText));
             }
         }
     }
@@ -136,6 +110,27 @@ public sealed class ThemeEditorViewModel : ObservableObject
         set => SetPalette(draft is null ? null : draft.Palette with { Border = value });
     }
 
+    public IReadOnlyList<string> ThemePaletteColors =>
+        draft is null
+            ?
+            [
+                DefaultPalette.Background,
+                DefaultPalette.Panel,
+                DefaultPalette.Accent,
+                DefaultPalette.Text,
+                DefaultPalette.Muted,
+                DefaultPalette.Border,
+            ]
+            :
+            [
+                draft.Palette.Background,
+                draft.Palette.Panel,
+                draft.Palette.Accent,
+                draft.Palette.Text,
+                draft.Palette.Muted,
+                draft.Palette.Border,
+            ];
+
     public double FocusX
     {
         get => draft?.Art.FocusX ?? 0.5;
@@ -148,17 +143,13 @@ public sealed class ThemeEditorViewModel : ObservableObject
         set => SetArt(draft is null ? null : draft.Art with { FocusY = Math.Clamp(value, 0, 1) });
     }
 
-    public ThemeSafeArea SafeArea
-    {
-        get => draft?.Art.SafeArea ?? ThemeSafeArea.Auto;
-        set => SetArt(draft is null ? null : draft.Art with { SafeArea = value });
-    }
-
     public ThemeArtSize ArtSize
     {
         get => draft?.Art.Size ?? ThemeArtSize.Cover;
         set => SetArt(draft is null ? null : draft.Art with { Size = value });
     }
+
+    public bool IsCropMode => ArtSize == ThemeArtSize.Crop;
 
     public double HomeOpacity
     {
@@ -221,29 +212,10 @@ public sealed class ThemeEditorViewModel : ObservableObject
                 OnPropertyChanged(nameof(PreviewSubtitle));
                 OnPropertyChanged(nameof(PreviewOpacity));
                 OnPropertyChanged(nameof(PreviewOverlay));
+                OnPropertyChanged(nameof(TaskContentOverlay));
             }
         }
     }
-
-    public bool IsSidebarVisible
-    {
-        get => isSidebarVisible;
-        set => SetProperty(ref isSidebarVisible, value);
-    }
-
-    public bool IsNarrowPreview
-    {
-        get => isNarrowPreview;
-        set
-        {
-            if (SetProperty(ref isNarrowPreview, value))
-            {
-                OnPropertyChanged(nameof(PreviewWidth));
-            }
-        }
-    }
-
-    public double PreviewWidth => IsNarrowPreview ? 420 : 600;
 
     public string PreviewTitle => IsTaskPreview ? "示例任务" : "今天想做什么？";
 
@@ -252,14 +224,15 @@ public sealed class ThemeEditorViewModel : ObservableObject
 
     public double PreviewOpacity => IsTaskPreview ? TaskOpacity : HomeOpacity;
 
-    public double PreviewOverlay => IsTaskPreview ? TaskOverlay : HomeOverlay;
+    public double PreviewOverlay => IsTaskPreview ? 0 : HomeOverlay;
 
-    public string PreviewVariantText => Variant switch
-    {
-        ThemeVariant.Light => "浅色预览",
-        ThemeVariant.Dark => "深色预览",
-        _ => "自动外观预览",
-    };
+    public double TaskContentOverlay => !IsTaskPreview
+        ? 0
+        : TaskMode == ThemeTaskMode.Hidden
+            ? 1
+            : TaskOverlay;
+
+    public bool IsTaskOverlayEnabled => TaskMode != ThemeTaskMode.Hidden;
 
     public string ContrastMessage
     {
@@ -378,7 +351,7 @@ public sealed class ThemeEditorViewModel : ObservableObject
             };
         }
 
-        var contrast = ThemeContrast.Assess(theme.Palette);
+        var contrast = ThemeContrast.Assess(theme.Palette, theme.Variant);
         if (!contrast.IsSuccess)
         {
             return OperationResult<ThemePackage>.Failure(contrast.Error!);
@@ -408,7 +381,7 @@ public sealed class ThemeEditorViewModel : ObservableObject
         {
             FocusX = 0.5,
             FocusY = 0.5,
-            SafeArea = ThemeSafeArea.Auto,
+            SafeArea = ThemeSafeArea.None,
             Size = ThemeArtSize.Cover,
             HomeOpacity = 0.72,
             HomeOverlay = 0.28,
@@ -459,7 +432,7 @@ public sealed class ThemeEditorViewModel : ObservableObject
             return;
         }
 
-        var result = ThemeContrast.Assess(draft.Palette);
+        var result = ThemeContrast.Assess(draft.Palette, draft.Variant);
         HasContrastWarning = !result.IsSuccess || result.Value!.HasWarning;
         ContrastMessage = result.IsSuccess
             ? $"{result.Value!.UserMessage} 正文 {result.Value.TextRatio:F1}:1 · 辅助文字 {result.Value.MutedTextRatio:F1}:1"
@@ -472,8 +445,6 @@ public sealed class ThemeEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(IsNew));
         OnPropertyChanged(nameof(ThemeId));
         OnPropertyChanged(nameof(Name));
-        OnPropertyChanged(nameof(Variant));
-        OnPropertyChanged(nameof(PreviewVariantText));
         NotifyPalette();
         NotifyArt();
     }
@@ -486,14 +457,15 @@ public sealed class ThemeEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(TextColor));
         OnPropertyChanged(nameof(MutedColor));
         OnPropertyChanged(nameof(BorderColor));
+        OnPropertyChanged(nameof(ThemePaletteColors));
     }
 
     private void NotifyArt()
     {
         OnPropertyChanged(nameof(FocusX));
         OnPropertyChanged(nameof(FocusY));
-        OnPropertyChanged(nameof(SafeArea));
         OnPropertyChanged(nameof(ArtSize));
+        OnPropertyChanged(nameof(IsCropMode));
         OnPropertyChanged(nameof(HomeOpacity));
         OnPropertyChanged(nameof(HomeOverlay));
         OnPropertyChanged(nameof(TaskMode));
@@ -502,5 +474,7 @@ public sealed class ThemeEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(Blur));
         OnPropertyChanged(nameof(PreviewOpacity));
         OnPropertyChanged(nameof(PreviewOverlay));
+        OnPropertyChanged(nameof(TaskContentOverlay));
+        OnPropertyChanged(nameof(IsTaskOverlayEnabled));
     }
 }

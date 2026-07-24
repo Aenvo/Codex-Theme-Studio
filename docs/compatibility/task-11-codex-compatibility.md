@@ -1,5 +1,7 @@
 # 任务 11 Codex 兼容性报告
 
+> 历史证据：本文保留任务 11 的兼容性快照；当前支持边界以 `codex-versions.json` 和最新发布验收记录为准。
+
 ## 当前验证记录
 
 | 项目 | 结果 |
@@ -35,4 +37,3 @@ fail-closed。
 - 不支持非 Store 安装、多个主进程、未知版本、非回环 Inspector 或不完整 Shell。
 - 版本号相同但 DOM 特征变化时，真实 probe 仍可能 fail-closed；不得仅凭版本号
   宣称兼容。
-

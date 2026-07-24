@@ -22,6 +22,7 @@ public enum ThemeArtSize
 {
     Cover = 0,
     Contain,
+    Crop,
 }
 
 public enum ThemeTaskMode
@@ -36,13 +37,6 @@ public enum ThemeSourceType
     LocalCreated = 0,
     Imported,
     RemoteSnapshot,
-}
-
-public enum ThemeCompatibilityStatus
-{
-    Unknown = 0,
-    Compatible,
-    Incompatible,
 }
 
 public enum ThemeApplyResult
@@ -98,7 +92,6 @@ public sealed record ThemeSummary(
     string? ThumbnailRelativePath,
     string ContentSha256,
     bool IsCurrentPersistent,
-    ThemeCompatibilityStatus CompatibilityStatus,
     ThemeApplyResult LastApplyResult,
     string? LastApplyMessage);
 
@@ -142,4 +135,11 @@ public sealed record ThemeRuntimeStatus(
     int EligibleWindows = 0,
     int AppliedWindows = 0,
     int PendingWindows = 0,
-    string? CodexVersion = null);
+    string? CodexVersion = null,
+    CodexCompatibilityLevel CompatibilityLevel = CodexCompatibilityLevel.Verified,
+    CodexIdentityAssessment IdentityAssessment = CodexIdentityAssessment.TrustedStore,
+    CodexInstallationSource InstallationSource = CodexInstallationSource.StoreAutomatic,
+    string? ExecutableSha256 = null,
+    DateTimeOffset? CompatibilityProbedAtUtc = null,
+    string? CompatibilityDiagnosticCode = null,
+    bool IsPersistenceEligible = true);

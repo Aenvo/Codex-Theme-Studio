@@ -383,29 +383,34 @@ public sealed class PersistenceAgentTests
 
         public int FindInstallationCount { get; private set; }
 
-        public Task<OperationResult<CodexInstallationInfo>> FindInstallationAsync(
+        public Task<OperationResult<CodexDiscoverySnapshot>> DiscoverAsync(
             CancellationToken cancellationToken)
         {
             FindInstallationCount++;
+            var installation = new CodexInstallationInfo(
+                "OpenAI.Codex_2p2nqsd0c76g0",
+                "OpenAI.Codex_26.715.4045.0_x64__2p2nqsd0c76g0",
+                "26.715.4045.0",
+                Process.ExecutablePath);
             return Task.FromResult(
-                OperationResult<CodexInstallationInfo>.Success(
-                    new CodexInstallationInfo(
-                        "OpenAI.Codex_2p2nqsd0c76g0",
-                        "OpenAI.Codex_26.715.4045.0_x64__2p2nqsd0c76g0",
-                        "26.715.4045.0",
-                        Process.ExecutablePath)));
+                OperationResult<CodexDiscoverySnapshot>.Success(
+                    new CodexDiscoverySnapshot(
+                        installation,
+                        [Process],
+                        DateTimeOffset.UtcNow)));
         }
-
-        public Task<OperationResult<IReadOnlyList<CodexProcessInfo>>> FindProcessesAsync(
-            CodexInstallationInfo installation,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(
-                OperationResult<IReadOnlyList<CodexProcessInfo>>.Success([Process]));
 
         public Task<OperationResult<CodexProbeResult>> ProbeAsync(
             CodexProcessInfo process,
             CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+            Task.FromResult(OperationResult<CodexProbeResult>.Success(
+                new CodexProbeResult(
+                    process.ProcessId,
+                    process.StartedAtUtc,
+                    "150.0.7871.124",
+                    1,
+                    ["main"],
+                    TimeSpan.Zero)));
 
         public Task<OperationResult> CloseInspectorAsync(
             CodexProcessInfo process,
@@ -459,6 +464,17 @@ public sealed class PersistenceAgentTests
             CodexProcessInfo process,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<OperationResult<CodexInspectionResult>> InspectAsync(
+            CodexProcessInfo process,
+            CodexInspectionMode mode,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(
+                StatusResult.IsSuccess
+                    ? OperationResult<CodexInspectionResult>.Success(
+                        new CodexInspectionResult(null, StatusResult.Value!))
+                    : OperationResult<CodexInspectionResult>.Failure(
+                        StatusResult.Error!));
     }
 
     private sealed class MemoryStateStore : IPersistenceAgentStateStore

@@ -480,6 +480,20 @@ public sealed class PersistenceService : IPersistenceService
 
         try
         {
+            var eligibility = await runtime.GetStatusAsync(cancellationToken);
+            if (!eligibility.IsSuccess)
+            {
+                return OperationResult<ThemeRuntimeStatus>.Failure(eligibility.Error!);
+            }
+
+            if (!eligibility.Value!.IsPersistenceEligible)
+            {
+                return OperationResult<ThemeRuntimeStatus>.Failure(
+                    OperationErrorCode.ValidationFailed,
+                    "请先临时应用主题；首次兼容验证会自动执行应用、清理和重新应用，成功后才能启用持久化。",
+                    "compatibility.persistence_not_qualified");
+            }
+
             var installation = await installer.InstallAsync(
                 sourceBundleDirectory,
                 Path.Combine(stableRoot, "Agent"),

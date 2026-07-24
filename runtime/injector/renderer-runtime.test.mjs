@@ -22,10 +22,60 @@ test("applies once to a complete main window and preserves pointer interaction",
   assert.equal(environment.countById("codex-theme-studio-layer"), 1);
   assert.equal(environment.createdBlobUrls.length, 1);
   assert.match(environment.findById("codex-theme-studio-style").textContent, /pointer-events: none/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /main\.main-surface\s*\{\s*background: transparent !important;/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /--color-background-surface: var\(--cts-panel\) !important;/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /--color-token-dropdown-background: var\(--cts-panel\) !important;/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /\.composer-surface-chrome\s*\{/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /\.composer-surface-chrome\s*\{[^}]*box-shadow:\s*0 0 0 1px var\(--cts-border\) !important;/s);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /\.composer-surface-chrome\s*\{[^}]*backdrop-filter:\s*none !important;/s);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /:where\(button, a\):focus-visible\s*\{[^}]*outline:\s*2px solid var\(--cts-accent\) !important;/s);
+  assert.doesNotMatch(
+    environment.findById("codex-theme-studio-style").textContent,
+    /:where\([^)]*(?:input|textarea|contenteditable)[^)]*\):focus-visible/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /\.sticky\.bottom-0\s*\[class\*="bg-gradient-to-t"\]\[class\*="from-token-main-surface-primary"\]\s*\{[^}]*background-image:\s*none !important;/s);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /\.sticky\.bottom-0\s*\[class\*="bg-gradient-to-t"\]\[class\*="from-token-main-surface-primary"\]\[class\*="to-transparent"\]\s*\{[^}]*background-color:\s*transparent !important;/s);
+  assert.doesNotMatch(
+    environment.findById("codex-theme-studio-style").textContent,
+    /\[data-page-mode="task-banner"\][^}]*\{[^}]*(?:mask-image|mask-size|mask-repeat|bottom:\s*auto|height:\s*min\(32vh, 320px\))/s);
+  assert.doesNotMatch(
+    environment.findById("codex-theme-studio-style").textContent,
+    /\.composer-surface-chrome\s*\{[^}]*0 12px 32px/s);
+  assert.doesNotMatch(
+    environment.findById("codex-theme-studio-style").textContent,
+    /:where\(aside, nav\)/);
   assert.equal(
     environment.document.documentElement.classList.contains(
       "codex-theme-studio-active"),
     true);
+  assert.equal(
+    environment.document.mainSurface.style.getPropertyValue("background"),
+    "transparent");
+  assert.equal(
+    environment.document.mainSurface.style.getPropertyPriority("background"),
+    "important");
+  const layer = environment.findById("codex-theme-studio-layer");
+  assert.equal(layer.children[0].style.opacity, "0.82");
+  assert.equal(
+    layer.children[1].style.backgroundColor,
+    "rgba(18, 16, 24, 0.25)");
 });
 
 test("leaves avatar overlay and incomplete auxiliary windows untouched", () => {
@@ -117,7 +167,7 @@ test("repeat is idempotent and replacement revokes only the old Blob URL", () =>
     2);
 });
 
-test("task banner and off modes update without reading page text", () => {
+test("task banner and off modes scope overlays without reading page text", () => {
   const environment = createEnvironment();
   environment.addMainFeatures();
   environment.document.selectorMatches.add("article");
@@ -125,15 +175,30 @@ test("task banner and off modes update without reading page text", () => {
   const bannerPayload = createPayload();
   bannerPayload.art.taskMode = "banner";
   const banner = runRenderer(environment, bannerPayload, 1);
+
+  assert.equal(banner.pageMode, "task-banner");
+  let layer = environment.findById("codex-theme-studio-layer");
+  assert.equal(layer.children[0].style.display, "");
+  assert.equal(layer.children[1].style.display, "");
+  assert.equal(layer.children[0].style.opacity, "0.32");
+  assert.equal(layer.children[1].style.backgroundColor, "transparent");
+  assert.equal(
+    environment.document.mainSurface.style.getPropertyValue("background"),
+    "rgba(18, 16, 24, 0.68)");
+
   const offPayload = createPayload();
   offPayload.art.taskMode = "off";
   const off = runRenderer(environment, offPayload, 2);
 
-  assert.equal(banner.pageMode, "task-banner");
   assert.equal(off.pageMode, "task-off");
-  const layer = environment.findById("codex-theme-studio-layer");
-  assert.equal(layer.children[0].style.display, "none");
-  assert.equal(layer.children[1].style.display, "none");
+  layer = environment.findById("codex-theme-studio-layer");
+  assert.equal(layer.children[0].style.display, "");
+  assert.equal(layer.children[1].style.display, "");
+  assert.equal(layer.children[0].style.opacity, "0.82");
+  assert.equal(layer.children[1].style.backgroundColor, "rgba(18, 16, 24, 0.25)");
+  assert.equal(
+    environment.document.mainSurface.style.getPropertyValue("background"),
+    "var(--cts-background)");
 });
 
 test("route changes update page mode without replacing the current Blob URL", () => {
@@ -147,6 +212,12 @@ test("route changes update page mode without replacing the current Blob URL", ()
 
   const state = environment.window.__CODEX_THEME_STUDIO_RENDERER_V1__;
   assert.equal(state.snapshot().pageMode, "task-ambient");
+  const layer = environment.findById("codex-theme-studio-layer");
+  assert.equal(layer.children[0].style.opacity, "0.32");
+  assert.equal(layer.children[1].style.backgroundColor, "transparent");
+  assert.equal(
+    environment.document.mainSurface.style.getPropertyValue("background"),
+    "rgba(18, 16, 24, 0.68)");
   assert.equal(environment.createdBlobUrls.length, 1);
   assert.deepEqual(environment.revokedBlobUrls, []);
 });
@@ -167,6 +238,9 @@ test("cleanup removes styles, classes, hooks, and the current Blob URL", () => {
       "codex-theme-studio-active"),
     false);
   assert.equal(environment.window.__CODEX_THEME_STUDIO_RENDERER_V1__, undefined);
+  assert.equal(
+    environment.document.mainSurface.style.getPropertyValue("background"),
+    "");
 });
 
 function createPayload() {
@@ -262,6 +336,7 @@ class FakeDocument {
     this.documentElement = new FakeElement("html");
     this.head = new FakeElement("head");
     this.body = new FakeElement("body");
+    this.mainSurface = new FakeElement("main");
     this.documentElement.append(this.head, this.body);
   }
 
@@ -271,6 +346,13 @@ class FakeDocument {
 
   querySelector(selector) {
     return this.selectorMatches.has(selector) ? { selector } : null;
+  }
+
+  querySelectorAll(selector) {
+    return selector === "main.main-surface" &&
+      this.selectorMatches.has("main")
+      ? [this.mainSurface]
+      : [];
   }
 }
 
@@ -339,12 +421,20 @@ class FakeStyle {
     this.properties = new Map();
   }
 
-  setProperty(name, value) {
-    this.properties.set(name, value);
+  setProperty(name, value, priority = "") {
+    this.properties.set(name, { value, priority });
   }
 
   removeProperty(name) {
     this.properties.delete(name);
+  }
+
+  getPropertyValue(name) {
+    return this.properties.get(name)?.value ?? "";
+  }
+
+  getPropertyPriority(name) {
+    return this.properties.get(name)?.priority ?? "";
   }
 }
 

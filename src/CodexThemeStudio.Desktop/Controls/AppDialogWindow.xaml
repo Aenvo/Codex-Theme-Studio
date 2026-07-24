@@ -1,0 +1,114 @@
+<Window x:Class="CodexThemeStudio.Desktop.Controls.AppDialogWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        x:ClassModifier="internal"
+        Width="500"
+        MaxHeight="720"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStyle="None"
+        AllowsTransparency="False"
+        Background="{DynamicResource PopoverBrush}"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        automation:AutomationProperties.Name="应用对话框">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="0"
+                            ResizeBorderThickness="0"
+                            GlassFrameThickness="0"
+                            CornerRadius="12"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+    <Border x:Name="DialogChrome"
+            Padding="24"
+            Background="{DynamicResource PopoverBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="12"
+            Focusable="True"
+            FocusVisualStyle="{x:Null}"
+            PreviewMouseLeftButtonDown="DialogChrome_PreviewMouseLeftButtonDown">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="TitleText"
+                           VerticalAlignment="Center"
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap" />
+                <Button x:Name="CloseButton"
+                        Grid.Column="1"
+                        Width="36"
+                        Height="36"
+                        MinHeight="0"
+                        Margin="12,0,0,0"
+                        Padding="0"
+                        Style="{StaticResource GhostButtonStyle}"
+                        FontSize="22"
+                        FontWeight="Light"
+                        Content="×"
+                        ToolTip="关闭"
+                        automation:AutomationProperties.Name="关闭对话框"
+                        Click="Cancel_Click" />
+            </Grid>
+
+            <ScrollViewer Grid.Row="1"
+                          MaxHeight="400"
+                          Margin="0,24,0,24"
+                          Focusable="False"
+                          FocusVisualStyle="{x:Null}"
+                          VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock x:Name="MessageText"
+                               FontSize="14"
+                               LineHeight="22"
+                               TextWrapping="Wrap" />
+                    <TextBlock x:Name="SupportingText"
+                               Margin="0,12,0,0"
+                               Foreground="{DynamicResource MutedForegroundBrush}"
+                               LineHeight="20"
+                               TextWrapping="Wrap" />
+                    <TextBox x:Name="InputTextBox"
+                             Margin="0,16,0,0"
+                             MaxLength="120"
+                             Visibility="Collapsed"
+                             automation:AutomationProperties.Name="对话框输入" />
+                </StackPanel>
+            </ScrollViewer>
+
+            <StackPanel Grid.Row="2"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right">
+                <Button x:Name="CancelButton"
+                        MinWidth="88"
+                        IsCancel="True"
+                        Content="取消"
+                        automation:AutomationProperties.Name="取消"
+                        Click="Cancel_Click" />
+                <Button x:Name="ConfirmButton"
+                        MinWidth="88"
+                        Margin="0"
+                        IsDefault="True"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        Content="确定"
+                        automation:AutomationProperties.Name="确定"
+                        Click="Confirm_Click" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

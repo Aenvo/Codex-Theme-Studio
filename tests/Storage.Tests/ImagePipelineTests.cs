@@ -265,36 +265,65 @@ public class ImagePipelineTests
         await using var environment = await StorageTestEnvironment.CreateAsync();
         var source = TestImageFactory.Create(SKEncodedImageFormat.Png);
         var pipeline = new ImagePipeline(environment.DataRoot);
-        var firstThemeId = Guid.NewGuid();
-        var secondThemeId = Guid.NewGuid();
+        var themeIds = Enumerable.Range(0, 16)
+            .Select(_ => Guid.NewGuid())
+            .ToArray();
 
-        var results = await Task.WhenAll(
+        var results = await Task.WhenAll(themeIds.Select((themeId, index) =>
             pipeline.ProcessAsync(
                 new MemoryStream(source),
-                "concurrent-a.png",
-                firstThemeId,
-                CancellationToken.None),
-            pipeline.ProcessAsync(
-                new MemoryStream(source),
-                "concurrent-b.png",
-                secondThemeId,
-                CancellationToken.None));
+                $"concurrent-{index:D2}.png",
+                themeId,
+                CancellationToken.None)));
 
         Assert.All(results, result => Assert.True(result.IsSuccess));
-        var first = results[0].Value!;
-        var second = results[1].Value!;
+        Assert.Single(results.Select(result => result.Value!.EditorPreview.RelativePath).Distinct());
+        Assert.Single(results.Select(result => result.Value!.CardThumbnail.RelativePath).Distinct());
         Assert.Equal(
-            first.EditorPreview.RelativePath,
-            second.EditorPreview.RelativePath);
-        Assert.Equal(
-            first.CardThumbnail.RelativePath,
-            second.CardThumbnail.RelativePath);
-        Assert.NotEqual(
-            first.RuntimeBackground.RelativePath,
-            second.RuntimeBackground.RelativePath);
-        Assert.Contains(
-            results,
-            result => result.Value!.IsDuplicateCandidate);
+            themeIds.Length,
+            results.Select(result => result.Value!.RuntimeBackground.RelativePath).Distinct().Count());
+        Assert.InRange(
+            results.Count(result => result.Value!.IsDuplicateCandidate),
+            themeIds.Length - 1,
+            themeIds.Length);
+    }
+
+    [Fact]
+    public async Task Process_FailedRuntimeCommitLeavesContentAddressedCachesReusable()
+    {
+        await using var environment = await StorageTestEnvironment.CreateAsync();
+        var source = TestImageFactory.Create(SKEncodedImageFormat.Png, 37, 23);
+        var pipeline = new ImagePipeline(environment.DataRoot);
+        var blockedThemeId = Guid.NewGuid();
+        var blockedThemePath = Path.Combine(
+            environment.DataRoot,
+            StorageLayout.GetThemeDirectory(blockedThemeId));
+        await File.WriteAllTextAsync(blockedThemePath, "blocked");
+
+        var failed = await pipeline.ProcessAsync(
+            new MemoryStream(source),
+            "blocked-runtime.png",
+            blockedThemeId,
+            CancellationToken.None);
+
+        Assert.False(failed.IsSuccess);
+        Assert.Equal("image.storage.io_failure", failed.Error!.DiagnosticCode);
+        Assert.Single(Directory.EnumerateFiles(Path.Combine(
+            environment.DataRoot,
+            StorageLayout.PreviewCacheDirectory)));
+        Assert.Single(Directory.EnumerateFiles(Path.Combine(
+            environment.DataRoot,
+            StorageLayout.ThumbnailCacheDirectory)));
+
+        var retry = await pipeline.ProcessAsync(
+            new MemoryStream(source),
+            "retry.png",
+            Guid.NewGuid(),
+            CancellationToken.None);
+
+        Assert.True(retry.IsSuccess, retry.Error?.DiagnosticCode);
+        Assert.True(retry.Value!.EditorPreview.WasReused);
+        Assert.True(retry.Value.CardThumbnail.WasReused);
     }
 
     [Fact]

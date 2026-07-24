@@ -18,11 +18,13 @@ public sealed class SqliteThemeRepository : IThemeRepository
     private readonly SqliteConnectionFactory connectionFactory;
     private readonly ThemeDocumentSerializer serializer;
     private readonly TimeProvider timeProvider;
+    private readonly IThemeDirectoryRecycleService directoryRecycler;
 
     public SqliteThemeRepository(
         string dataRoot,
         ThemeDocumentSerializer? serializer = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IThemeDirectoryRecycleService? directoryRecycler = null)
     {
         pathResolver = new TrustedPathResolver(dataRoot);
         var databasePath = pathResolver.Resolve(
@@ -37,6 +39,8 @@ public sealed class SqliteThemeRepository : IThemeRepository
         connectionFactory = new SqliteConnectionFactory(databasePath.Value!);
         this.serializer = serializer ?? new ThemeDocumentSerializer();
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.directoryRecycler =
+            directoryRecycler ?? new WindowsThemeDirectoryRecycleService();
     }
 
     public Task<OperationResult<IReadOnlyList<ThemeSummary>>> ListAsync(
@@ -78,6 +82,48 @@ public sealed class SqliteThemeRepository : IThemeRepository
                 return OperationResult<IReadOnlyList<ThemeSummary>>.Success(summaries);
             },
             "theme.list",
+            cancellationToken);
+
+    public Task<OperationResult<IReadOnlyList<ThemeSummary>>> ListDeletedAsync(
+        CancellationToken cancellationToken) =>
+        RunAsync(
+            async () =>
+            {
+                await using var connection =
+                    await connectionFactory.OpenAsync(cancellationToken);
+                var rows = new List<ThemeRow>();
+
+                await using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = $"""
+                        SELECT {ThemeColumns}
+                        FROM themes
+                        WHERE deleted_utc IS NOT NULL
+                          AND source_read_only = 0
+                        ORDER BY deleted_utc DESC, name COLLATE NOCASE, id;
+                        """;
+
+                    await using var reader =
+                        await command.ExecuteReaderAsync(cancellationToken);
+                    while (await reader.ReadAsync(cancellationToken))
+                    {
+                        rows.Add(ReadThemeRow(reader));
+                    }
+                }
+
+                var summaries = new List<ThemeSummary>(rows.Count);
+                foreach (var row in rows)
+                {
+                    var tags = await ReadTagsAsync(
+                        connection,
+                        row.ThemeId,
+                        cancellationToken);
+                    summaries.Add(row.ToSummary(tags));
+                }
+
+                return OperationResult<IReadOnlyList<ThemeSummary>>.Success(summaries);
+            },
+            "theme.list_deleted",
             cancellationToken);
 
     public Task<OperationResult<ThemePackage>> GetAsync(
@@ -565,7 +611,9 @@ public sealed class SqliteThemeRepository : IThemeRepository
                     UPDATE themes
                     SET deleted_utc = $deletedUtc,
                         is_current_persistent = 0
-                    WHERE id = $id AND deleted_utc IS NULL;
+                    WHERE id = $id
+                      AND deleted_utc IS NULL
+                      AND source_read_only = 0;
                     """;
                 command.Parameters.AddWithValue(
                     "$deletedUtc",
@@ -584,6 +632,185 @@ public sealed class SqliteThemeRepository : IThemeRepository
                 return OperationResult.Success();
             },
             "theme.delete",
+            cancellationToken);
+
+    public Task<OperationResult> RestoreDeletedAsync(
+        Guid themeId,
+        CancellationToken cancellationToken) =>
+        RunAsync(
+            async () =>
+            {
+                await using var connection =
+                    await connectionFactory.OpenAsync(cancellationToken);
+                await using var transaction =
+                    (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+                var row = await ReadThemeRowAsync(
+                    connection,
+                    themeId,
+                    cancellationToken,
+                    transaction,
+                    includeDeleted: true);
+                if (row is null || row.DeletedUtc is null || row.IsSourceReadOnly)
+                {
+                    return OperationResult.Failure(
+                        OperationErrorCode.NotFound,
+                        "回收站中不存在该主题。",
+                        "theme.restore_deleted.not_found");
+                }
+
+                var expectedDirectory = StorageLayout.GetThemeDirectory(themeId);
+                if (!string.Equals(
+                        row.ThemeDirectoryRelativePath,
+                        expectedDirectory,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return OperationResult.Failure(
+                        OperationErrorCode.InvalidPath,
+                        "主题目录与主题 ID 不匹配；未执行还原。",
+                        "theme.restore_deleted.directory_mismatch");
+                }
+
+                var resolvedDirectory = pathResolver.Resolve(expectedDirectory);
+                if (!resolvedDirectory.IsSuccess)
+                {
+                    return OperationResult.Failure(resolvedDirectory.Error!);
+                }
+
+                if (!Directory.Exists(resolvedDirectory.Value))
+                {
+                    return OperationResult.Failure(
+                        OperationErrorCode.NotFound,
+                        "主题目录不存在；为避免产生损坏主题，未执行还原。",
+                        "theme.restore_deleted.directory_missing");
+                }
+
+                var document = await ReadThemeDocumentAsync(
+                    row.ThemeDirectoryRelativePath,
+                    cancellationToken);
+                if (!document.IsSuccess)
+                {
+                    return OperationResult.Failure(document.Error!);
+                }
+
+                if (document.Value!.Id != themeId)
+                {
+                    return OperationResult.Failure(
+                        OperationErrorCode.ValidationFailed,
+                        "主题文件 ID 与回收站记录不匹配；未执行还原。",
+                        "theme.restore_deleted.document_id_mismatch");
+                }
+
+                await using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = """
+                    UPDATE themes
+                    SET deleted_utc = NULL,
+                        modified_utc = $modifiedUtc
+                    WHERE id = $id
+                      AND deleted_utc IS NOT NULL
+                      AND source_read_only = 0;
+                    """;
+                command.Parameters.AddWithValue(
+                    "$modifiedUtc",
+                    timeProvider.GetUtcNow().ToString("O"));
+                command.Parameters.AddWithValue("$id", themeId.ToString("D"));
+                var affected = await command.ExecuteNonQueryAsync(cancellationToken);
+                if (affected != 1)
+                {
+                    return OperationResult.Failure(
+                        OperationErrorCode.NotFound,
+                        "回收站中不存在该主题。",
+                        "theme.restore_deleted.not_found");
+                }
+
+                await transaction.CommitAsync(cancellationToken);
+                return OperationResult.Success();
+            },
+            "theme.restore_deleted",
+            cancellationToken);
+
+    public Task<OperationResult> PermanentlyDeleteAsync(
+        Guid themeId,
+        CancellationToken cancellationToken) =>
+        RunAsync(
+            async () =>
+            {
+                if (themeId == Guid.Empty)
+                {
+                    return OperationResult.Failure(
+                        OperationErrorCode.ValidationFailed,
+                        "主题 ID 不能为空。",
+                        "theme.purge.id_empty");
+                }
+
+                await using var connection =
+                    await connectionFactory.OpenAsync(cancellationToken);
+                await using var transaction =
+                    (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+                var row = await ReadThemeRowAsync(
+                    connection,
+                    themeId,
+                    cancellationToken,
+                    transaction,
+                    includeDeleted: true);
+                if (row is null || row.DeletedUtc is null || row.IsSourceReadOnly)
+                {
+                    return OperationResult.Failure(
+                        OperationErrorCode.NotFound,
+                        "回收站中不存在可永久删除的本地主题。",
+                        "theme.purge.not_found");
+                }
+
+                var expectedDirectory = StorageLayout.GetThemeDirectory(themeId);
+                if (!string.Equals(
+                        row.ThemeDirectoryRelativePath,
+                        expectedDirectory,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return OperationResult.Failure(
+                        OperationErrorCode.InvalidPath,
+                        "主题目录与主题 ID 不匹配；未执行永久删除。",
+                        "theme.purge.directory_mismatch");
+                }
+
+                var resolvedDirectory = pathResolver.Resolve(expectedDirectory);
+                if (!resolvedDirectory.IsSuccess)
+                {
+                    return OperationResult.Failure(resolvedDirectory.Error!);
+                }
+
+                await using (var delete = connection.CreateCommand())
+                {
+                    delete.Transaction = transaction;
+                    delete.CommandText = """
+                        DELETE FROM themes
+                        WHERE id = $id
+                          AND deleted_utc IS NOT NULL
+                          AND source_read_only = 0;
+                        """;
+                    delete.Parameters.AddWithValue("$id", themeId.ToString("D"));
+                    var affected = await delete.ExecuteNonQueryAsync(cancellationToken);
+                    if (affected != 1)
+                    {
+                        return OperationResult.Failure(
+                            OperationErrorCode.NotFound,
+                            "回收站中不存在该主题。",
+                            "theme.purge.not_found");
+                    }
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                var recycleResult = directoryRecycler.MoveToSystemRecycleBin(
+                    resolvedDirectory.Value!);
+                if (!recycleResult.IsSuccess)
+                {
+                    return recycleResult;
+                }
+
+                await transaction.CommitAsync(CancellationToken.None);
+                return OperationResult.Success();
+            },
+            "theme.purge",
             cancellationToken);
 
     private static async Task InsertThemeAsync(
@@ -616,7 +843,6 @@ public sealed class SqliteThemeRepository : IThemeRepository
                 thumbnail_relative_path,
                 content_sha256,
                 is_current_persistent,
-                compatibility_status,
                 last_apply_result,
                 last_apply_message,
                 deleted_utc)
@@ -636,7 +862,6 @@ public sealed class SqliteThemeRepository : IThemeRepository
                 $thumbnailPath,
                 $contentSha256,
                 0,
-                $compatibilityStatus,
                 $lastApplyResult,
                 NULL,
                 NULL);
@@ -656,9 +881,6 @@ public sealed class SqliteThemeRepository : IThemeRepository
             "$thumbnailPath",
             (object?)thumbnailRelativePath ?? DBNull.Value);
         command.Parameters.AddWithValue("$contentSha256", contentSha256);
-        command.Parameters.AddWithValue(
-            "$compatibilityStatus",
-            (int)ThemeCompatibilityStatus.Unknown);
         command.Parameters.AddWithValue(
             "$lastApplyResult",
             (int)ThemeApplyResult.NeverApplied);
@@ -994,10 +1216,9 @@ public sealed class SqliteThemeRepository : IThemeRepository
             reader.IsDBNull(12) ? null : reader.GetString(12),
             reader.GetString(13),
             reader.GetInt32(14) == 1,
-            (ThemeCompatibilityStatus)reader.GetInt32(15),
-            (ThemeApplyResult)reader.GetInt32(16),
-            reader.IsDBNull(17) ? null : reader.GetString(17),
-            reader.IsDBNull(18) ? null : ParseTimestamp(reader.GetString(18)));
+            (ThemeApplyResult)reader.GetInt32(15),
+            reader.IsDBNull(16) ? null : reader.GetString(16),
+            reader.IsDBNull(17) ? null : ParseTimestamp(reader.GetString(17)));
 
     private static DateTimeOffset ParseTimestamp(string value) =>
         DateTimeOffset.ParseExact(
@@ -1102,7 +1323,6 @@ public sealed class SqliteThemeRepository : IThemeRepository
         thumbnail_relative_path,
         content_sha256,
         is_current_persistent,
-        compatibility_status,
         last_apply_result,
         last_apply_message,
         deleted_utc
@@ -1124,7 +1344,6 @@ public sealed class SqliteThemeRepository : IThemeRepository
         string? ThumbnailRelativePath,
         string ContentSha256,
         bool IsCurrentPersistent,
-        ThemeCompatibilityStatus CompatibilityStatus,
         ThemeApplyResult LastApplyResult,
         string? LastApplyMessage,
         DateTimeOffset? DeletedUtc)
@@ -1147,7 +1366,6 @@ public sealed class SqliteThemeRepository : IThemeRepository
                 ThumbnailRelativePath,
                 ContentSha256,
                 IsCurrentPersistent,
-                CompatibilityStatus,
                 LastApplyResult,
                 LastApplyMessage);
     }

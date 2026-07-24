@@ -1,5 +1,7 @@
 # 任务 1 环境审计
 
+> 历史证据：本文记录项目启动时的环境状态，其中“尚未创建”和体积估算不代表当前维护基线。当前状态以 README、ADR、风险登记表和最新验收记录为准。
+
 - 审计日期：2026-07-20
 - 项目根目录：当前 `Codex Theme Studio` 工作目录
 - Git 状态：当前目录不是 Git 仓库，无法执行任务文档要求的 `git status` 范围校验
@@ -108,4 +110,3 @@ dotnet publish .\src\CodexThemeStudio.Desktop\CodexThemeStudio.Desktop.csproj `
 - [.NET 官方支持策略](https://dotnet.microsoft.com/en-us/platform/support/policy)
 - [Microsoft.Data.Sqlite 官方概览](https://learn.microsoft.com/dotnet/standard/data/sqlite/)
 - [Node.js v24 官方发布归档](https://nodejs.org/en/download/archive/v24)
-

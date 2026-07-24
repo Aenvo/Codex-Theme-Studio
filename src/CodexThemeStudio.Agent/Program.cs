@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CodexThemeStudio.CodexAdapter;
+using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Contracts.Results;
 
 const string ServiceName = "CodexThemeStudio.Agent";
@@ -31,8 +32,27 @@ if (args is [var command, "--config", var configurationPath] &&
     if (command == "run")
     {
         ConsoleWindow.Hide();
-        return await new PersistenceAgentRunner(configurationPath)
-            .RunAsync(CancellationToken.None);
+        try
+        {
+            return await new PersistenceAgentRunner(configurationPath, ServiceVersion)
+                .RunAsync(CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            var diagnostics = new LocalDiagnosticService(
+                LocalDiagnosticService.GetDefaultLogDirectory());
+            _ = diagnostics.WriteCritical(
+                DiagnosticEventFactory.Create(
+                    DiagnosticSource.Agent,
+                    DiagnosticLevel.Error,
+                    "agent.unhandled_exception",
+                    DiagnosticOutcome.Failed,
+                    Guid.NewGuid(),
+                    ServiceVersion,
+                    operation: "persistence.agent",
+                    exception: exception));
+            throw;
+        }
     }
 
     var configurationStore =
@@ -55,7 +75,8 @@ if (args is [var command, "--config", var configurationPath] &&
 
     var client = new InjectorCommandClient(
         configuration.Value!.NodeExecutablePath,
-        configuration.Value.InjectorScriptPath);
+        configuration.Value.InjectorScriptPath,
+        targetSelection: new CodexTargetSelectionService());
     var engine = new PersistenceAgentEngine(
         new PersistenceSnapshotStore(),
         client,

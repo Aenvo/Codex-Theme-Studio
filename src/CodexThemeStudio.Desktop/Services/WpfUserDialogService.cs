@@ -1,5 +1,5 @@
 using System.Windows;
-using System.Windows.Controls;
+using CodexThemeStudio.Desktop.Controls;
 using Microsoft.Win32;
 
 namespace CodexThemeStudio.Desktop.Services;
@@ -13,64 +13,14 @@ public sealed class WpfUserDialogService : IUserDialogService
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-
         var owner = Application.Current.MainWindow;
-        var textBox = new TextBox
-        {
-            Text = initialValue,
-            Margin = new Thickness(0, 10, 0, 18),
-            MaxLength = 120,
-        };
-        var accepted = false;
-        var dialog = CreateDialog(title, owner);
-        var confirm = new Button
-        {
-            Content = "确定",
-            IsDefault = true,
-            MinWidth = 82,
-        };
-        confirm.SetResourceReference(FrameworkElement.StyleProperty, "PrimaryButtonStyle");
-        confirm.Click += (_, _) =>
-        {
-            accepted = true;
-            dialog.Close();
-        };
-        var cancel = new Button
-        {
-            Content = "取消",
-            IsCancel = true,
-            MinWidth = 82,
-        };
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-        };
-        buttons.Children.Add(cancel);
-        buttons.Children.Add(confirm);
-        var content = new Grid { Margin = new Thickness(24) };
-        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        content.Children.Add(new TextBlock
-        {
-            Text = prompt,
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = 14,
-        });
-        content.Children.Add(textBox);
-        content.Children.Add(buttons);
-        Grid.SetRow(textBox, 1);
-        Grid.SetRow(buttons, 2);
-        dialog.Content = content;
-
-        dialog.Loaded += (_, _) =>
-        {
-            textBox.Focus();
-            textBox.SelectAll();
-        };
-        dialog.ShowDialog();
-        return Task.FromResult(accepted ? textBox.Text.Trim() : null);
+        var dialog = AppDialogWindow.CreateTextInput(
+            title,
+            prompt,
+            initialValue,
+            owner);
+        _ = ShowWithBackdrop(owner, dialog.ShowDialog);
+        return Task.FromResult(dialog.Accepted ? dialog.InputText : null);
     }
 
     public Task<bool> ConfirmAsync(
@@ -80,14 +30,14 @@ public sealed class WpfUserDialogService : IUserDialogService
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var result = MessageBox.Show(
-            Application.Current.MainWindow,
-            $"{message}\n\n{confirmText}",
+        var owner = Application.Current.MainWindow;
+        var dialog = AppDialogWindow.CreateConfirmation(
             title,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Warning,
-            MessageBoxResult.Cancel);
-        return Task.FromResult(result == MessageBoxResult.OK);
+            message,
+            confirmText,
+            owner);
+        _ = ShowWithBackdrop(owner, dialog.ShowDialog);
+        return Task.FromResult(dialog.Accepted);
     }
 
     public Task<string?> PickOpenFileAsync(
@@ -103,8 +53,9 @@ public sealed class WpfUserDialogService : IUserDialogService
             CheckFileExists = true,
             Multiselect = false,
         };
+        var owner = Application.Current.MainWindow;
         return Task.FromResult(
-            dialog.ShowDialog(Application.Current.MainWindow) == true
+            ShowWithBackdrop(owner, () => dialog.ShowDialog(owner)) == true
                 ? dialog.FileName
                 : null);
     }
@@ -126,8 +77,9 @@ public sealed class WpfUserDialogService : IUserDialogService
             FileName = suggestedFileName,
             OverwritePrompt = true,
         };
+        var owner = Application.Current.MainWindow;
         return Task.FromResult(
-            dialog.ShowDialog(Application.Current.MainWindow) == true
+            ShowWithBackdrop(owner, () => dialog.ShowDialog(owner)) == true
                 ? dialog.FileName
                 : null);
     }
@@ -144,30 +96,26 @@ public sealed class WpfUserDialogService : IUserDialogService
             InitialDirectory = initialDirectory ?? string.Empty,
             Multiselect = false,
         };
+        var owner = Application.Current.MainWindow;
         return Task.FromResult(
-            dialog.ShowDialog(Application.Current.MainWindow) == true
+            ShowWithBackdrop(owner, () => dialog.ShowDialog(owner)) == true
                 ? dialog.FolderName
                 : null);
     }
 
-    public void ShowInformation(string title, string message) =>
-        MessageBox.Show(
-            Application.Current.MainWindow,
-            message,
+    public void ShowInformation(string title, string message)
+    {
+        var owner = Application.Current.MainWindow;
+        var dialog = AppDialogWindow.CreateInformation(
             title,
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
+            message,
+            owner);
+        _ = ShowWithBackdrop(owner, dialog.ShowDialog);
+    }
 
-    private static Window CreateDialog(string title, Window? owner) =>
-        new()
-        {
-            Title = title,
-            Owner = owner,
-            Width = 440,
-            SizeToContent = SizeToContent.Height,
-            MinHeight = 210,
-            ResizeMode = ResizeMode.NoResize,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            ShowInTaskbar = false,
-        };
+    private static T ShowWithBackdrop<T>(Window? owner, Func<T> showDialog)
+    {
+        using var backdrop = (owner as MainWindow)?.EnterDialogBackdrop();
+        return showDialog();
+    }
 }

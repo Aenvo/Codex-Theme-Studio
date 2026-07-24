@@ -75,9 +75,6 @@ public sealed class ImagePipeline : IImagePipeline
                 stagingPathResult.Error!);
         }
 
-        var createdFinalPaths = new List<string>();
-        var completed = false;
-
         try
         {
             var sourceBytesResult = await ReadBoundedAsync(
@@ -148,25 +145,11 @@ public sealed class ImagePipeline : IImagePipeline
             var cardRelative =
                 $"{StorageLayout.ThumbnailCacheDirectory}/{encoded.Card.Sha256}.webp";
 
-            var runtimeCommit = await CommitAsync(
-                runtimeStage,
-                runtimeRelative,
-                encoded.Runtime,
-                ProcessedImageKind.RuntimeBackground,
-                createdFinalPaths,
-                cancellationToken);
-            if (!runtimeCommit.IsSuccess)
-            {
-                return OperationResult<ProcessedImageSet>.Failure(
-                    runtimeCommit.Error!);
-            }
-
             var editorCommit = await CommitAsync(
                 editorStage,
                 editorRelative,
                 encoded.Editor,
                 ProcessedImageKind.EditorPreview,
-                createdFinalPaths,
                 cancellationToken);
             if (!editorCommit.IsSuccess)
             {
@@ -179,7 +162,6 @@ public sealed class ImagePipeline : IImagePipeline
                 cardRelative,
                 encoded.Card,
                 ProcessedImageKind.CardThumbnail,
-                createdFinalPaths,
                 cancellationToken);
             if (!cardCommit.IsSuccess)
             {
@@ -187,7 +169,18 @@ public sealed class ImagePipeline : IImagePipeline
                     cardCommit.Error!);
             }
 
-            completed = true;
+            var runtimeCommit = await CommitAsync(
+                runtimeStage,
+                runtimeRelative,
+                encoded.Runtime,
+                ProcessedImageKind.RuntimeBackground,
+                cancellationToken);
+            if (!runtimeCommit.IsSuccess)
+            {
+                return OperationResult<ProcessedImageSet>.Failure(
+                    runtimeCommit.Error!);
+            }
+
             var result = new ProcessedImageSet(
                 themeId,
                 detectedFormat.Value,
@@ -253,11 +246,6 @@ public sealed class ImagePipeline : IImagePipeline
         }
         finally
         {
-            if (!completed)
-            {
-                CleanupCreatedFiles(createdFinalPaths);
-            }
-
             CleanupStagingDirectory(stagingPathResult.Value!);
         }
     }
@@ -549,7 +537,6 @@ public sealed class ImagePipeline : IImagePipeline
         string destinationRelativePath,
         EncodedImage encoded,
         ProcessedImageKind kind,
-        ICollection<string> createdFinalPaths,
         CancellationToken cancellationToken)
     {
         var destination = pathResolver.Resolve(destinationRelativePath);
@@ -576,49 +563,43 @@ public sealed class ImagePipeline : IImagePipeline
                 trustedDestination.Error!);
         }
 
-        var wasReused = false;
-        if (File.Exists(trustedDestination.Value))
+        var existing = await TryReuseExistingAsync(
+            trustedDestination.Value!,
+            encoded.Sha256,
+            retryWhenMissing: false,
+            "image.cache.hash_conflict",
+            cancellationToken);
+        if (!existing.IsSuccess)
         {
-            var existingHash = await HashFileAsync(
-                trustedDestination.Value!,
-                cancellationToken);
-            if (!string.Equals(
-                    existingHash,
-                    encoded.Sha256,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return OperationResult<ProcessedImageAsset>.Failure(
-                    OperationErrorCode.Conflict,
-                    "已有图片缓存与内容指纹不一致。",
-                    "image.cache.hash_conflict");
-            }
-
-            wasReused = true;
+            return OperationResult<ProcessedImageAsset>.Failure(existing.Error!);
         }
-        else
+
+        var wasReused = existing.Value;
+        if (!wasReused)
         {
             try
             {
                 File.Move(stagedPath, trustedDestination.Value!);
-                createdFinalPaths.Add(trustedDestination.Value!);
             }
-            catch (IOException) when (File.Exists(trustedDestination.Value))
+            catch (IOException)
             {
-                var existingHash = await HashFileAsync(
+                existing = await TryReuseExistingAsync(
                     trustedDestination.Value!,
+                    encoded.Sha256,
+                    retryWhenMissing: true,
+                    "image.cache.concurrent_conflict",
                     cancellationToken);
-                if (!string.Equals(
-                        existingHash,
-                        encoded.Sha256,
-                        StringComparison.OrdinalIgnoreCase))
+                if (!existing.IsSuccess)
                 {
-                    return OperationResult<ProcessedImageAsset>.Failure(
-                        OperationErrorCode.Conflict,
-                        "并发写入的图片缓存与内容指纹不一致。",
-                        "image.cache.concurrent_conflict");
+                    return OperationResult<ProcessedImageAsset>.Failure(existing.Error!);
                 }
 
-                wasReused = true;
+                if (!existing.Value)
+                {
+                    throw;
+                }
+
+                wasReused = existing.Value;
             }
         }
 
@@ -632,6 +613,54 @@ public sealed class ImagePipeline : IImagePipeline
                 encoded.Height,
                 encoded.Sha256,
                 wasReused));
+    }
+
+    private static async Task<OperationResult<bool>> TryReuseExistingAsync(
+        string destinationPath,
+        string expectedSha256,
+        bool retryWhenMissing,
+        string conflictDiagnosticCode,
+        CancellationToken cancellationToken)
+    {
+        const int maximumAttempts = 5;
+
+        for (var attempt = 0; attempt < maximumAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (File.Exists(destinationPath))
+            {
+                try
+                {
+                    var existingHash = await HashFileAsync(
+                        destinationPath,
+                        cancellationToken);
+                    if (!string.Equals(
+                            existingHash,
+                            expectedSha256,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return OperationResult<bool>.Failure(
+                            OperationErrorCode.Conflict,
+                            "并发写入的图片缓存与内容指纹不一致。",
+                            conflictDiagnosticCode);
+                    }
+
+                    return OperationResult<bool>.Success(true);
+                }
+                catch (IOException) when (attempt + 1 < maximumAttempts)
+                {
+                }
+            }
+
+            if (!retryWhenMissing || attempt + 1 >= maximumAttempts)
+            {
+                return OperationResult<bool>.Success(false);
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(20), cancellationToken);
+        }
+
+        return OperationResult<bool>.Success(false);
     }
 
     private static ImageSourceFormat? DetectFormat(ReadOnlySpan<byte> bytes)
@@ -716,26 +745,6 @@ public sealed class ImagePipeline : IImagePipeline
     {
         var errorCode = exception.HResult & 0xFFFF;
         return errorCode is 39 or 112;
-    }
-
-    private static void CleanupCreatedFiles(IEnumerable<string> paths)
-    {
-        foreach (var path in paths)
-        {
-            try
-            {
-                if (File.Exists(path))
-                {
-                    File.Delete(path);
-                }
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
-            catch (IOException)
-            {
-            }
-        }
     }
 
     private static void CleanupStagingDirectory(string path)

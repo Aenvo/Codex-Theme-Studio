@@ -201,6 +201,7 @@ public sealed class PersistenceAgentEngine
     private readonly IInjectorRendererClient rendererClient;
     private readonly IPersistenceAgentStateStore stateStore;
     private readonly CodexVersionPolicy versionPolicy;
+    private readonly CodexCompatibilityQualificationStore qualificationStore;
     private readonly TimeProvider timeProvider;
 
     public PersistenceAgentEngine(
@@ -210,6 +211,7 @@ public sealed class PersistenceAgentEngine
         IInjectorRendererClient rendererClient,
         IPersistenceAgentStateStore stateStore,
         CodexVersionPolicy? versionPolicy = null,
+        CodexCompatibilityQualificationStore? qualificationStore = null,
         TimeProvider? timeProvider = null)
     {
         this.snapshotStore = snapshotStore;
@@ -218,6 +220,7 @@ public sealed class PersistenceAgentEngine
         this.rendererClient = rendererClient;
         this.stateStore = stateStore;
         this.versionPolicy = versionPolicy ?? new CodexVersionPolicy();
+        this.qualificationStore = qualificationStore ?? new CodexCompatibilityQualificationStore();
         this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -241,36 +244,35 @@ public sealed class PersistenceAgentEngine
         }
         var verifiedSnapshot = snapshot.Value!;
 
-        var installation = await discoveryService.FindInstallationAsync(cancellationToken);
-        if (!installation.IsSuccess)
+        var discovery = await discoveryService.DiscoverAsync(cancellationToken);
+        if (!discovery.IsSuccess)
         {
-            return installation.Error!.Code == OperationErrorCode.CodexNotFound
+            return discovery.Error!.Code == OperationErrorCode.CodexNotFound
                 ? Success(
                     ThemeRuntimeState.NotInstalled,
                     "未检测到官方 Codex；Agent 将低频重试。",
                     snapshot.Value!.Theme.Id)
-                : OperationResult<ThemeRuntimeStatus>.Failure(installation.Error!);
+                : OperationResult<ThemeRuntimeStatus>.Failure(discovery.Error!);
         }
-        var installed = installation.Value!;
+        var installed = discovery.Value!.Installation;
 
-        if (!versionPolicy.IsVerified(installed.Version))
+        var qualification = await qualificationStore.IsQualifiedAsync(
+            installed.ExecutableSha256,
+            cancellationToken);
+        var persistenceEligible = installed.SourceAcknowledged &&
+            (versionPolicy.IsVerified(installed.Version) ||
+                (qualification.IsSuccess && qualification.Value));
+        if (!persistenceEligible)
         {
             return Success(
                 ThemeRuntimeState.Unsupported,
-                "当前 Codex 版本尚未验证，Agent 未执行注入。",
+                "当前 Codex 构建尚未完成临时应用兼容验证，Agent 暂停注入。",
                 verifiedSnapshot.Theme.Id,
                 codexVersion: installed.Version);
         }
 
-        var processes = await discoveryService.FindProcessesAsync(
-            installed,
-            cancellationToken);
-        if (!processes.IsSuccess)
-        {
-            return OperationResult<ThemeRuntimeStatus>.Failure(processes.Error!);
-        }
-
-        if (processes.Value!.Count == 0)
+        var processes = discovery.Value.Processes;
+        if (processes.Count == 0)
         {
             return Success(
                 ThemeRuntimeState.NotRunning,
@@ -279,7 +281,7 @@ public sealed class PersistenceAgentEngine
                 codexVersion: installed.Version);
         }
 
-        if (processes.Value.Count != 1)
+        if (processes.Count != 1)
         {
             return OperationResult<ThemeRuntimeStatus>.Failure(
                 OperationErrorCode.Conflict,
@@ -287,7 +289,22 @@ public sealed class PersistenceAgentEngine
                 "persistence.agent.multiple_processes");
         }
 
-        var process = processes.Value[0];
+        var process = processes[0];
+        var probe = await inspectorService.ProbeAsync(process, cancellationToken);
+        if (!probe.IsSuccess ||
+            versionPolicy.Evaluate(installed.Version, probe.Value!) ==
+                CodexCompatibilityLevel.Incompatible)
+        {
+            await TryCloseInspectorAsync(process);
+            return Success(
+                ThemeRuntimeState.Unsupported,
+                "Codex 能力探测失败，Agent 暂停本轮注入。",
+                verifiedSnapshot.Theme.Id,
+                process.ProcessId,
+                ThemeRuntimeEvidence.ProcessOnly,
+                installed.Version);
+        }
+
         var state = await stateStore.ReadAsync(cancellationToken);
         if (!state.IsSuccess)
         {
@@ -477,10 +494,14 @@ public sealed class PersistenceAgentRunner
         @"Local\CodexThemeStudio.PersistenceAgent.Stop.v1";
 
     private readonly string configurationPath;
+    private readonly string appVersion;
 
-    public PersistenceAgentRunner(string configurationPath)
+    public PersistenceAgentRunner(
+        string configurationPath,
+        string appVersion = "unknown")
     {
         this.configurationPath = Path.GetFullPath(configurationPath);
+        this.appVersion = appVersion;
     }
 
     public async Task<int> RunAsync(CancellationToken cancellationToken)
@@ -503,6 +524,23 @@ public sealed class PersistenceAgentRunner
         var configurationStore =
             new PersistenceAgentConfigurationStore(configurationPath);
         var delay = TimeSpan.FromSeconds(5);
+        var sessionId = Guid.NewGuid();
+        var diagnostics = new LocalDiagnosticService(
+            LocalDiagnosticService.GetDefaultLogDirectory());
+        string? lastSignature = null;
+        var lastHeartbeatAtUtc = DateTimeOffset.MinValue;
+        var previousFailed = false;
+
+        _ = await diagnostics.WriteAsync(
+            DiagnosticEventFactory.Create(
+                DiagnosticSource.Agent,
+                DiagnosticLevel.Information,
+                "agent.started",
+                DiagnosticOutcome.Started,
+                sessionId,
+                appVersion,
+                operation: "persistence.agent"),
+            cancellationToken);
 
         while (!cancellationToken.IsCancellationRequested &&
                !stopEvent.WaitOne(TimeSpan.Zero))
@@ -510,6 +548,31 @@ public sealed class PersistenceAgentRunner
             var configuration = await configurationStore.ReadAsync(cancellationToken);
             if (!configuration.IsSuccess)
             {
+                var configurationSignature =
+                    $"configuration:{configuration.Error!.DiagnosticCode ?? configuration.Error.Code.ToString()}";
+                var configurationNow = DateTimeOffset.UtcNow;
+                if (!string.Equals(
+                        configurationSignature,
+                        lastSignature,
+                        StringComparison.Ordinal) ||
+                    configurationNow - lastHeartbeatAtUtc >= TimeSpan.FromMinutes(15))
+                {
+                    _ = await diagnostics.WriteAsync(
+                        DiagnosticEventFactory.Create(
+                            DiagnosticSource.Agent,
+                            DiagnosticLevel.Error,
+                            "agent.configuration.failed",
+                            DiagnosticOutcome.Failed,
+                            sessionId,
+                            appVersion,
+                            operation: "persistence.agent",
+                            error: configuration.Error),
+                        cancellationToken);
+                    lastSignature = configurationSignature;
+                    lastHeartbeatAtUtc = configurationNow;
+                }
+
+                previousFailed = true;
                 delay = NextBackoff(delay);
                 await DelayOrStopAsync(stopEvent, delay, cancellationToken);
                 continue;
@@ -517,6 +580,16 @@ public sealed class PersistenceAgentRunner
 
             if (!configuration.Value!.Enabled)
             {
+                _ = await diagnostics.WriteAsync(
+                    DiagnosticEventFactory.Create(
+                        DiagnosticSource.Agent,
+                        DiagnosticLevel.Information,
+                        "agent.stopped",
+                        DiagnosticOutcome.Succeeded,
+                        sessionId,
+                        appVersion,
+                        operation: "persistence.agent"),
+                    CancellationToken.None);
                 return 0;
             }
 
@@ -525,12 +598,24 @@ public sealed class PersistenceAgentRunner
                 configurationPath);
             if (!policy.IsSuccess)
             {
+                _ = await diagnostics.WriteAsync(
+                    DiagnosticEventFactory.Create(
+                        DiagnosticSource.Agent,
+                        DiagnosticLevel.Error,
+                        "agent.configuration.failed",
+                        DiagnosticOutcome.Failed,
+                        sessionId,
+                        appVersion,
+                        operation: "persistence.agent",
+                        error: policy.Error),
+                    cancellationToken);
                 return 5;
             }
 
             var client = new InjectorCommandClient(
                 configuration.Value.NodeExecutablePath,
-                configuration.Value.InjectorScriptPath);
+                configuration.Value.InjectorScriptPath,
+                targetSelection: new CodexTargetSelectionService());
             var engine = new PersistenceAgentEngine(
                 new PersistenceSnapshotStore(),
                 client,
@@ -540,19 +625,81 @@ public sealed class PersistenceAgentRunner
             var cycle = await engine.RunCycleAsync(
                 configuration.Value,
                 cancellationToken);
-            await BoundedAgentLog.WriteAsync(
-                configuration.Value.LogFilePath,
-                cycle.IsSuccess ? "cycle" : "error",
-                cycle.IsSuccess
-                    ? cycle.Value!.State.ToString()
-                    : cycle.Error!.DiagnosticCode ?? cycle.Error.Code.ToString(),
-                cancellationToken);
+            var signature = cycle.IsSuccess
+                ? $"state:{cycle.Value!.State}"
+                : $"error:{cycle.Error!.DiagnosticCode ?? cycle.Error.Code.ToString()}";
+            var now = DateTimeOffset.UtcNow;
+            var shouldWrite = !string.Equals(
+                    signature,
+                    lastSignature,
+                    StringComparison.Ordinal) ||
+                now - lastHeartbeatAtUtc >= TimeSpan.FromMinutes(15);
+            if (shouldWrite)
+            {
+                var recovered = cycle.IsSuccess && previousFailed;
+                var diagnosticEvent = cycle.IsSuccess
+                    ? DiagnosticEventFactory.Create(
+                        DiagnosticSource.Agent,
+                        recovered
+                            ? DiagnosticLevel.Information
+                            : GetLevel(cycle.Value!.State),
+                        recovered
+                            ? "agent.recovered"
+                            : $"agent.state.{cycle.Value!.State.ToString().ToLowerInvariant()}",
+                        recovered
+                            ? DiagnosticOutcome.Recovered
+                            : DiagnosticOutcome.State,
+                        sessionId,
+                        appVersion,
+                        operation: "persistence.agent",
+                        codexVersion: cycle.Value!.CodexVersion)
+                    : DiagnosticEventFactory.Create(
+                        DiagnosticSource.Agent,
+                        DiagnosticLevel.Error,
+                        "agent.cycle.failed",
+                        DiagnosticOutcome.Failed,
+                        sessionId,
+                        appVersion,
+                        operation: "persistence.agent",
+                        error: cycle.Error);
+                var write = await diagnostics.WriteAsync(
+                    diagnosticEvent,
+                    cancellationToken);
+                if (!write.IsSuccess)
+                {
+                    await RecordLogWriteFailureAsync(
+                        configuration.Value.StateFilePath,
+                        write.Error!.DiagnosticCode,
+                        cancellationToken);
+                }
+                else
+                {
+                    await ClearLogWriteFailureAsync(
+                        configuration.Value.StateFilePath,
+                        cancellationToken);
+                }
+
+                lastSignature = signature;
+                lastHeartbeatAtUtc = now;
+            }
+
+            previousFailed = !cycle.IsSuccess;
             delay = cycle.IsSuccess
                 ? TimeSpan.FromSeconds(configuration.Value.PollIntervalSeconds)
                 : NextBackoff(delay);
             await DelayOrStopAsync(stopEvent, delay, cancellationToken);
         }
 
+        _ = await diagnostics.WriteAsync(
+            DiagnosticEventFactory.Create(
+                DiagnosticSource.Agent,
+                DiagnosticLevel.Information,
+                "agent.stopped",
+                DiagnosticOutcome.Succeeded,
+                sessionId,
+                appVersion,
+                operation: "persistence.agent"),
+            CancellationToken.None);
         return 0;
     }
 
@@ -576,6 +723,54 @@ public sealed class PersistenceAgentRunner
 
     private static TimeSpan NextBackoff(TimeSpan current) =>
         TimeSpan.FromSeconds(Math.Min(60, Math.Max(5, current.TotalSeconds * 2)));
+
+    private static DiagnosticLevel GetLevel(ThemeRuntimeState state) =>
+        state switch
+        {
+            ThemeRuntimeState.Unsupported or
+            ThemeRuntimeState.Partial or
+            ThemeRuntimeState.Mismatch => DiagnosticLevel.Warning,
+            ThemeRuntimeState.Unavailable or
+            ThemeRuntimeState.Failed or
+            ThemeRuntimeState.InspectorResidual => DiagnosticLevel.Error,
+            _ => DiagnosticLevel.Information,
+        };
+
+    private static async Task RecordLogWriteFailureAsync(
+        string stateFilePath,
+        string? diagnosticCode,
+        CancellationToken cancellationToken)
+    {
+        var stateStore = new PersistenceAgentStateStore(stateFilePath);
+        var state = await stateStore.ReadAsync(cancellationToken);
+        if (state.IsSuccess)
+        {
+            _ = await stateStore.WriteAsync(
+                state.Value! with
+                {
+                    LastDiagnosticCode =
+                        diagnosticCode ?? "diagnostics.write_failed",
+                },
+                cancellationToken);
+        }
+    }
+
+    private static async Task ClearLogWriteFailureAsync(
+        string stateFilePath,
+        CancellationToken cancellationToken)
+    {
+        var stateStore = new PersistenceAgentStateStore(stateFilePath);
+        var state = await stateStore.ReadAsync(cancellationToken);
+        if (state.IsSuccess &&
+            state.Value!.LastDiagnosticCode?.StartsWith(
+                "diagnostics.",
+                StringComparison.Ordinal) == true)
+        {
+            _ = await stateStore.WriteAsync(
+                state.Value with { LastDiagnosticCode = null },
+                cancellationToken);
+        }
+    }
 
     private static async Task DelayOrStopAsync(
         EventWaitHandle stopEvent,
@@ -709,43 +904,6 @@ internal static class AtomicJsonFile
                 OperationErrorCode.StorageUnavailable,
                 "无法原子写入 Agent 运行文件。",
                 "persistence.json.write_failed");
-        }
-    }
-}
-
-internal static class BoundedAgentLog
-{
-    private const long MaximumBytes = 1024 * 1024;
-
-    public static async Task WriteAsync(
-        string path,
-        string eventName,
-        string code,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            if (File.Exists(path) && new FileInfo(path).Length >= MaximumBytes)
-            {
-                var archive = $"{path}.1";
-                File.Move(path, archive, overwrite: true);
-            }
-
-            var line = JsonSerializer.Serialize(new
-            {
-                timestampUtc = DateTimeOffset.UtcNow,
-                eventName,
-                code,
-            });
-            await File.AppendAllTextAsync(
-                path,
-                $"{line}{Environment.NewLine}",
-                cancellationToken);
-        }
-        catch (Exception exception)
-            when (exception is IOException or UnauthorizedAccessException)
-        {
         }
     }
 }

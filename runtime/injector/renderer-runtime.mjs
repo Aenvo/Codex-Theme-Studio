@@ -118,6 +118,28 @@ export function rendererBootstrap(request) {
 html.codex-theme-studio-active {
   background: var(--cts-background) !important;
   color-scheme: normal;
+  --color-text-foreground: var(--cts-text) !important;
+  --color-text-foreground-secondary: var(--cts-muted) !important;
+  --color-icon-primary: var(--cts-text) !important;
+  --color-icon-secondary: var(--cts-muted) !important;
+  --color-text-accent: var(--cts-accent) !important;
+  --color-border: var(--cts-border) !important;
+  --color-border-focus: var(--cts-accent) !important;
+  --color-background-panel: var(--cts-panel) !important;
+  --color-background-surface: var(--cts-panel) !important;
+  --color-background-control: var(--cts-panel) !important;
+  --color-background-control-opaque: var(--cts-panel) !important;
+  --color-background-elevated-primary: var(--cts-panel) !important;
+  --color-background-elevated-primary-opaque: var(--cts-panel) !important;
+  --color-background-elevated-secondary-opaque: var(--cts-panel) !important;
+  --color-token-dropdown-background: var(--cts-panel) !important;
+  --color-background-accent: color-mix(in srgb, var(--cts-accent) 16%, transparent) !important;
+  --color-background-button-primary: var(--cts-accent) !important;
+  --color-text-button-primary: var(--cts-background) !important;
+  --color-accent-blue: var(--cts-accent) !important;
+  --codex-base-accent: var(--cts-accent) !important;
+  --codex-base-ink: var(--cts-text) !important;
+  --codex-base-surface: var(--cts-panel) !important;
 }
 html.codex-theme-studio-variant-light { color-scheme: light; }
 html.codex-theme-studio-variant-dark { color-scheme: dark; }
@@ -128,6 +150,13 @@ html.codex-theme-studio-active body {
 html.codex-theme-studio-active body > :not(#codex-theme-studio-layer) {
   position: relative;
   z-index: 1;
+}
+html.codex-theme-studio-active main.main-surface {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+html.codex-theme-studio-active[data-codex-theme-studio-page="task-off"] main.main-surface {
+  background: var(--cts-background) !important;
 }
 #codex-theme-studio-layer {
   position: fixed;
@@ -151,20 +180,41 @@ html.codex-theme-studio-active body > :not(#codex-theme-studio-layer) {
   transform: scale(1.015);
   transform-origin: var(--cts-focus-x) var(--cts-focus-y);
 }
-#codex-theme-studio-layer[data-page-mode="task-banner"] .cts-background,
-#codex-theme-studio-layer[data-page-mode="task-banner"] .cts-overlay {
-  bottom: auto;
-  height: min(32vh, 320px);
-  mask-image: linear-gradient(to bottom, black 0%, black 56%, transparent 100%);
-}
-html.codex-theme-studio-active :where(aside, nav) {
+html.codex-theme-studio-active aside {
   background-color: color-mix(in srgb, var(--cts-panel) 88%, transparent) !important;
   border-color: var(--cts-border) !important;
+}
+html.codex-theme-studio-active aside.app-shell-left-panel nav {
+  background: transparent !important;
+}
+html.codex-theme-studio-active nav[class*="navigation"] {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+html.codex-theme-studio-active .composer-surface-chrome {
+  background-color: var(--cts-panel) !important;
+  box-shadow: 0 0 0 1px var(--cts-border) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.codex-theme-studio-active .sticky.bottom-0
+  [class*="bg-gradient-to-t"][class*="from-token-main-surface-primary"] {
+  background-image: none !important;
+}
+html.codex-theme-studio-active .sticky.bottom-0
+  [class*="bg-gradient-to-t"][class*="from-token-main-surface-primary"][class*="to-transparent"] {
+  background-color: transparent !important;
+}
+html.codex-theme-studio-active [class*="elevation-prominent"] {
+  background-color: var(--cts-panel) !important;
+  box-shadow:
+    0 0 0 1px var(--cts-border),
+    0 18px 50px rgba(0, 0, 0, 0.42) !important;
 }
 html.codex-theme-studio-active :where(input, textarea, [contenteditable="true"])::placeholder {
   color: var(--cts-muted) !important;
 }
-html.codex-theme-studio-active :where(button, a, input, textarea, [contenteditable="true"]):focus-visible {
+html.codex-theme-studio-active :where(button, a):focus-visible {
   outline: 2px solid var(--cts-accent) !important;
   outline-offset: 2px;
 }
@@ -235,6 +285,7 @@ html.codex-theme-studio-active ::selection {
     new Blob([bytes], { type: payload.art.contentType }));
   background.style.backgroundImage = `url("${blobUrl}")`;
   background.style.backgroundSize = payload.art.size;
+  const managedMainSurfaces = new Map();
 
   root.classList.add(rootClass);
   root.classList.add(`codex-theme-studio-variant-${payload.variant}`);
@@ -292,6 +343,7 @@ html.codex-theme-studio-active ::selection {
     const isTask = compatibility.taskSelectors.some(
       (selector) => Boolean(document.querySelector(selector)));
     const pageMode = isTask ? `task-${payload.art.taskMode}` : "home";
+    updateMainSurfaces(pageMode);
     if (lastPageMode === pageMode) {
       return;
     }
@@ -308,15 +360,37 @@ html.codex-theme-studio-active ::selection {
       return;
     }
     if (payload.art.taskMode === "off") {
-      background.style.display = "none";
-      overlay.style.display = "none";
+      background.style.display = "";
+      overlay.style.display = "";
+      background.style.opacity = String(payload.art.homeOpacity);
+      overlay.style.backgroundColor =
+        rgbaFromHex(payload.palette.background, payload.art.homeOverlay);
       return;
     }
     background.style.display = "";
     overlay.style.display = "";
     background.style.opacity = String(payload.art.taskOpacity);
-    overlay.style.backgroundColor =
-      rgbaFromHex(payload.palette.background, payload.art.taskOverlay);
+    overlay.style.backgroundColor = "transparent";
+  }
+
+  function updateMainSurfaces(pageMode) {
+    const surfaceBackground = pageMode === "task-off"
+      ? "var(--cts-background)"
+      : pageMode === "task-banner" || pageMode === "task-ambient"
+        ? rgbaFromHex(payload.palette.background, payload.art.taskOverlay)
+        : "transparent";
+    for (const surface of document.querySelectorAll("main.main-surface")) {
+      if (!managedMainSurfaces.has(surface)) {
+        managedMainSurfaces.set(surface, {
+          value: surface.style.getPropertyValue("background"),
+          priority: surface.style.getPropertyPriority("background"),
+        });
+      }
+      surface.style.setProperty(
+        "background",
+        surfaceBackground,
+        "important");
+    }
   }
 
   function cleanup(expectedGeneration) {
@@ -330,6 +404,17 @@ html.codex-theme-studio-active ::selection {
     window.removeEventListener("hashchange", navigationHandler);
     window.removeEventListener("popstate", navigationHandler);
     window.clearInterval(intervalId);
+    for (const [surface, original] of managedMainSurfaces) {
+      if (original.value) {
+        surface.style.setProperty(
+          "background",
+          original.value,
+          original.priority);
+      } else {
+        surface.style.removeProperty("background");
+      }
+    }
+    managedMainSurfaces.clear();
     style.remove();
     layer.remove();
     URL.revokeObjectURL(blobUrl);

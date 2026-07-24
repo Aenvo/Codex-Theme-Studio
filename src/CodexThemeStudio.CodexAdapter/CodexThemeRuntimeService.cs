@@ -16,6 +16,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
     private readonly IThemeRepository themeRepository;
     private readonly ICurrentSessionStore sessionStore;
     private readonly CodexVersionPolicy versionPolicy;
+    private readonly CodexCompatibilityQualificationStore qualificationStore;
     private readonly TimeProvider timeProvider;
     private readonly TimeSpan operationTimeout;
     private readonly SemaphoreSlim writeLock = new(1, 1);
@@ -30,6 +31,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
         IThemeRepository themeRepository,
         ICurrentSessionStore sessionStore,
         CodexVersionPolicy? versionPolicy = null,
+        CodexCompatibilityQualificationStore? qualificationStore = null,
         TimeProvider? timeProvider = null,
         TimeSpan? operationTimeout = null)
     {
@@ -46,6 +48,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
         this.sessionStore =
             sessionStore ?? throw new ArgumentNullException(nameof(sessionStore));
         this.versionPolicy = versionPolicy ?? new CodexVersionPolicy();
+        this.qualificationStore = qualificationStore ?? new CodexCompatibilityQualificationStore();
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.operationTimeout = operationTimeout ?? TimeSpan.FromSeconds(60);
     }
@@ -87,7 +90,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
             {
                 if (context.Error!.Code == OperationErrorCode.CodexNotFound)
                 {
-                    var clear = await WriteDefaultAsync(operationId);
+                    var clear = await WriteDefaultAsync(operationId, process: null);
                     return clear.IsSuccess
                         ? OperationResult<ThemeRuntimeStatus>.Success(
                             CreateStatus(
@@ -110,7 +113,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                 return OperationResult<ThemeRuntimeStatus>.Failure(cleanup.Error!);
             }
 
-            var write = await WriteDefaultAsync(operationId);
+            var write = await WriteDefaultAsync(operationId, process);
             if (!write.IsSuccess)
             {
                 return OperationResult<ThemeRuntimeStatus>.Failure(write.Error!);
@@ -120,7 +123,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                 CreateStatus(
                     ThemeRuntimeState.Default,
                     cleanup.IsSuccess
-                        ? "已完整还原 Codex 官方外观。"
+                        ? "已清理当前 Codex 中可识别的主题运行时；当前显示应为官方外观。"
                         : "Codex 已退出；当前会话状态已安全清除。",
                     processId: cleanup.IsSuccess ? process.ProcessId : null,
                     operationId: operationId,
@@ -138,7 +141,35 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
         }
     }
 
+    public Task<OperationResult<ThemeRuntimeStatus>> GetStatusAsync(
+        CancellationToken cancellationToken) =>
+        GetStatusAsync(CodexStatusRefreshMode.PreferCache, cancellationToken);
+
+    public async Task<OperationResult<CodexCachedCompatibilityStatus?>>
+        GetCachedCompatibilityAsync(CancellationToken cancellationToken)
+    {
+        var cached = await qualificationStore.ReadLatestAsync(cancellationToken);
+        if (!cached.IsSuccess || cached.Value is null)
+        {
+            return OperationResult<CodexCachedCompatibilityStatus?>.SuccessOptional(null);
+        }
+
+        var record = cached.Value;
+        return OperationResult<CodexCachedCompatibilityStatus?>.Success(
+            new CodexCachedCompatibilityStatus(
+                record.CodexVersion,
+                record.PackageFullName,
+                record.ExecutablePath,
+                record.ExecutableSha256,
+                record.CompatibilityLevel,
+                record.IdentityAssessment,
+                record.InstallationSource,
+                record.ProbedAtUtc,
+                record.PersistenceQualified));
+    }
+
     public async Task<OperationResult<ThemeRuntimeStatus>> GetStatusAsync(
+        CodexStatusRefreshMode refreshMode,
         CancellationToken cancellationToken)
     {
         var active = GetActive();
@@ -160,10 +191,10 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
             return OperationResult<ThemeRuntimeStatus>.Failure(session.Error!);
         }
 
-        var installation = await discoveryService.FindInstallationAsync(cancellationToken);
-        if (!installation.IsSuccess)
+        var discovery = await discoveryService.DiscoverAsync(cancellationToken);
+        if (!discovery.IsSuccess)
         {
-            if (installation.Error!.Code == OperationErrorCode.CodexNotFound)
+            if (discovery.Error!.Code == OperationErrorCode.CodexNotFound)
             {
                 return OperationResult<ThemeRuntimeStatus>.Success(
                     CreateStatus(
@@ -172,77 +203,191 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                         selectedThemeId: session.Value!.ThemeId));
             }
 
-            return OperationResult<ThemeRuntimeStatus>.Failure(installation.Error!);
+            return OperationResult<ThemeRuntimeStatus>.Failure(discovery.Error!);
         }
 
-        if (!versionPolicy.IsVerified(installation.Value!.Version))
+        var installation = discovery.Value!.Installation;
+        if (!installation.SourceAcknowledged)
         {
             return OperationResult<ThemeRuntimeStatus>.Success(
                 CreateStatus(
-                    ThemeRuntimeState.Unsupported,
-                    "当前 Codex 版本尚未验证，已按安全策略停止注入。",
+                    ThemeRuntimeState.Unavailable,
+                    "该 Codex 来源尚未确认；请在设置中重新选择并确认后继续。",
                     selectedThemeId: session.Value!.ThemeId,
-                    codexVersion: installation.Value.Version));
+                    codexVersion: installation.Version,
+                    identityAssessment: installation.IdentityAssessment,
+                    installationSource: installation.Source,
+                    executableSha256: installation.ExecutableSha256,
+                    compatibilityDiagnosticCode: "compatibility.source_acknowledgement_required",
+                    isPersistenceEligible: false));
         }
 
-        var processes = await discoveryService.FindProcessesAsync(
-            installation.Value,
-            cancellationToken);
-        if (!processes.IsSuccess)
-        {
-            return OperationResult<ThemeRuntimeStatus>.Failure(processes.Error!);
-        }
-
-        if (processes.Value!.Count == 0)
+        var processes = discovery.Value.Processes;
+        if (processes.Count == 0)
         {
             return OperationResult<ThemeRuntimeStatus>.Success(
                 CreateStatus(
                     ThemeRuntimeState.NotRunning,
                     "Codex 未运行；请先启动 Codex。",
                     selectedThemeId: session.Value!.ThemeId,
-                    codexVersion: installation.Value.Version));
+                    codexVersion: installation.Version,
+                    identityAssessment: installation.IdentityAssessment,
+                    installationSource: installation.Source,
+                    executableSha256: installation.ExecutableSha256));
         }
 
-        if (processes.Value.Count != 1)
+        if (processes.Count != 1)
         {
             return OperationResult<ThemeRuntimeStatus>.Success(
                 CreateStatus(
                     ThemeRuntimeState.Unavailable,
                     "检测到多个 Codex 主进程，无法安全确定目标实例。",
                     selectedThemeId: session.Value!.ThemeId,
-                    codexVersion: installation.Value.Version));
+                    codexVersion: installation.Version,
+                    identityAssessment: installation.IdentityAssessment,
+                    installationSource: installation.Source,
+                    executableSha256: installation.ExecutableSha256));
         }
 
-        var process = processes.Value[0];
-        var renderer = await rendererClient.GetStatusAsync(
-            process,
+        var process = processes[0];
+        var persistenceQualification = await qualificationStore.IsQualifiedAsync(
+            installation.ExecutableSha256,
             cancellationToken);
-        if (!renderer.IsSuccess)
+        var cached = refreshMode == CodexStatusRefreshMode.PreferCache
+            ? await qualificationStore.FindCompatibleAsync(installation, cancellationToken)
+            : OperationResult<CodexCompatibilityQualificationStore.QualificationRecord?>
+                .SuccessOptional(null);
+        var cachedRecord = cached.IsSuccess ? cached.Value : null;
+        var sessionNeedsRendererStatus =
+            session.Value!.State != ThemeRuntimeState.Default ||
+            session.Value.ThemeId is not null;
+        if (cachedRecord is not null && !sessionNeedsRendererStatus)
         {
-            if (renderer.Error!.Code == OperationErrorCode.PortInUse)
-            {
-                return OperationResult<ThemeRuntimeStatus>.Success(
-                    CreateStatus(
-                        ThemeRuntimeState.InspectorResidual,
-                        "Inspector 端口被异常占用，未读取页面内容。",
-                        processId: process.ProcessId,
-                        selectedThemeId: session.Value!.ThemeId,
-                        evidence: ThemeRuntimeEvidence.ProcessOnly,
-                        hasInspectorResidual: true,
-                        codexVersion: installation.Value.Version));
-            }
-
-            await TryCloseInspectorAsync(process);
-            return OperationResult<ThemeRuntimeStatus>.Failure(renderer.Error!);
+            return OperationResult<ThemeRuntimeStatus>.Success(
+                CreateStatus(
+                    ThemeRuntimeState.Ready,
+                    "当前 Codex 安装与进程已确认；兼容性来自相同构建的缓存验证。",
+                    processId: process.ProcessId,
+                    selectedThemeId: session.Value.ThemeId,
+                    evidence: ThemeRuntimeEvidence.ProcessOnly,
+                    codexVersion: installation.Version,
+                    compatibilityLevel: cachedRecord.CompatibilityLevel,
+                    identityAssessment: installation.IdentityAssessment,
+                    installationSource: installation.Source,
+                    executableSha256: installation.ExecutableSha256,
+                    compatibilityProbedAtUtc: cachedRecord.ProbedAtUtc,
+                    compatibilityDiagnosticCode: "compatibility.cache_hit",
+                    isPersistenceEligible:
+                        cachedRecord.CompatibilityLevel == CodexCompatibilityLevel.Verified ||
+                        (persistenceQualification.IsSuccess &&
+                         persistenceQualification.Value)));
         }
 
-        await TryCloseInspectorAsync(process);
-        return OperationResult<ThemeRuntimeStatus>.Success(
-            MapRendererStatus(
-                renderer.Value!,
-                session.Value!,
-                process,
-                installation.Value.Version));
+        var inspectionMode = cachedRecord is null
+            ? CodexInspectionMode.Full
+            : CodexInspectionMode.RendererOnly;
+        var inspection = await rendererClient.InspectAsync(
+            process,
+            inspectionMode,
+            cancellationToken);
+        if (!inspection.IsSuccess)
+        {
+            await TryCloseInspectorAsync(process);
+            return OperationResult<ThemeRuntimeStatus>.Success(
+                CreateStatus(
+                    ThemeRuntimeState.Unsupported,
+                    "Codex 能力或渲染状态探测失败，未执行主题注入。",
+                    processId: process.ProcessId,
+                    selectedThemeId: session.Value.ThemeId,
+                    evidence: ThemeRuntimeEvidence.ProcessOnly,
+                    codexVersion: installation.Version,
+                    compatibilityLevel: CodexCompatibilityLevel.Incompatible,
+                    identityAssessment: installation.IdentityAssessment,
+                    installationSource: installation.Source,
+                    executableSha256: installation.ExecutableSha256,
+                    compatibilityProbedAtUtc: timeProvider.GetUtcNow(),
+                    compatibilityDiagnosticCode: inspection.Error!.DiagnosticCode,
+                    isPersistenceEligible: false));
+        }
+
+        var probeValue = inspection.Value!.Probe;
+        var compatibility = cachedRecord?.CompatibilityLevel ??
+            (probeValue is null
+                ? CodexCompatibilityLevel.Incompatible
+                : versionPolicy.Evaluate(installation.Version, probeValue));
+        if (compatibility == CodexCompatibilityLevel.Incompatible)
+        {
+            return OperationResult<ThemeRuntimeStatus>.Success(
+                CreateStatus(
+                    ThemeRuntimeState.Unsupported,
+                    "Codex 缺少主题运行所需能力，未执行注入。",
+                    processId: process.ProcessId,
+                    selectedThemeId: session.Value.ThemeId,
+                    evidence: ThemeRuntimeEvidence.ProcessOnly,
+                    codexVersion: installation.Version,
+                    compatibilityLevel: compatibility,
+                    identityAssessment: installation.IdentityAssessment,
+                    installationSource: installation.Source,
+                    executableSha256: installation.ExecutableSha256,
+                    compatibilityProbedAtUtc: timeProvider.GetUtcNow(),
+                    compatibilityDiagnosticCode: probeValue?.DiagnosticCode,
+                    isPersistenceEligible: false));
+        }
+
+        var persistenceEligible = compatibility == CodexCompatibilityLevel.Verified ||
+            (persistenceQualification.IsSuccess && persistenceQualification.Value);
+        var probedAt = cachedRecord?.ProbedAtUtc ?? timeProvider.GetUtcNow();
+        if (cachedRecord is null &&
+            probeValue is { CanaryApplied: true, CanaryCleaned: true })
+        {
+            _ = await qualificationStore.CacheCapabilityAsync(
+                new CodexCompatibilityQualificationStore.QualificationRecord(
+                    installation.ExecutableSha256,
+                    installation.Version,
+                    installation.PackageFullName,
+                    installation.ExecutablePath,
+                    installation.Source,
+                    installation.IdentityAssessment,
+                    compatibility,
+                    CodexCompatibilityQualificationStore.CurrentProbeContractVersion,
+                    CodexCompatibilityQualificationStore.CurrentRequiredCapabilitiesVersion,
+                    probedAt,
+                    probeValue.CanaryApplied,
+                    probeValue.CanaryCleaned,
+                    persistenceEligible),
+                cancellationToken);
+        }
+
+        var mapped = MapRendererStatus(
+            inspection.Value.Renderer,
+            session.Value,
+            process,
+            installation.Version);
+        var compatibilityMessage = cachedRecord is not null
+            ? "当前构建与缓存资格一致。"
+            : compatibility == CodexCompatibilityLevel.Verified
+                ? "已验证版本；能力探测通过。"
+                : persistenceEligible
+                    ? "未知版本已通过能力与注入闭环验证。"
+                    : "未知版本能力探测通过；请先临时应用一次以解锁持久化。";
+        if (installation.IdentityAssessment == CodexIdentityAssessment.UnverifiedSource)
+        {
+            compatibilityMessage = "来源未验证；" + compatibilityMessage;
+        }
+
+        return OperationResult<ThemeRuntimeStatus>.Success(mapped with
+        {
+            UserMessage = compatibilityMessage + " " + mapped.UserMessage,
+            CompatibilityLevel = compatibility,
+            IdentityAssessment = installation.IdentityAssessment,
+            InstallationSource = installation.Source,
+            ExecutableSha256 = installation.ExecutableSha256,
+            CompatibilityProbedAtUtc = probedAt,
+            CompatibilityDiagnosticCode = cachedRecord is null
+                ? probeValue?.DiagnosticCode
+                : "compatibility.cache_hit",
+            IsPersistenceEligible = persistenceEligible,
+        });
     }
 
     private async Task<OperationResult<ThemeRuntimeStatus>> ApplyCoreAsync(
@@ -312,9 +457,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
             }
 
             var renderer = apply.Value!;
-            if (renderer.RuntimeVersion != 1 ||
-                !renderer.Active ||
-                renderer.ThemeId != theme.Id)
+            if (!IsVerifiedApply(renderer, theme.Id))
             {
                 await RecoverAfterFailedSwitchAsync(
                     process,
@@ -327,11 +470,60 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                     "runtime.apply.verification_failed");
             }
 
-            var state = renderer.AppliedWindows > 0 &&
-                renderer.Failures == 0 &&
-                renderer.AppliedWindows >= renderer.EligibleWindows
-                ? ThemeRuntimeState.Temporary
-                : ThemeRuntimeState.Partial;
+            var qualification = await qualificationStore.IsQualifiedAsync(
+                context.Value.Installation.ExecutableSha256,
+                timeoutSource.Token);
+            var persistenceEligible = context.Value.CompatibilityLevel ==
+                CodexCompatibilityLevel.Verified ||
+                (qualification.IsSuccess && qualification.Value);
+            var completedCompatibilityCycle = false;
+            if (context.Value.CompatibilityLevel == CodexCompatibilityLevel.CompatibleByProbe &&
+                !persistenceEligible)
+            {
+                var cleanup = await rendererClient.CleanupAsync(process, timeoutSource.Token);
+                if (!cleanup.IsSuccess || cleanup.Value!.Active || cleanup.Value.Failures != 0)
+                {
+                    await RecoverAfterFailedSwitchAsync(
+                        process,
+                        rollbackPayload,
+                        session.Value!,
+                        operationId);
+                    return OperationResult<ThemeRuntimeStatus>.Failure(
+                        cleanup.Error ?? new OperationError(
+                            OperationErrorCode.InvalidResponse,
+                            "首次兼容验证未能完整清理临时主题。",
+                            "compatibility.cleanup_verification_failed"));
+                }
+
+                var reapplied = await rendererClient.ApplyAsync(
+                    process,
+                    payload.Value!,
+                    timeoutSource.Token);
+                if (!reapplied.IsSuccess ||
+                    !IsVerifiedApply(reapplied.Value!, theme.Id))
+                {
+                    await RecoverAfterFailedSwitchAsync(
+                        process,
+                        rollbackPayload,
+                        session.Value!,
+                        operationId);
+                    return OperationResult<ThemeRuntimeStatus>.Failure(
+                        reapplied.Error ?? new OperationError(
+                            OperationErrorCode.InvalidResponse,
+                            "首次兼容验证重新应用主题失败。",
+                            "compatibility.reapply_verification_failed"));
+                }
+
+                renderer = reapplied.Value!;
+                var qualified = await qualificationStore.QualifyAsync(
+                    context.Value.Installation.ExecutableSha256,
+                    timeProvider.GetUtcNow(),
+                    timeoutSource.Token);
+                persistenceEligible = qualified.IsSuccess;
+                completedCompatibilityCycle = true;
+            }
+
+            var state = ThemeRuntimeState.Temporary;
             var newSession = new RuntimeSessionState(
                 RuntimeSessionState.CurrentSchemaVersion,
                 state,
@@ -355,6 +547,12 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
             var message = state == ThemeRuntimeState.Temporary
                 ? "临时主题已应用；仅影响当前 Codex 实例。"
                 : "主题运行时已建立，但仍有窗口待就绪或应用失败。";
+            if (completedCompatibilityCycle)
+            {
+                message = persistenceEligible
+                    ? "首次兼容验证已完成：主题已应用、清理并重新应用，现在可以启用持久化。"
+                    : "主题已通过应用、清理和重新应用验证，但资格记录未能保存，持久化仍保持关闭。";
+            }
             if (state == ThemeRuntimeState.Temporary)
             {
                 var recent = await RecordApplyWithRecoveryTokenAsync(theme.Id, message);
@@ -377,7 +575,14 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                     renderer.EligibleWindows,
                     renderer.AppliedWindows,
                     Math.Max(0, renderer.EligibleWindows - renderer.AppliedWindows),
-                    context.Value.Installation.Version));
+                    context.Value.Installation.Version,
+                    context.Value.CompatibilityLevel,
+                    context.Value.Installation.IdentityAssessment,
+                    context.Value.Installation.Source,
+                    context.Value.Installation.ExecutableSha256,
+                    timeProvider.GetUtcNow(),
+                    context.Value.Probe.DiagnosticCode,
+                    persistenceEligible));
         }
         finally
         {
@@ -395,31 +600,23 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
         CancellationToken cancellationToken,
         bool requireVerifiedVersion = true)
     {
-        var installation = await discoveryService.FindInstallationAsync(cancellationToken);
-        if (!installation.IsSuccess)
+        var discovery = await discoveryService.DiscoverAsync(cancellationToken);
+        if (!discovery.IsSuccess)
         {
-            return OperationResult<RuntimeContext>.Failure(installation.Error!);
+            return OperationResult<RuntimeContext>.Failure(discovery.Error!);
         }
 
-        var installed = installation.Value!;
-        if (requireVerifiedVersion &&
-            !versionPolicy.IsVerified(installed.Version))
+        var installed = discovery.Value!.Installation;
+        if (requireVerifiedVersion && !installed.SourceAcknowledged)
         {
             return OperationResult<RuntimeContext>.Failure(
-                OperationErrorCode.UnsupportedVersion,
-                "当前 Codex 版本尚未验证，未执行注入。",
-                "runtime.codex_version_unverified");
+                OperationErrorCode.ValidationFailed,
+                "该 Codex 来源尚未确认；请在设置中重新选择并确认。",
+                "compatibility.source_acknowledgement_required");
         }
 
-        var processes = await discoveryService.FindProcessesAsync(
-            installed,
-            cancellationToken);
-        if (!processes.IsSuccess)
-        {
-            return OperationResult<RuntimeContext>.Failure(processes.Error!);
-        }
-
-        if (processes.Value!.Count == 0)
+        var processes = discovery.Value.Processes;
+        if (processes.Count == 0)
         {
             return OperationResult<RuntimeContext>.Failure(
                 OperationErrorCode.CodexNotFound,
@@ -427,7 +624,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                 "runtime.codex_not_running");
         }
 
-        if (processes.Value.Count != 1)
+        if (processes.Count != 1)
         {
             return OperationResult<RuntimeContext>.Failure(
                 OperationErrorCode.Conflict,
@@ -435,8 +632,25 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                 "runtime.multiple_main_processes");
         }
 
+        var process = processes[0];
+        var probe = await inspectorService.ProbeAsync(process, cancellationToken);
+        if (!probe.IsSuccess)
+        {
+            return OperationResult<RuntimeContext>.Failure(probe.Error!);
+        }
+
+        var probeValue = probe.Value!;
+        var compatibility = versionPolicy.Evaluate(installed.Version, probeValue);
+        if (compatibility == CodexCompatibilityLevel.Incompatible)
+        {
+            return OperationResult<RuntimeContext>.Failure(
+                OperationErrorCode.UnsupportedVersion,
+                "Codex 缺少主题运行所需能力，未执行注入。",
+                probeValue.DiagnosticCode ?? "compatibility.capability_missing");
+        }
+
         return OperationResult<RuntimeContext>.Success(
-            new RuntimeContext(installed, processes.Value[0]));
+            new RuntimeContext(installed, process, probeValue, compatibility));
     }
 
     private async Task<OperationResult<byte[]>> CreatePayloadAsync(
@@ -510,6 +724,14 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
         return payload.IsSuccess ? payload.Value : null;
     }
 
+    private static bool IsVerifiedApply(RendererRuntimeResult renderer, Guid themeId) =>
+        renderer.RuntimeVersion == 1 &&
+        renderer.Active &&
+        renderer.ThemeId == themeId &&
+        renderer.Failures == 0 &&
+        renderer.EligibleWindows > 0 &&
+        renderer.AppliedWindows == renderer.EligibleWindows;
+
     private async Task RecoverAfterFailedSwitchAsync(
         CodexProcessInfo process,
         ReadOnlyMemory<byte>? rollbackPayload,
@@ -540,7 +762,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
 
         await rendererClient.CleanupAsync(process, recoverySource.Token);
         await sessionStore.WriteAsync(
-            RuntimeSessionState.Default(operationId, timeProvider.GetUtcNow()),
+            RestoredSession(operationId, process),
             recoverySource.Token);
     }
 
@@ -623,9 +845,26 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
             codexVersion: codexVersion);
     }
 
-    private async Task<OperationResult> WriteDefaultAsync(Guid operationId) =>
+    private async Task<OperationResult> WriteDefaultAsync(
+        Guid operationId,
+        CodexProcessInfo? process) =>
         await WriteWithRecoveryTokenAsync(
-            RuntimeSessionState.Default(operationId, timeProvider.GetUtcNow()));
+            process is null
+                ? RuntimeSessionState.Default(operationId, timeProvider.GetUtcNow())
+                : RestoredSession(operationId, process));
+
+    private RuntimeSessionState RestoredSession(
+        Guid operationId,
+        CodexProcessInfo process) =>
+        new(
+            RuntimeSessionState.CurrentSchemaVersion,
+            ThemeRuntimeState.Default,
+            null,
+            process.ProcessId,
+            process.StartedAtUtc,
+            null,
+            operationId,
+            timeProvider.GetUtcNow());
 
     private async Task<OperationResult> WriteWithRecoveryTokenAsync(
         RuntimeSessionState state)
@@ -692,7 +931,14 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
         int eligibleWindows = 0,
         int appliedWindows = 0,
         int pendingWindows = 0,
-        string? codexVersion = null) =>
+        string? codexVersion = null,
+        CodexCompatibilityLevel compatibilityLevel = CodexCompatibilityLevel.Verified,
+        CodexIdentityAssessment identityAssessment = CodexIdentityAssessment.TrustedStore,
+        CodexInstallationSource installationSource = CodexInstallationSource.StoreAutomatic,
+        string? executableSha256 = null,
+        DateTimeOffset? compatibilityProbedAtUtc = null,
+        string? compatibilityDiagnosticCode = null,
+        bool isPersistenceEligible = true) =>
         new(
             state,
             themeId,
@@ -707,7 +953,14 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
             eligibleWindows,
             appliedWindows,
             pendingWindows,
-            codexVersion);
+            codexVersion,
+            compatibilityLevel,
+            identityAssessment,
+            installationSource,
+            executableSha256,
+            compatibilityProbedAtUtc,
+            compatibilityDiagnosticCode,
+            isPersistenceEligible);
 
     private OperationResult<ThemeRuntimeStatus> Busy()
     {
@@ -749,7 +1002,9 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
 
     private sealed record RuntimeContext(
         CodexInstallationInfo Installation,
-        CodexProcessInfo Process);
+        CodexProcessInfo Process,
+        CodexProbeResult Probe,
+        CodexCompatibilityLevel CompatibilityLevel);
 
     private sealed record ActiveOperation(
         Guid OperationId,

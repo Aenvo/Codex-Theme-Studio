@@ -8,6 +8,9 @@ public interface IThemeRepository
     Task<OperationResult<IReadOnlyList<ThemeSummary>>> ListAsync(
         CancellationToken cancellationToken);
 
+    Task<OperationResult<IReadOnlyList<ThemeSummary>>> ListDeletedAsync(
+        CancellationToken cancellationToken);
+
     Task<OperationResult<ThemePackage>> GetAsync(
         Guid themeId,
         CancellationToken cancellationToken);
@@ -54,6 +57,14 @@ public interface IThemeRepository
         CancellationToken cancellationToken);
 
     Task<OperationResult> DeleteAsync(
+        Guid themeId,
+        CancellationToken cancellationToken);
+
+    Task<OperationResult> RestoreDeletedAsync(
+        Guid themeId,
+        CancellationToken cancellationToken);
+
+    Task<OperationResult> PermanentlyDeleteAsync(
         Guid themeId,
         CancellationToken cancellationToken);
 }

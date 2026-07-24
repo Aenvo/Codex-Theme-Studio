@@ -255,6 +255,16 @@ public sealed class PersistenceManagementTests
             CancellationToken cancellationToken) =>
             Task.FromResult(Success(null, ThemeRuntimeState.Ready));
 
+        public Task<OperationResult<ThemeRuntimeStatus>> GetStatusAsync(
+            CodexStatusRefreshMode refreshMode,
+            CancellationToken cancellationToken) =>
+            GetStatusAsync(cancellationToken);
+
+        public Task<OperationResult<CodexCachedCompatibilityStatus?>>
+            GetCachedCompatibilityAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(
+                OperationResult<CodexCachedCompatibilityStatus?>.SuccessOptional(null));
+
         private static OperationResult<ThemeRuntimeStatus> Success(
             Guid? themeId,
             ThemeRuntimeState state) =>
@@ -424,6 +434,12 @@ public sealed class PersistenceManagementTests
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<OperationResult<IReadOnlyList<ThemeSummary>>> ListDeletedAsync(
+            CancellationToken cancellationToken) =>
+            Task.FromResult(
+                OperationResult<IReadOnlyList<ThemeSummary>>.Success(
+                    Array.Empty<ThemeSummary>()));
+
         public Task<OperationResult<ThemePackage>> GetAsync(
             Guid themeId,
             CancellationToken cancellationToken) =>
@@ -474,6 +490,16 @@ public sealed class PersistenceManagementTests
             throw new NotSupportedException();
 
         public Task<OperationResult> DeleteAsync(
+            Guid themeId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<OperationResult> RestoreDeletedAsync(
+            Guid themeId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<OperationResult> PermanentlyDeleteAsync(
             Guid themeId,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();

@@ -4,7 +4,7 @@ const exactColorPattern = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/iu;
 const exactUuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const allowedVariants = new Set(["auto", "light", "dark"]);
-const allowedSizes = new Set(["cover", "contain"]);
+const allowedSizes = new Set(["cover", "contain", "crop"]);
 const allowedSafeAreas = new Set([
   "auto",
   "center",
@@ -119,10 +119,7 @@ export function prepareRendererPayload(input) {
     throw validationError("image_signature_mismatch");
   }
 
-  const focus = applySafeArea(
-    theme.art.focusX,
-    theme.art.focusY,
-    theme.art.safeArea);
+  const usesCropFocus = theme.art.size === "crop";
 
   return {
     runtimeVersion: 1,
@@ -132,10 +129,10 @@ export function prepareRendererPayload(input) {
     art: {
       contentType: image.contentType,
       base64: image.base64,
-      focusXPercent: focus.x * 100,
-      focusYPercent: focus.y * 100,
+      focusXPercent: (usesCropFocus ? theme.art.focusX : 0.5) * 100,
+      focusYPercent: (usesCropFocus ? theme.art.focusY : 0.5) * 100,
       safeArea: theme.art.safeArea,
-      size: theme.art.size,
+      size: usesCropFocus ? "cover" : theme.art.size,
       homeOpacity: theme.art.homeOpacity,
       homeOverlay: theme.art.homeOverlay,
       taskMode: rendererTaskMode,
@@ -170,17 +167,6 @@ export function readStructuredInput(stream, {
     });
     stream.on("error", () => reject(validationError("payload_read_failed")));
   });
-}
-
-function applySafeArea(focusX, focusY, safeArea) {
-  return {
-    x: safeArea === "left" ? 0 :
-      safeArea === "right" ? 1 :
-        safeArea === "center" ? 0.5 : focusX,
-    y: safeArea === "top" ? 0 :
-      safeArea === "bottom" ? 1 :
-        safeArea === "center" ? 0.5 : focusY,
-  };
 }
 
 function decodeBase64(value) {

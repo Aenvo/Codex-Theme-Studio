@@ -24,7 +24,6 @@ public sealed class SqliteDatabaseInitializer
             thumbnail_relative_path TEXT NULL,
             content_sha256 TEXT NOT NULL,
             is_current_persistent INTEGER NOT NULL DEFAULT 0 CHECK (is_current_persistent IN (0, 1)),
-            compatibility_status INTEGER NOT NULL DEFAULT 0,
             last_apply_result INTEGER NOT NULL DEFAULT 0,
             last_apply_message TEXT NULL,
             deleted_utc TEXT NULL
@@ -178,4 +177,3 @@ public sealed class SqliteDatabaseInitializer
         return Convert.ToInt32(result, System.Globalization.CultureInfo.InvariantCulture);
     }
 }
-

@@ -7,7 +7,14 @@ param(
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
 $solutionPath = Join-Path $projectRoot 'CodexThemeStudio.sln'
-$requiredSdkVersion = '8.0.423'
+$globalJson = Get-Content -Raw -LiteralPath (Join-Path $projectRoot 'global.json') |
+    ConvertFrom-Json
+$runtimeBaseline = Get-Content -Raw -LiteralPath (
+    Join-Path $projectRoot 'eng\runtime-baseline.json') |
+    ConvertFrom-Json
+$requiredSdkVersion = [string]$globalJson.sdk.version
+$requiredNodeVersion = [string]$runtimeBaseline.nodeVersion
+$runtimeIdentifier = [string]$runtimeBaseline.runtimeIdentifier
 
 function Resolve-DotNet {
     $candidates = @()
@@ -40,17 +47,43 @@ function Resolve-DotNet {
 }
 
 function Resolve-Node {
-    $bundledNode = Join-Path $projectRoot 'runtime\node\node.exe'
-    if (Test-Path -LiteralPath $bundledNode) {
-        return $bundledNode
+    $candidates = @(
+        (Join-Path $projectRoot 'runtime\node\node.exe'),
+        (Join-Path $projectRoot (
+            "artifacts\cache\node-v$requiredNodeVersion-$runtimeIdentifier\node.exe"))
+    )
+
+    $releaseRoot = Join-Path $projectRoot 'artifacts\release'
+    if (Test-Path -LiteralPath $releaseRoot -PathType Container) {
+        $localReleases = Get-ChildItem -LiteralPath $releaseRoot -Directory |
+            Sort-Object Name -Descending
+        foreach ($release in $localReleases) {
+            $package = Get-ChildItem -LiteralPath $release.FullName -Directory |
+                Where-Object Name -Like 'CodexThemeManager-*-win-x64-portable' |
+                Select-Object -First 1
+            if ($package) {
+                $candidates += Join-Path $package.FullName 'runtime\node\node.exe'
+            }
+        }
     }
 
     $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
     if ($nodeCommand) {
-        return $nodeCommand.Source
+        $candidates += $nodeCommand.Source
     }
 
-    throw 'Node.js was not found. The task 2 self-test requires Node.js 24.x.'
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            continue
+        }
+
+        $actualVersion = (& $candidate --version).Trim()
+        if ($LASTEXITCODE -eq 0 -and $actualVersion -eq "v$requiredNodeVersion") {
+            return $candidate
+        }
+    }
+
+    throw "Required Node.js v$requiredNodeVersion was not found."
 }
 
 function Invoke-Checked {
@@ -76,14 +109,37 @@ $env:DOTNET_NOLOGO = '1'
 Push-Location $projectRoot
 try {
     Write-Host "Using .NET SDK $requiredSdkVersion"
-    Invoke-Checked $dotnet @('restore', $solutionPath, '--locked-mode')
-    Invoke-Checked $dotnet @('build', $solutionPath, '--configuration', $Configuration, '--no-restore')
-    Invoke-Checked $dotnet @('test', $solutionPath, '--configuration', $Configuration, '--no-build', '--no-restore')
+    Write-Host "Using runtime identifier $runtimeIdentifier"
+    Invoke-Checked $dotnet @(
+        'restore',
+        $solutionPath,
+        '--runtime', $runtimeIdentifier,
+        '--locked-mode'
+    )
+    Invoke-Checked $dotnet @(
+        'build',
+        $solutionPath,
+        '--configuration', $Configuration,
+        "-p:CodexRuntimeIdentifier=$runtimeIdentifier",
+        '-p:SelfContained=false',
+        '--no-restore'
+    )
+    Invoke-Checked $dotnet @(
+        'test',
+        $solutionPath,
+        '--configuration', $Configuration,
+        "-p:CodexRuntimeIdentifier=$runtimeIdentifier",
+        '-p:SelfContained=false',
+        '--no-build',
+        '--no-restore'
+    )
     Invoke-Checked $dotnet @('format', $solutionPath, '--verify-no-changes', '--no-restore')
 
     $agentJson = & $dotnet run `
         --project 'src\CodexThemeStudio.Agent\CodexThemeStudio.Agent.csproj' `
         --configuration $Configuration `
+        --runtime $runtimeIdentifier `
+        --no-self-contained `
         --no-build `
         --no-restore `
         -- self-test
@@ -97,8 +153,8 @@ try {
     }
 
     $nodeVersion = & $node --version
-    if ($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v24\.') {
-        throw "Injector self-test requires Node.js 24.x. Current version: $nodeVersion."
+    if ($LASTEXITCODE -ne 0 -or $nodeVersion -ne "v$requiredNodeVersion") {
+        throw "Injector self-test requires Node.js v$requiredNodeVersion. Current version: $nodeVersion."
     }
 
     $injectorJson = & $node 'runtime\injector\index.mjs' 'self-test'

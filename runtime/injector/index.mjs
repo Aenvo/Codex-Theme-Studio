@@ -11,6 +11,10 @@ import {
   readStructuredInput,
 } from "./renderer-payload.mjs";
 import {
+  rendererCompatibility,
+  rendererWindowProbe,
+} from "./renderer-runtime.mjs";
+import {
   assertPortOwner,
   classifyAppRoutes,
   evaluate,
@@ -23,14 +27,115 @@ const protocolVersion = 1;
 const inspectorPort = 9229;
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const discoveryScript = path.join(scriptDirectory, "windows-discovery.ps1");
-const probeExpression = `(() => {
-  const electron = process.mainModule.require("electron");
-  return {
+const rendererCompatibilityProbeExpression =
+  `(${rendererWindowProbe.toString()})(${JSON.stringify(rendererCompatibility)})`;
+const canaryExpression = `(async () => {
+  const structure = ${rendererCompatibilityProbeExpression};
+  if (!structure?.eligible) {
+    return { qualified: false, applied: false, cleaned: true };
+  }
+  const id = "codex-theme-studio-compat-canary";
+  const className = "codex-theme-studio-compat-canary";
+  const variableName = "--codex-theme-studio-compat-canary";
+  document.getElementById(id)?.remove();
+  document.documentElement.classList.remove(className);
+  document.documentElement.style.removeProperty(variableName);
+  const style = document.createElement("style");
+  style.id = id;
+  style.textContent = \`:root.\${className}{\${variableName}:1}\`;
+  const marker = document.createElement("div");
+  marker.id = \`\${id}-marker\`;
+  marker.hidden = true;
+  const blobUrl = URL.createObjectURL(new Blob(["canary"], { type: "text/plain" }));
+  document.head.append(style);
+  document.body.append(marker);
+  document.documentElement.classList.add(className);
+  const applied = getComputedStyle(document.documentElement)
+    .getPropertyValue(variableName).trim() === "1" &&
+    document.documentElement.classList.contains(className) &&
+    Boolean(document.getElementById(marker.id));
+  style.remove();
+  marker.remove();
+  document.documentElement.classList.remove(className);
+  document.documentElement.style.removeProperty(variableName);
+  URL.revokeObjectURL(blobUrl);
+  let blobReleased = false;
+  try {
+    await fetch(blobUrl);
+  } catch {
+    blobReleased = true;
+  }
+  const cleaned = !document.getElementById(id) &&
+    !document.getElementById(marker.id) &&
+    !document.documentElement.classList.contains(className) &&
+    getComputedStyle(document.documentElement)
+      .getPropertyValue(variableName).trim() !== "1" &&
+    blobReleased;
+  return { qualified: true, applied, cleaned };
+})()`;
+const probeExpression = `(async () => {
+  const result = {
     electronVersion: process.versions.electron || "",
-    urls: electron.BrowserWindow.getAllWindows().map(
-      window => window.webContents.getURL()
-    )
+    electronAvailable: false,
+    browserWindowAvailable: false,
+    executeJavaScriptAvailable: false,
+    urls: [],
+    eligibleWindowCount: 0,
+    canaryApplied: false,
+    canaryCleaned: false,
+    diagnosticCode: null
   };
+  try {
+    const electron = process.mainModule.require("electron");
+    result.electronAvailable = Boolean(electron);
+    result.browserWindowAvailable = Boolean(
+      electron?.BrowserWindow?.getAllWindows);
+    if (!result.browserWindowAvailable) {
+      result.diagnosticCode = "capability.browser_window_missing";
+      return result;
+    }
+    const windows = electron.BrowserWindow.getAllWindows();
+    result.urls = windows.map(window => window.webContents.getURL());
+    const eligible = windows.filter(window => {
+      const raw = window.webContents.getURL();
+      try {
+        const parsed = new URL(raw);
+        return parsed.protocol === "app:" &&
+          parsed.searchParams.get("initialRoute") !== "/avatar-overlay" &&
+          !parsed.pathname.includes("/avatar-overlay") &&
+          !parsed.pathname.includes("/pet-overlay");
+      } catch {
+        return false;
+      }
+    });
+    result.executeJavaScriptAvailable = eligible.length > 0 && eligible.every(window =>
+      typeof window.webContents.executeJavaScript === "function");
+    if (eligible.length === 0 || !result.executeJavaScriptAvailable) {
+      result.diagnosticCode = eligible.length === 0
+        ? "capability.eligible_window_missing"
+        : "capability.execute_javascript_missing";
+      return result;
+    }
+    const checks = await Promise.all(eligible.map(window =>
+      window.webContents.executeJavaScript(${JSON.stringify(canaryExpression)}, true)));
+    const qualified = checks.filter(check => check?.qualified === true);
+    result.eligibleWindowCount = qualified.length;
+    if (qualified.length === 0) {
+      result.diagnosticCode = "capability.eligible_window_missing";
+      return result;
+    }
+    result.canaryApplied = qualified.every(check => check?.applied === true);
+    result.canaryCleaned = qualified.every(check => check?.cleaned === true);
+    if (!result.canaryApplied || !result.canaryCleaned) {
+      result.diagnosticCode = result.canaryApplied
+        ? "capability.canary_cleanup_failed"
+        : "capability.canary_apply_failed";
+    }
+    return result;
+  } catch {
+    result.diagnosticCode = "capability.probe_failed";
+    return result;
+  }
 })()`;
 
 try {
@@ -42,6 +147,7 @@ try {
       capabilities: [
         "discover",
         "probe",
+        "inspect-status",
         "close-inspector",
         "prepare",
         "renderer-probe",
@@ -51,8 +157,9 @@ try {
         "renderer-cleanup",
       ],
     });
-  } else if (command === "discover" && process.argv.length === 3) {
-    outputSuccess(await discover());
+  } else if (command === "discover") {
+    const options = parseTargetOptions(process.argv.slice(3), false);
+    outputSuccess(await discover(options.executablePath));
   } else if (command === "prepare" && process.argv.length === 3) {
     const payload = prepareRendererPayload(await readStructuredInput(process.stdin));
     outputSuccess({
@@ -65,48 +172,56 @@ try {
       },
     });
   } else if (command === "probe") {
-    const processId = parseProcessId(process.argv.slice(3));
-    outputSuccess({ probe: await probe(processId) });
+    const options = parseTargetOptions(process.argv.slice(3), true);
+    outputSuccess({ probe: await probe(options.processId, options.executablePath) });
+  } else if (command === "inspect-status") {
+    const options = parseTargetOptions(process.argv.slice(3), true);
+    outputSuccess(await inspectStatus(options.processId, options.executablePath));
   } else if (command === "renderer-apply") {
-    const processId = parseProcessId(process.argv.slice(3));
+    const options = parseTargetOptions(process.argv.slice(3), true);
     const payload = prepareRendererPayload(await readStructuredInput(process.stdin));
     outputSuccess({
       renderer: await executeRendererOperation(
-        processId,
+        options.processId,
+        options.executablePath,
         createMainApplyExpression(payload)),
     });
   } else if (command === "renderer-probe") {
-    const processId = parseProcessId(process.argv.slice(3));
+    const options = parseTargetOptions(process.argv.slice(3), true);
     outputSuccess({
       renderer: await executeRendererOperation(
-        processId,
+        options.processId,
+        options.executablePath,
         createMainProbeExpression()),
     });
   } else if (command === "renderer-ensure") {
-    const processId = parseProcessId(process.argv.slice(3));
+    const options = parseTargetOptions(process.argv.slice(3), true);
     outputSuccess({
       renderer: await executeRendererOperation(
-        processId,
+        options.processId,
+        options.executablePath,
         createMainOperationExpression("ensure")),
     });
   } else if (command === "renderer-status") {
-    const processId = parseProcessId(process.argv.slice(3));
+    const options = parseTargetOptions(process.argv.slice(3), true);
     outputSuccess({
       renderer: await executeRendererOperation(
-        processId,
+        options.processId,
+        options.executablePath,
         createMainOperationExpression("status")),
     });
   } else if (command === "renderer-cleanup") {
-    const processId = parseProcessId(process.argv.slice(3));
+    const options = parseTargetOptions(process.argv.slice(3), true);
     outputSuccess({
       renderer: await executeRendererOperation(
-        processId,
+        options.processId,
+        options.executablePath,
         createMainOperationExpression("cleanup")),
     });
   } else if (command === "close-inspector") {
-    const processId = parseProcessId(process.argv.slice(3));
-    await closeInspectorForProcess(processId);
-    outputSuccess({ closed: true, processId });
+    const options = parseTargetOptions(process.argv.slice(3), true);
+    await closeInspectorForProcess(options.processId, options.executablePath);
+    outputSuccess({ closed: true, processId: options.processId });
   } else {
     throw commandError(
       "invalid_arguments",
@@ -117,16 +232,18 @@ try {
   outputFailure(error);
 }
 
-async function discover() {
+async function discover(executablePath) {
   ensureWindows();
-  const raw = await invokeDiscovery("Discover");
+  const raw = await invokeDiscovery(
+    "Discover",
+    executablePath ? { ExecutablePath: executablePath } : {});
   if (!raw.package) {
     throw commandError(
       "codex_not_installed",
       "未检测到当前用户注册的官方 Microsoft Store Codex。",
       false);
   }
-  validatePackage(raw.package);
+  validateTarget(raw.package, executablePath);
 
   return {
     installation: {
@@ -136,14 +253,19 @@ async function discover() {
       executablePath: raw.package.executablePath,
       publisherId: raw.package.publisherId,
       isStoreSigned: raw.package.signatureKind === "Store",
+      source: raw.package.source === "manualExecutable" ? 1 : 0,
+      identityAssessment:
+        raw.package.packageFamilyName === "OpenAI.Codex_2p2nqsd0c76g0" &&
+        raw.package.publisherId === "2p2nqsd0c76g0" &&
+        raw.package.signatureKind === "Store" ? 0 : 1,
     },
     processes: (raw.processes ?? []).map(toPublicProcess),
   };
 }
 
-async function executeRendererOperation(processId, expression) {
+async function executeRendererOperation(processId, executablePath, expression) {
   ensureWindows();
-  const before = await requireTrustedSnapshot(processId);
+  const before = await requireTrustedSnapshot(processId, executablePath);
   const initialPort = await getPortListeners();
   if (initialPort.length > 0) {
     assertPortOwner(initialPort, processId);
@@ -164,14 +286,14 @@ async function executeRendererOperation(processId, expression) {
   try {
     const listeners = await waitForPortOwner(processId);
     assertPortOwner(listeners, processId);
-    await assertSnapshotUnchanged(before);
+    await assertSnapshotUnchanged(before, executablePath);
     metadata = await fetchInspectorMetadata(inspectorPort);
     result = await evaluate(metadata.webSocketUrl, expression, {
       timeoutMs: 8000,
       maxBytes: 256 * 1024,
       awaitPromise: true,
     });
-    await assertSnapshotUnchanged(before);
+    await assertSnapshotUnchanged(before, executablePath);
   } finally {
     if (!metadata) {
       metadata = await fetchInspectorMetadata(inspectorPort);
@@ -189,9 +311,9 @@ async function executeRendererOperation(processId, expression) {
   };
 }
 
-async function probe(processId) {
+async function probe(processId, executablePath) {
   ensureWindows();
-  const before = await requireTrustedSnapshot(processId);
+  const before = await requireTrustedSnapshot(processId, executablePath);
   const initialPort = await getPortListeners();
   if (initialPort.length > 0) {
     assertPortOwner(initialPort, processId);
@@ -212,25 +334,42 @@ async function probe(processId) {
   try {
     const listeners = await waitForPortOwner(processId);
     assertPortOwner(listeners, processId);
-    await assertSnapshotUnchanged(before);
+    await assertSnapshotUnchanged(before, executablePath);
 
     metadata = await fetchInspectorMetadata(inspectorPort);
-    const result = await evaluate(metadata.webSocketUrl, probeExpression);
+    const result = await evaluate(metadata.webSocketUrl, probeExpression, {
+      timeoutMs: 8000,
+      maxBytes: 256 * 1024,
+      awaitPromise: true,
+    });
     if (!result || typeof result.electronVersion !== "string" ||
-        !Array.isArray(result.urls)) {
+        !Array.isArray(result.urls) ||
+        typeof result.electronAvailable !== "boolean" ||
+        typeof result.browserWindowAvailable !== "boolean" ||
+        typeof result.executeJavaScriptAvailable !== "boolean" ||
+        typeof result.eligibleWindowCount !== "number" ||
+        typeof result.canaryApplied !== "boolean" ||
+        typeof result.canaryCleaned !== "boolean") {
       throw commandError(
         "invalid_response",
         "只读探针返回结构无效。",
         false);
     }
 
-    await assertSnapshotUnchanged(before);
+    await assertSnapshotUnchanged(before, executablePath);
     probeData = {
       processId,
       processStartedAtUtc: before.startedAtUtc,
       electronVersion: result.electronVersion,
       windowCount: result.urls.length,
       routeTypes: classifyAppRoutes(result.urls),
+      electronAvailable: result.electronAvailable,
+      browserWindowAvailable: result.browserWindowAvailable,
+      executeJavaScriptAvailable: result.executeJavaScriptAvailable,
+      eligibleWindowCount: result.eligibleWindowCount,
+      canaryApplied: result.canaryApplied,
+      canaryCleaned: result.canaryCleaned,
+      diagnosticCode: result.diagnosticCode,
     };
   } finally {
     if (!metadata) {
@@ -246,16 +385,108 @@ async function probe(processId) {
   };
 }
 
-async function closeInspectorForProcess(processId) {
+async function inspectStatus(processId, executablePath) {
   ensureWindows();
-  const before = await requireTrustedSnapshot(processId);
+  const before = await requireTrustedSnapshot(processId, executablePath);
+  const initialPort = await getPortListeners();
+  if (initialPort.length > 0) {
+    assertPortOwner(initialPort, processId);
+  } else {
+    try {
+      process._debugProcess(processId);
+    } catch {
+      throw commandError(
+        "access_denied",
+        "无法为已校验的 Codex 主进程短时打开 Inspector。",
+        false);
+    }
+  }
+
+  const openedAt = performance.now();
+  let metadata;
+  let probeData;
+  let rendererData;
+  try {
+    const listeners = await waitForPortOwner(processId);
+    assertPortOwner(listeners, processId);
+    await assertSnapshotUnchanged(before, executablePath);
+    metadata = await fetchInspectorMetadata(inspectorPort);
+
+    const probeResult = await evaluate(metadata.webSocketUrl, probeExpression, {
+      timeoutMs: 8000,
+      maxBytes: 256 * 1024,
+      awaitPromise: true,
+    });
+    if (!probeResult || typeof probeResult.electronVersion !== "string" ||
+        !Array.isArray(probeResult.urls) ||
+        typeof probeResult.electronAvailable !== "boolean" ||
+        typeof probeResult.browserWindowAvailable !== "boolean" ||
+        typeof probeResult.executeJavaScriptAvailable !== "boolean" ||
+        typeof probeResult.eligibleWindowCount !== "number" ||
+        typeof probeResult.canaryApplied !== "boolean" ||
+        typeof probeResult.canaryCleaned !== "boolean") {
+      throw commandError(
+        "invalid_response",
+        "只读探针返回结构无效。",
+        false);
+    }
+
+    rendererData = await evaluate(
+      metadata.webSocketUrl,
+      createMainOperationExpression("status"),
+      {
+        timeoutMs: 8000,
+        maxBytes: 256 * 1024,
+        awaitPromise: true,
+      });
+    await assertSnapshotUnchanged(before, executablePath);
+    probeData = {
+      processId,
+      processStartedAtUtc: before.startedAtUtc,
+      electronVersion: probeResult.electronVersion,
+      windowCount: probeResult.urls.length,
+      routeTypes: classifyAppRoutes(probeResult.urls),
+      electronAvailable: probeResult.electronAvailable,
+      browserWindowAvailable: probeResult.browserWindowAvailable,
+      executeJavaScriptAvailable: probeResult.executeJavaScriptAvailable,
+      eligibleWindowCount: probeResult.eligibleWindowCount,
+      canaryApplied: probeResult.canaryApplied,
+      canaryCleaned: probeResult.canaryCleaned,
+      diagnosticCode: probeResult.diagnosticCode,
+    };
+  } finally {
+    if (!metadata) {
+      metadata = await fetchInspectorMetadata(inspectorPort);
+    }
+    await requestInspectorClose(metadata.webSocketUrl);
+    await waitForPortClosed(processId);
+  }
+
+  const duration = millisecondsToTimeSpan(performance.now() - openedAt);
+  return {
+    probe: {
+      ...probeData,
+      inspectorOpenDuration: duration,
+    },
+    renderer: {
+      ...rendererData,
+      processId,
+      inspectorWasAlreadyOpen: initialPort.length > 0,
+      inspectorOpenDuration: duration,
+    },
+  };
+}
+
+async function closeInspectorForProcess(processId, executablePath) {
+  ensureWindows();
+  const before = await requireTrustedSnapshot(processId, executablePath);
   const listeners = await getPortListeners();
   if (listeners.length === 0) {
     return;
   }
   assertPortOwner(listeners, processId);
   const metadata = await fetchInspectorMetadata(inspectorPort);
-  await assertSnapshotUnchanged(before);
+  await assertSnapshotUnchanged(before, executablePath);
   await requestInspectorClose(metadata.webSocketUrl);
   await waitForPortClosed(processId);
 }
@@ -271,17 +502,17 @@ async function requestInspectorClose(webSocketUrl) {
   }
 }
 
-async function requireTrustedSnapshot(processId) {
-  const raw = await invokeDiscovery("Snapshot", {
-    ProcessId: String(processId),
-  });
+async function requireTrustedSnapshot(processId, executablePath) {
+  const namedArguments = { ProcessId: String(processId) };
+  if (executablePath) namedArguments.ExecutablePath = executablePath;
+  const raw = await invokeDiscovery("Snapshot", namedArguments);
   if (!raw.package) {
     throw commandError(
       "codex_not_installed",
       "未检测到官方 Store Codex。",
       false);
   }
-  validatePackage(raw.package);
+  validateTarget(raw.package, executablePath);
   if (!raw.process) {
     throw commandError("process_exited", "Codex 主进程已退出。", true);
   }
@@ -294,8 +525,8 @@ async function requireTrustedSnapshot(processId) {
   return raw.process;
 }
 
-async function assertSnapshotUnchanged(expected) {
-  const actual = await requireTrustedSnapshot(expected.processId);
+async function assertSnapshotUnchanged(expected, executablePath) {
+  const actual = await requireTrustedSnapshot(expected.processId, executablePath);
   if (actual.startedAtUtc !== expected.startedAtUtc ||
       !samePath(actual.executablePath, expected.executablePath)) {
     throw commandError(
@@ -415,24 +646,24 @@ async function invokeDiscovery(mode, namedArguments = {}) {
   });
 }
 
-function validatePackage(packageInfo) {
-  if (packageInfo.packageFamilyName !== "OpenAI.Codex_2p2nqsd0c76g0" ||
-      packageInfo.publisherId !== "2p2nqsd0c76g0" ||
-      packageInfo.signatureKind !== "Store") {
-    throw commandError(
-      "unsupported_version",
-      "Codex Store 包身份或签名来源不符合预期。",
-      false);
-  }
-  const expectedRoot = `${path.resolve(packageInfo.installLocation)}${path.sep}`
-    .toLowerCase();
+function validateTarget(packageInfo, requestedExecutablePath) {
   const executable = path.resolve(packageInfo.executablePath).toLowerCase();
-  if (!executable.startsWith(expectedRoot) ||
-      path.basename(executable) !== "chatgpt.exe") {
+  if (requestedExecutablePath && !samePath(executable, requestedExecutablePath)) {
     throw commandError(
       "identity_changed",
-      "Codex 可执行文件路径不属于已注册包。",
+      "Codex 可执行文件路径与已选择目标不一致。",
       false);
+  }
+  if (!requestedExecutablePath) {
+    const expectedRoot = `${path.resolve(packageInfo.installLocation)}${path.sep}`
+      .toLowerCase();
+    if (!executable.startsWith(expectedRoot) ||
+        path.basename(executable) !== "chatgpt.exe") {
+      throw commandError(
+        "identity_changed",
+        "自动发现的 Codex 可执行文件路径无效。",
+        false);
+    }
   }
 }
 
@@ -445,16 +676,29 @@ function toPublicProcess(processInfo) {
   };
 }
 
-function parseProcessId(argumentsList) {
-  if (argumentsList.length !== 2 || argumentsList[0] !== "--pid" ||
-      !/^[1-9][0-9]{0,9}$/u.test(argumentsList[1])) {
+function parseTargetOptions(argumentsList, requireProcessId) {
+  let processId;
+  let executablePath;
+  if (argumentsList.length % 2 !== 0) {
+    throw commandError("invalid_arguments", "目标参数无效。", false);
+  }
+  for (let index = 0; index < argumentsList.length; index += 2) {
+    const name = argumentsList[index];
+    const value = argumentsList[index + 1];
+    if (!value || (name !== "--pid" && name !== "--executable")) {
+      throw commandError("invalid_arguments", "目标参数无效。", false);
+    }
+    if (name === "--pid") processId = value;
+    if (name === "--executable") executablePath = path.resolve(value);
+  }
+  if (requireProcessId && !/^[1-9][0-9]{0,9}$/u.test(processId ?? "")) {
     throw commandError("invalid_arguments", "必须提供有效的 --pid。", false);
   }
-  const value = Number(argumentsList[1]);
-  if (!Number.isSafeInteger(value) || value > 0x7fffffff) {
+  const value = processId ? Number(processId) : undefined;
+  if (value !== undefined && (!Number.isSafeInteger(value) || value > 0x7fffffff)) {
     throw commandError("invalid_arguments", "PID 超出允许范围。", false);
   }
-  return value;
+  return { processId: value, executablePath };
 }
 
 function samePath(left, right) {

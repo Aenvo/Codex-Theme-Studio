@@ -6,6 +6,8 @@ param(
 
     [int]$ProcessId = 0,
 
+    [string]$ExecutablePath = '',
+
     [ValidateRange(1, 65535)]
     [int]$Port = 9229
 )
@@ -38,20 +40,20 @@ function Get-ProcessSnapshot {
         [int]$TargetProcessId,
 
         [Parameter(Mandatory = $true)]
-        $Package
+        [string]$TargetExecutablePath
     )
 
     $process = Get-CimInstance Win32_Process -Filter "ProcessId = $TargetProcessId"
-    if ($null -eq $process) {
+    if ($null -eq $process -or
+        [string]::IsNullOrWhiteSpace([string]$process.ExecutablePath)) {
         return $null
     }
 
-    $installRoot = [IO.Path]::GetFullPath($Package.InstallLocation).TrimEnd('\') + '\'
     $executablePath = [IO.Path]::GetFullPath([string]$process.ExecutablePath)
-    $isInsidePackage = $executablePath.StartsWith(
-        $installRoot,
+    $expectedExecutable = [IO.Path]::GetFullPath($TargetExecutablePath)
+    $isExpectedExecutable = $executablePath.Equals(
+        $expectedExecutable,
         [StringComparison]::OrdinalIgnoreCase)
-    $isExpectedExecutable = [IO.Path]::GetFileName($executablePath) -ieq 'ChatGPT.exe'
     $isMainProcess = -not ([string]$process.CommandLine -match '(?i)(?:^|\s)--type=')
 
     [pscustomobject]@{
@@ -59,15 +61,66 @@ function Get-ProcessSnapshot {
         startedAtUtc = ([DateTime]$process.CreationDate).ToUniversalTime().ToString('O')
         executablePath = $executablePath
         commandLineKind = if ($isMainProcess) { 'main' } else { 'child' }
-        identityValid = [bool]($isInsidePackage -and $isExpectedExecutable -and $isMainProcess)
+        identityValid = [bool]($isExpectedExecutable -and $isMainProcess)
     }
 }
 
-$package = Get-OfficialPackage
+$package = $null
+$manualExecutable = $null
+if (-not [string]::IsNullOrWhiteSpace($ExecutablePath)) {
+    $isDriveAbsolute = $ExecutablePath -match '^[A-Za-z]:[\\/]'
+    $isUncAbsolute = $ExecutablePath -match '^\\\\[^\\]+\\[^\\]+(?:\\|$)'
+    if (-not ($isDriveAbsolute -or $isUncAbsolute)) {
+        throw 'ExecutablePath must be absolute.'
+    }
+
+    $manualExecutable = [IO.Path]::GetFullPath($ExecutablePath)
+    if (-not (Test-Path -LiteralPath $manualExecutable -PathType Leaf) -or
+        [IO.Path]::GetExtension($manualExecutable) -ine '.exe') {
+        throw 'ExecutablePath must identify an existing executable.'
+    }
+}
+else {
+    $package = Get-OfficialPackage
+}
+
+function Get-TargetPackageInfo {
+    if ($null -ne $manualExecutable) {
+        $versionInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo($manualExecutable)
+        $signature = Get-AuthenticodeSignature -LiteralPath $manualExecutable
+        return [pscustomobject]@{
+            packageFamilyName = ''
+            packageFullName = ''
+            version = [string]$versionInfo.FileVersion
+            publisherId = ''
+            signatureKind = [string]$signature.Status
+            installLocation = [IO.Path]::GetDirectoryName($manualExecutable)
+            executablePath = $manualExecutable
+            source = 'manualExecutable'
+        }
+    }
+
+    if ($null -eq $package) {
+        return $null
+    }
+
+    return [pscustomobject]@{
+        packageFamilyName = [string]$package.PackageFamilyName
+        packageFullName = [string]$package.PackageFullName
+        version = [string]$package.Version
+        publisherId = [string]$package.PublisherId
+        signatureKind = [string]$package.SignatureKind
+        installLocation = [IO.Path]::GetFullPath([string]$package.InstallLocation)
+        executablePath = Join-Path ([string]$package.InstallLocation) 'app\ChatGPT.exe'
+        source = 'storeAutomatic'
+    }
+}
+
+$target = Get-TargetPackageInfo
 
 switch ($Mode) {
     'Discover' {
-        if ($null -eq $package) {
+        if ($null -eq $target) {
             [pscustomobject]@{
                 package = $null
                 processes = @()
@@ -75,30 +128,25 @@ switch ($Mode) {
             exit 0
         }
 
+        $targetName = [IO.Path]::GetFileName([string]$target.executablePath).Replace("'", "''")
         $snapshots = @(
-            Get-CimInstance Win32_Process -Filter "Name = 'ChatGPT.exe'" |
+            Get-CimInstance Win32_Process -Filter "Name = '$targetName'" |
                 ForEach-Object {
-                    Get-ProcessSnapshot -TargetProcessId ([int]$_.ProcessId) -Package $package
+                    Get-ProcessSnapshot `
+                        -TargetProcessId ([int]$_.ProcessId) `
+                        -TargetExecutablePath ([string]$target.executablePath)
                 } |
                 Where-Object { $null -ne $_ -and $_.identityValid }
         )
 
         [pscustomobject]@{
-            package = [pscustomobject]@{
-                packageFamilyName = [string]$package.PackageFamilyName
-                packageFullName = [string]$package.PackageFullName
-                version = [string]$package.Version
-                publisherId = [string]$package.PublisherId
-                signatureKind = [string]$package.SignatureKind
-                installLocation = [IO.Path]::GetFullPath([string]$package.InstallLocation)
-                executablePath = Join-Path ([string]$package.InstallLocation) 'app\ChatGPT.exe'
-            }
+            package = $target
             processes = $snapshots
         } | ConvertTo-Json -Depth 5 -Compress
     }
 
     'Snapshot' {
-        if ($null -eq $package) {
+        if ($null -eq $target) {
             [pscustomobject]@{
                 package = $null
                 process = $null
@@ -107,16 +155,10 @@ switch ($Mode) {
         }
 
         [pscustomobject]@{
-            package = [pscustomobject]@{
-                packageFamilyName = [string]$package.PackageFamilyName
-                packageFullName = [string]$package.PackageFullName
-                version = [string]$package.Version
-                publisherId = [string]$package.PublisherId
-                signatureKind = [string]$package.SignatureKind
-                installLocation = [IO.Path]::GetFullPath([string]$package.InstallLocation)
-                executablePath = Join-Path ([string]$package.InstallLocation) 'app\ChatGPT.exe'
-            }
-            process = Get-ProcessSnapshot -TargetProcessId $ProcessId -Package $package
+            package = $target
+            process = Get-ProcessSnapshot `
+                -TargetProcessId $ProcessId `
+                -TargetExecutablePath ([string]$target.executablePath)
         } | ConvertTo-Json -Depth 5 -Compress
     }
 

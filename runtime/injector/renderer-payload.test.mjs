@@ -15,8 +15,9 @@ test("prepares a serialized payload and maps frozen Schema v1 task modes", () =>
   assert.equal(full.palette.accent, "#CC66EE");
 });
 
-test("safe area deterministically adjusts image focus", () => {
+test("crop mode preserves the explicit focus point and renders as cover", () => {
   const input = createInput("ambient");
+  input.theme.art.size = "crop";
   input.theme.art.safeArea = "top";
   input.theme.art.focusX = 0.2;
   input.theme.art.focusY = 0.8;
@@ -24,19 +25,20 @@ test("safe area deterministically adjusts image focus", () => {
   const payload = prepareRendererPayload(input);
 
   assert.equal(payload.art.focusXPercent, 20);
-  assert.equal(payload.art.focusYPercent, 0);
+  assert.equal(payload.art.focusYPercent, 80);
+  assert.equal(payload.art.size, "cover");
 });
 
-test("none safe area preserves the explicit focus point", () => {
+test("non-crop image sizes remain centered", () => {
   const input = createInput("ambient");
-  input.theme.art.safeArea = "none";
   input.theme.art.focusX = 0.31;
   input.theme.art.focusY = 0.73;
 
   const payload = prepareRendererPayload(input);
 
-  assert.equal(payload.art.focusXPercent, 31);
-  assert.equal(payload.art.focusYPercent, 73);
+  assert.equal(payload.art.focusXPercent, 50);
+  assert.equal(payload.art.focusYPercent, 50);
+  assert.equal(payload.art.size, "cover");
 });
 
 test("rejects unknown fields, unsafe colors, bad ranges, and image mismatch", () => {

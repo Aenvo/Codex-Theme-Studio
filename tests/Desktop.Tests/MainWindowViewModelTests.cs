@@ -18,6 +18,235 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public void LibraryLayout_DefaultsToCardsAndSwitchesBothWays()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 2);
+
+        Assert.Equal(ThemeLibraryLayout.Cards, fixture.ViewModel.SelectedLibraryLayout);
+        Assert.True(fixture.ViewModel.IsCardView);
+        Assert.False(fixture.ViewModel.IsListView);
+
+        fixture.ViewModel.SetLibraryLayoutCommand.Execute("List");
+
+        Assert.Equal(ThemeLibraryLayout.List, fixture.ViewModel.SelectedLibraryLayout);
+        Assert.False(fixture.ViewModel.IsCardView);
+        Assert.True(fixture.ViewModel.IsListView);
+
+        fixture.ViewModel.SetLibraryLayoutCommand.Execute("Cards");
+
+        Assert.True(fixture.ViewModel.IsCardView);
+        Assert.False(fixture.ViewModel.IsListView);
+    }
+
+    [Fact]
+    public async Task Workspace_DefaultsToAllAndScopeFiltersCurrentTheme()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 5);
+        var temporaryId = fixture.Repository.Summaries[1].ThemeId;
+        fixture.Runtime.Status = Status(
+            ThemeRuntimeState.Temporary,
+            temporaryId,
+            persistenceEnabled: false);
+
+        await fixture.ViewModel.InitializeAsync();
+
+        Assert.Equal("主题资料库", fixture.ViewModel.PageTitle);
+        Assert.Equal(LibraryPage.All, fixture.ViewModel.CurrentPage);
+        Assert.Equal(ThemeScope.All, fixture.ViewModel.SelectedScope);
+        Assert.Equal(5, fixture.ViewModel.Themes.Count);
+
+        fixture.ViewModel.SelectedScope = ThemeScope.Current;
+
+        var current = Assert.Single(fixture.ViewModel.Themes);
+        Assert.Equal(temporaryId, current.ThemeId);
+
+        fixture.ViewModel.NavigateCommand.Execute("All");
+
+        Assert.Equal(LibraryPage.All, fixture.ViewModel.CurrentPage);
+        Assert.Equal(ThemeScope.All, fixture.ViewModel.SelectedScope);
+        Assert.Equal(5, fixture.ViewModel.Themes.Count);
+
+        fixture.ViewModel.NavigateCommand.Execute("Current");
+
+        Assert.Equal(LibraryPage.All, fixture.ViewModel.CurrentPage);
+        Assert.Equal(ThemeScope.Current, fixture.ViewModel.SelectedScope);
+        Assert.Single(fixture.ViewModel.Themes);
+    }
+
+    [Fact]
+    public async Task InitializeAndNavigate_DoNotSelectAThemeUntilUserChoosesOne()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 3);
+
+        await fixture.ViewModel.InitializeAsync();
+
+        Assert.Null(fixture.ViewModel.SelectedTheme);
+        Assert.False(fixture.ViewModel.ApplyTemporaryCommand.CanExecute(null));
+
+        fixture.ViewModel.SelectedTheme = fixture.ViewModel.Themes[1];
+        Assert.True(fixture.ViewModel.ApplyTemporaryCommand.CanExecute(null));
+
+        fixture.ViewModel.NavigateCommand.Execute("Favorites");
+
+        Assert.Equal("我的收藏", fixture.ViewModel.PageTitle);
+        Assert.Null(fixture.ViewModel.SelectedTheme);
+    }
+
+    [Fact]
+    public async Task Initialize_ShowsCachedStatusWhileLiveConfirmationRuns()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        fixture.Runtime.CachedCompatibility =
+            new CodexCachedCompatibilityStatus(
+                "26.715.4045.0",
+                "OpenAI.Codex_26.715.4045.0_x64__2p2nqsd0c76g0",
+                @"C:\Program Files\WindowsApps\OpenAI.Codex\ChatGPT.exe",
+                new string('a', 64),
+                CodexCompatibilityLevel.Verified,
+                CodexIdentityAssessment.TrustedStore,
+                CodexInstallationSource.StoreAutomatic,
+                DateTimeOffset.Parse("2026-07-24T06:00:00Z"),
+                true);
+        fixture.Runtime.StatusGate =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await fixture.ViewModel.InitializeAsync();
+        fixture.ViewModel.SelectedTheme = fixture.ViewModel.Themes[0];
+
+        Assert.Equal(CodexDetectionPhase.Confirming, fixture.ViewModel.CodexStatusPhase);
+        Assert.StartsWith("上次", fixture.ViewModel.CodexStatusText);
+        Assert.False(fixture.ViewModel.ApplyTemporaryCommand.CanExecute(null));
+
+        fixture.Runtime.StatusGate.SetResult();
+        await fixture.ViewModel.WaitForBackgroundInitializationAsync();
+
+        Assert.Equal(CodexDetectionPhase.Live, fixture.ViewModel.CodexStatusPhase);
+        Assert.True(fixture.ViewModel.ApplyTemporaryCommand.CanExecute(null));
+        Assert.Equal(1, fixture.Runtime.GetStatusCalls);
+    }
+
+    [Fact]
+    public async Task SettingsTabs_LoadDiagnosticsAndPreserveSelection()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+
+        Assert.Equal(
+            SettingsSection.General,
+            fixture.ViewModel.SelectedSettingsSection);
+
+        fixture.ViewModel.SelectedSettingsSection = SettingsSection.Diagnostics;
+        await WaitUntilAsync(() => fixture.Diagnostics.ReadCalls == 1);
+
+        Assert.Equal(
+            DiagnosticHealth.Normal,
+            fixture.ViewModel.DiagnosticHealth);
+        Assert.Equal("诊断记录正常", fixture.ViewModel.DiagnosticStatusText);
+        var item = Assert.Single(fixture.ViewModel.DiagnosticEvents);
+        Assert.Equal("持久主题运行正常", item.Title);
+
+        fixture.ViewModel.SelectedSettingsSection = SettingsSection.About;
+        fixture.ViewModel.NavigateCommand.Execute("Settings");
+
+        Assert.Equal(
+            SettingsSection.About,
+            fixture.ViewModel.SelectedSettingsSection);
+    }
+
+    [Fact]
+    public async Task DiagnosticSummary_IsCopiedFromSanitizedBundleService()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+
+        fixture.ViewModel.CopyDiagnosticSummaryCommand.Execute(null);
+        await WaitUntilAsync(() => fixture.Diagnostics.DraftCalls == 1);
+
+        Assert.Equal("safe issue summary", fixture.CopiedText);
+        Assert.Equal("Success", fixture.ViewModel.NotificationKind);
+        Assert.Contains("报告 ID", fixture.ViewModel.NotificationMessage);
+    }
+
+    [Fact]
+    public async Task CodexDetection_DistinguishesMissingFromCapabilityBlocked()
+    {
+        using var missing = new ViewModelFixture(themeCount: 1);
+        missing.Runtime.Status = Status(
+            ThemeRuntimeState.NotInstalled,
+            themeId: null,
+            persistenceEnabled: false) with
+        {
+            UserMessage = "未检测到 Codex；可以在设置中手动选择可执行文件。",
+        };
+
+        await missing.ViewModel.InitializeAsync();
+
+        Assert.False(missing.ViewModel.IsCodexDetected);
+        Assert.Equal("未检测到 ChatGPT (Codex)", missing.ViewModel.CodexStatusText);
+        Assert.False(missing.ViewModel.IsNotificationVisible);
+
+        using var blocked = new ViewModelFixture(themeCount: 1);
+        blocked.Runtime.Status = Status(
+            ThemeRuntimeState.Unsupported,
+            themeId: null,
+            persistenceEnabled: false) with
+        {
+            UserMessage = "Codex 缺少主题运行所需能力，未执行注入。",
+            CompatibilityLevel = CodexCompatibilityLevel.Incompatible,
+            IsPersistenceEligible = false,
+        };
+
+        await blocked.ViewModel.InitializeAsync();
+
+        Assert.True(blocked.ViewModel.IsCodexDetected);
+        Assert.Equal("已检测到 ChatGPT (Codex)", blocked.ViewModel.CodexStatusText);
+        Assert.True(blocked.ViewModel.IsNotificationVisible);
+        Assert.Equal("Warning", blocked.ViewModel.NotificationKind);
+        Assert.Contains("所需能力", blocked.ViewModel.NotificationMessage);
+        Assert.False(blocked.ViewModel.SetPersistentCommand.CanExecute(null));
+        Assert.Contains("先临时应用", blocked.ViewModel.PersistenceEligibilityMessage);
+    }
+
+    [Fact]
+    public async Task CompatibilityStatus_MapsVerifiedProbeSourceWarningAndIncompatible()
+    {
+        var cases = new[]
+        {
+            (
+                CodexCompatibilityLevel.Verified,
+                CodexIdentityAssessment.TrustedStore,
+                "已验证版本 · 能力探测通过"),
+            (
+                CodexCompatibilityLevel.CompatibleByProbe,
+                CodexIdentityAssessment.TrustedStore,
+                "未知版本 · 能力探测兼容"),
+            (
+                CodexCompatibilityLevel.CompatibleByProbe,
+                CodexIdentityAssessment.UnverifiedSource,
+                "来源未验证 · 能力探测兼容"),
+            (
+                CodexCompatibilityLevel.Incompatible,
+                CodexIdentityAssessment.UnverifiedSource,
+                "能力不兼容"),
+        };
+
+        foreach (var (level, identity, expected) in cases)
+        {
+            using var fixture = new ViewModelFixture(themeCount: 1);
+            fixture.Runtime.Status = Status(
+                ThemeRuntimeState.NotRunning,
+                themeId: null,
+                persistenceEnabled: false) with
+            {
+                CompatibilityLevel = level,
+                IdentityAssessment = identity,
+            };
+
+            await fixture.ViewModel.InitializeAsync();
+
+            Assert.Equal(expected, fixture.ViewModel.CodexCompatibilityText);
+        }
+    }
+
+    [Fact]
     public async Task Initialize_WithOneHundredThemes_FiltersChineseEmojiAndTags()
     {
         using var fixture = new ViewModelFixture(themeCount: 100);
@@ -67,10 +296,33 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task ToggleFavorite_UsesClickedCardWithoutChangingSelection()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 3);
+        await fixture.ViewModel.InitializeAsync();
+        fixture.ViewModel.SelectedTheme = fixture.ViewModel.Themes[0];
+        var selectedId = fixture.ViewModel.SelectedTheme.ThemeId;
+        var clicked = fixture.ViewModel.Themes[1];
+        var expectedFavorite = !clicked.IsFavorite;
+
+        fixture.ViewModel.ToggleFavoriteCommand.Execute(clicked);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.Equal(selectedId, fixture.ViewModel.SelectedTheme?.ThemeId);
+        Assert.Equal(
+            expectedFavorite,
+            fixture.Repository.Summaries.Single(item => item.ThemeId == clicked.ThemeId).IsFavorite);
+        Assert.Equal(
+            expectedFavorite ? "已加入收藏。" : "已取消收藏。",
+            fixture.ViewModel.NotificationMessage);
+    }
+
+    [Fact]
     public async Task Apply_DisablesConflictingCommandsUntilAsyncOperationCompletes()
     {
         using var fixture = new ViewModelFixture(themeCount: 3);
         await fixture.ViewModel.InitializeAsync();
+        fixture.ViewModel.SelectedTheme = fixture.ViewModel.Themes[0];
         fixture.Runtime.ApplyGate =
             new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -104,6 +356,302 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task Trash_RestoresSoftDeletedThemeToWorkspace()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 3);
+        await fixture.ViewModel.InitializeAsync();
+        var deletedId = fixture.ViewModel.Themes[0].ThemeId;
+        fixture.ViewModel.SelectedTheme = fixture.ViewModel.Themes[0];
+
+        fixture.ViewModel.DeleteCommand.Execute(null);
+        await WaitUntilAsync(
+            () =>
+                !fixture.ViewModel.IsBusy &&
+                fixture.Repository.DeletedThemeIds.Contains(deletedId));
+
+        Assert.Equal(2, fixture.ViewModel.Themes.Count);
+        fixture.ViewModel.NavigateCommand.Execute("Trash");
+
+        Assert.True(fixture.ViewModel.IsTrashVisible);
+        Assert.False(fixture.ViewModel.IsLibraryVisible);
+        Assert.Equal("回收站", fixture.ViewModel.PageTitle);
+        Assert.Equal("1 个已删除主题", fixture.ViewModel.ThemeCountText);
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+        Assert.Equal(deletedId, fixture.ViewModel.SelectedTheme.ThemeId);
+
+        fixture.ViewModel.RestoreDeletedCommand.Execute(null);
+        await WaitUntilAsync(
+            () =>
+                !fixture.ViewModel.IsBusy &&
+                !fixture.Repository.DeletedThemeIds.Contains(deletedId));
+
+        Assert.Empty(fixture.ViewModel.Themes);
+        fixture.ViewModel.NavigateCommand.Execute("All");
+        Assert.Equal(3, fixture.ViewModel.Themes.Count);
+    }
+
+    [Fact]
+    public async Task Trash_PermanentDeleteRequiresConfirmation()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 2);
+        var deletedId = fixture.Repository.Summaries[0].ThemeId;
+        fixture.Repository.DeletedThemeIds.Add(deletedId);
+        await fixture.ViewModel.InitializeAsync();
+        fixture.ViewModel.NavigateCommand.Execute("Trash");
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+        fixture.Dialogs.ConfirmResult = false;
+
+        fixture.ViewModel.PermanentlyDeleteCommand.Execute(null);
+        await WaitUntilAsync(() => fixture.Dialogs.Confirmations.Count == 1);
+
+        Assert.Equal(0, fixture.Repository.PermanentDeleteCalls);
+        Assert.Single(fixture.ViewModel.Themes);
+        Assert.Equal("永久删除主题", fixture.Dialogs.Confirmations[0].Title);
+        Assert.Contains("无法在应用内还原", fixture.Dialogs.Confirmations[0].Message);
+
+        fixture.Dialogs.ConfirmResult = true;
+        fixture.ViewModel.PermanentlyDeleteCommand.Execute(null);
+        await WaitUntilAsync(
+            () =>
+                !fixture.ViewModel.IsBusy &&
+                fixture.Repository.PermanentDeleteCalls == 1);
+
+        Assert.Empty(fixture.ViewModel.Themes);
+        Assert.False(fixture.Repository.Themes.ContainsKey(deletedId));
+    }
+
+    [Fact]
+    public async Task Trash_EmptyRequiresConfirmationAndPurgesEveryDeletedTheme()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 3);
+        fixture.Repository.DeletedThemeIds.Add(fixture.Repository.Summaries[0].ThemeId);
+        fixture.Repository.DeletedThemeIds.Add(fixture.Repository.Summaries[1].ThemeId);
+        await fixture.ViewModel.InitializeAsync();
+        fixture.ViewModel.NavigateCommand.Execute("Trash");
+
+        fixture.ViewModel.EmptyTrashCommand.Execute(null);
+        await WaitUntilAsync(
+            () =>
+                !fixture.ViewModel.IsBusy &&
+                fixture.Repository.PermanentDeleteCalls == 2);
+
+        Assert.Empty(fixture.ViewModel.Themes);
+        var confirmation = Assert.Single(fixture.Dialogs.Confirmations);
+        Assert.Equal("清空回收站", confirmation.Title);
+        Assert.Contains("2 个主题", confirmation.Message);
+    }
+
+    [Fact]
+    public async Task Restore_DisablesExternalPersistenceAndClearsExternalBadges()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1, externalThemeActive: true);
+        await fixture.ViewModel.InitializeAsync();
+        Assert.True(Assert.Single(fixture.ViewModel.Themes).IsExternalActive);
+
+        fixture.ViewModel.RestoreCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        var confirmation = Assert.Single(fixture.Dialogs.Confirmations);
+        Assert.Contains("OkkSkin", confirmation.Message);
+        Assert.Contains("主题、图片和缓存不会删除", confirmation.Message);
+        Assert.Equal(1, fixture.ExternalPersistence.DisableCalls);
+        Assert.Equal(1, fixture.Runtime.RestoreCalls);
+        var doro = Assert.Single(fixture.ViewModel.Themes);
+        Assert.False(doro.IsExternalActive);
+        Assert.False(doro.IsExternalPersistent);
+        Assert.False(doro.ShowPersistentStatus);
+        Assert.False(doro.ShowTemporaryStatus);
+        Assert.Contains("下次启动仍保持官方外观", fixture.ViewModel.CodexStatusDetail);
+    }
+
+    [Fact]
+    public async Task Restore_TemporaryThemeDoesNotRequireConfirmation()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        var themeId = fixture.Repository.Summaries[0].ThemeId;
+        fixture.Runtime.Status = fixture.Runtime.Status with
+        {
+            State = ThemeRuntimeState.Temporary,
+            ThemeId = themeId,
+        };
+        await fixture.ViewModel.InitializeAsync();
+
+        fixture.ViewModel.RestoreCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.Empty(fixture.Dialogs.Confirmations);
+        Assert.Equal(1, fixture.Runtime.RestoreCalls);
+        Assert.Equal(0, fixture.Persistence.DisableCalls);
+        Assert.Equal(0, fixture.ExternalPersistence.DisableCalls);
+    }
+
+    [Fact]
+    public async Task Restore_ManagedPersistenceRequiresConfirmationAndDisablesAgent()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 1,
+            managedPersistenceEnabled: true);
+        await fixture.ViewModel.InitializeAsync();
+
+        fixture.ViewModel.RestoreCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        var confirmation = Assert.Single(fixture.Dialogs.Confirmations);
+        Assert.Contains("Theme Studio", confirmation.Message);
+        Assert.Equal(1, fixture.Persistence.DisableCalls);
+        Assert.Equal(1, fixture.Runtime.RestoreCalls);
+        Assert.False(fixture.ViewModel.IsPersistenceEnabled);
+    }
+
+    [Fact]
+    public async Task Restore_CancelledConfirmationLeavesAllPersistenceUnchanged()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 1,
+            externalThemeActive: true,
+            managedPersistenceEnabled: true);
+        fixture.Dialogs.ConfirmResult = false;
+        await fixture.ViewModel.InitializeAsync();
+
+        fixture.ViewModel.RestoreCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.Single(fixture.Dialogs.Confirmations);
+        Assert.Equal(0, fixture.Persistence.DisableCalls);
+        Assert.Equal(0, fixture.ExternalPersistence.DisableCalls);
+        Assert.Equal(0, fixture.Runtime.RestoreCalls);
+    }
+
+    [Fact]
+    public async Task Restore_IgnoresSelectedCardAndDisablesBothProviders()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 2,
+            externalThemeActive: true,
+            managedPersistenceEnabled: true);
+        await fixture.ViewModel.InitializeAsync();
+        fixture.ViewModel.SelectedTheme = fixture.ViewModel.Themes[1];
+        Assert.False(fixture.ViewModel.SelectedTheme.Summary.IsSourceReadOnly);
+
+        fixture.ViewModel.RestoreCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        var confirmation = Assert.Single(fixture.Dialogs.Confirmations);
+        Assert.Contains("Theme Studio", confirmation.Message);
+        Assert.Contains("OkkSkin", confirmation.Message);
+        Assert.Equal(1, fixture.Persistence.DisableCalls);
+        Assert.Equal(1, fixture.ExternalPersistence.DisableCalls);
+        Assert.Equal(1, fixture.Runtime.RestoreCalls);
+    }
+
+    [Fact]
+    public async Task Restore_ExternalFailureReportsPartialAndDoesNotClaimSuccess()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1, externalThemeActive: true);
+        fixture.ExternalPersistence.DisableResult =
+            OperationResult<ExternalPersistenceDisableResult>.Failure(
+                OperationErrorCode.AccessDenied,
+                "没有权限移除 OkkSkin 启动项。",
+                "test.external.access_denied");
+        await fixture.ViewModel.InitializeAsync();
+
+        fixture.ViewModel.RestoreCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.Equal("Warning", fixture.ViewModel.NotificationKind);
+        Assert.Contains("持久化残留", fixture.ViewModel.NotificationMessage);
+        Assert.Contains("没有权限", fixture.ViewModel.NotificationMessage);
+        Assert.DoesNotContain(
+            "下次启动仍保持官方外观",
+            fixture.ViewModel.NotificationMessage);
+    }
+
+    [Fact]
+    public async Task Restore_ManagedFailureReportsPartialAndStillRestoresCurrentAppearance()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 1,
+            managedPersistenceEnabled: true);
+        fixture.Persistence.DisableResult =
+            OperationResult<ThemeRuntimeStatus>.Failure(
+                OperationErrorCode.AccessDenied,
+                "没有权限移除 Theme Studio 启动项。",
+                "test.persistence.access_denied");
+        await fixture.ViewModel.InitializeAsync();
+
+        fixture.ViewModel.RestoreCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.Equal(1, fixture.Persistence.DisableCalls);
+        Assert.Equal(1, fixture.Runtime.RestoreCalls);
+        Assert.Equal("Warning", fixture.ViewModel.NotificationKind);
+        Assert.Contains("Theme Studio", fixture.ViewModel.NotificationMessage);
+        Assert.True(fixture.ViewModel.IsPersistenceEnabled);
+    }
+
+    [Fact]
+    public async Task CardSubtitle_UsesLocalLabelButPreservesExternalTags()
+    {
+        using var localFixture = new ViewModelFixture(themeCount: 1);
+        await localFixture.ViewModel.InitializeAsync();
+        var local = Assert.Single(localFixture.ViewModel.Themes);
+        Assert.Equal("本地主题", local.CardSubtitleText);
+        Assert.NotEqual(local.TagsText, local.CardSubtitleText);
+
+        using var externalFixture = new ViewModelFixture(
+            themeCount: 1,
+            externalThemeActive: true);
+        await externalFixture.ViewModel.InitializeAsync();
+        var external = Assert.Single(externalFixture.ViewModel.Themes);
+        Assert.Equal(external.TagsText, external.CardSubtitleText);
+    }
+
+    [Fact]
+    public async Task ThemeCards_ExposePaletteColorsForLocalAndExternalThemes()
+    {
+        using var localFixture = new ViewModelFixture(themeCount: 1);
+        await localFixture.ViewModel.InitializeAsync();
+        var local = Assert.Single(localFixture.ViewModel.Themes);
+        var localPackage = localFixture.Repository.Themes[local.ThemeId];
+
+        Assert.True(local.HasPalette);
+        Assert.Equal(
+            [
+                localPackage.Palette.Background,
+                localPackage.Palette.Panel,
+                localPackage.Palette.Accent,
+                localPackage.Palette.Text,
+                localPackage.Palette.Muted,
+                localPackage.Palette.Border,
+            ],
+            local.PaletteColors);
+
+        using var externalFixture = new ViewModelFixture(
+            themeCount: 1,
+            externalThemeActive: true);
+        await externalFixture.ViewModel.InitializeAsync();
+        var external = Assert.Single(externalFixture.ViewModel.Themes);
+
+        Assert.True(external.HasPalette);
+        Assert.Equal(6, external.PaletteColors.Count);
+    }
+
+    [Fact]
+    public async Task ExternalPersistentTheme_AllowsPersistenceActionWithoutStartingSecondAgent()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1, externalThemeActive: true);
+        await fixture.ViewModel.InitializeAsync();
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+
+        Assert.True(fixture.ViewModel.SetPersistentCommand.CanExecute(null));
+
+        fixture.ViewModel.SetPersistentCommand.Execute(null);
+
+        Assert.Contains("已由 OkkSkin 持久化", fixture.ViewModel.NotificationMessage);
+        Assert.Equal(0, fixture.Persistence.EnableCalls);
+    }
+
+    [Fact]
     public async Task Editor_CancelSaveAndSaveCopy_HaveDistinctDraftSemantics()
     {
         using var fixture = new ViewModelFixture(themeCount: 1);
@@ -133,21 +681,46 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public void Editor_HomeTaskSidebarAndNarrowPreview_AreIndependent()
+    public void Editor_HomeAndTaskPreview_AreIndependent()
     {
         using var fixture = new ViewModelFixture(themeCount: 1);
         var theme = fixture.Repository.Themes[fixture.Repository.Summaries[0].ThemeId];
         fixture.Editor.Begin(theme, newTheme: false);
         var homeOpacity = fixture.Editor.PreviewOpacity;
 
+        Assert.Equal(theme.Art.HomeOverlay, fixture.Editor.PreviewOverlay);
+        Assert.Equal(0, fixture.Editor.TaskContentOverlay);
+
         fixture.Editor.IsTaskPreview = true;
-        fixture.Editor.IsSidebarVisible = false;
-        fixture.Editor.IsNarrowPreview = true;
 
         Assert.Equal(theme.Art.TaskOpacity, fixture.Editor.PreviewOpacity);
+        Assert.Equal(0, fixture.Editor.PreviewOverlay);
+        Assert.Equal(theme.Art.TaskOverlay, fixture.Editor.TaskContentOverlay);
+        Assert.True(fixture.Editor.IsTaskOverlayEnabled);
         Assert.NotEqual(homeOpacity, fixture.Editor.PreviewOpacity);
-        Assert.False(fixture.Editor.IsSidebarVisible);
-        Assert.Equal(420, fixture.Editor.PreviewWidth);
+
+        fixture.Editor.TaskMode = ThemeTaskMode.Hidden;
+
+        Assert.Equal(1, fixture.Editor.TaskContentOverlay);
+        Assert.False(fixture.Editor.IsTaskOverlayEnabled);
+    }
+
+    [Fact]
+    public void Editor_FocusControls_AreEnabledOnlyForCropMode()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        var theme = fixture.Repository.Themes[fixture.Repository.Summaries[0].ThemeId];
+        fixture.Editor.Begin(theme, newTheme: false);
+
+        Assert.False(fixture.Editor.IsCropMode);
+
+        fixture.Editor.ArtSize = ThemeArtSize.Crop;
+        fixture.Editor.FocusX = 0.2;
+        fixture.Editor.FocusY = 0.8;
+
+        Assert.True(fixture.Editor.IsCropMode);
+        Assert.Equal(0.2, fixture.Editor.FocusX);
+        Assert.Equal(0.8, fixture.Editor.FocusY);
     }
 
     [Fact]
@@ -198,25 +771,81 @@ public sealed class MainWindowViewModelTests
 
 internal sealed class ViewModelFixture : IDisposable
 {
-    public ViewModelFixture(int themeCount)
+    public ViewModelFixture(
+        int themeCount,
+        bool externalThemeActive = false,
+        bool managedPersistenceEnabled = false)
     {
         Repository = new FakeThemeRepository(themeCount);
         Runtime = new FakeRuntimeService();
         Persistence = new FakePersistenceService();
+        ExternalPersistence = new FakeExternalPersistenceService(
+            externalThemeActive);
+        Dialogs = new FakeDialogs();
+        Diagnostics = new FakeDiagnosticService();
         Editor = new ThemeEditorViewModel(
             Repository,
             new FakeImagePipeline(),
             new FakeThemeAssetStore(),
             _ => null);
+        ExternalThemeDescriptor? externalTheme = null;
+        if (externalThemeActive && Repository.Summaries.Count > 0)
+        {
+            const string sourceIdentifier = "okkskin:doro-q";
+            var summary = Repository.Summaries[0];
+            Repository.Summaries[0] = summary with
+            {
+                SourceType = ThemeSourceType.RemoteSnapshot,
+                SourceIdentifier = sourceIdentifier,
+                IsSourceReadOnly = true,
+            };
+            externalTheme = new ExternalThemeDescriptor(
+                "OkkSkin",
+                sourceIdentifier,
+                Repository.Themes[summary.ThemeId],
+                "bg.jpg",
+                new string('a', 64),
+                true,
+                true,
+                1234,
+                "Doro 当前由 OkkSkin 持久应用。");
+        }
+
+        if (managedPersistenceEnabled && Repository.Summaries.Count > 0)
+        {
+            var persistentThemeId = Repository.Summaries[^1].ThemeId;
+            Persistence.Status = Persistence.Status with
+            {
+                State = ThemeRuntimeState.Persistent,
+                ThemeId = persistentThemeId,
+                IsPersistenceEnabled = true,
+                CodexProcessId = 1234,
+            };
+            Runtime.Status = Runtime.Status with
+            {
+                State = ThemeRuntimeState.Persistent,
+                ThemeId = persistentThemeId,
+                IsPersistenceEnabled = true,
+            };
+        }
+
         ViewModel = new MainWindowViewModel(
             Repository,
             Runtime,
             Persistence,
             new FakeStorageLocationService(),
-            new FakeDialogs(),
+            Dialogs,
             _ => null,
             new FakeThemePackageService(),
-            Editor);
+            Editor,
+            externalTheme,
+            ExternalPersistence,
+            diagnosticSink: Diagnostics,
+            diagnosticQuery: Diagnostics,
+            diagnosticBundle: Diagnostics,
+            copyText: text => CopiedText = text,
+            appVersion: "1.1.7",
+            diagnosticSessionId: Guid.Parse("11111111-1111-1111-1111-111111111111"));
     }
 
     public FakeThemeRepository Repository { get; }
@@ -224,6 +853,14 @@ internal sealed class ViewModelFixture : IDisposable
     public FakeRuntimeService Runtime { get; }
 
     public FakePersistenceService Persistence { get; }
+
+    public FakeExternalPersistenceService ExternalPersistence { get; }
+
+    public FakeDialogs Dialogs { get; }
+
+    public FakeDiagnosticService Diagnostics { get; }
+
+    public string? CopiedText { get; private set; }
 
     public ThemeEditorViewModel Editor { get; }
 
@@ -261,7 +898,6 @@ internal sealed class FakeThemeRepository : IThemeRepository
                 null,
                 new string('a', 64),
                 false,
-                ThemeCompatibilityStatus.Unknown,
                 ThemeApplyResult.NeverApplied,
                 null);
             Summaries.Add(summary);
@@ -273,11 +909,29 @@ internal sealed class FakeThemeRepository : IThemeRepository
 
     public Dictionary<Guid, ThemePackage> Themes { get; } = [];
 
+    public HashSet<Guid> DeletedThemeIds { get; } = [];
+
+    public int PermanentDeleteCalls { get; private set; }
+
     public Task<OperationResult<IReadOnlyList<ThemeSummary>>> ListAsync(
         CancellationToken cancellationToken) =>
         Task.FromResult(
             OperationResult<IReadOnlyList<ThemeSummary>>.Success(
-                Summaries.Where(item => Themes.ContainsKey(item.ThemeId)).ToArray()));
+                Summaries
+                    .Where(item =>
+                        Themes.ContainsKey(item.ThemeId) &&
+                        !DeletedThemeIds.Contains(item.ThemeId))
+                    .ToArray()));
+
+    public Task<OperationResult<IReadOnlyList<ThemeSummary>>> ListDeletedAsync(
+        CancellationToken cancellationToken) =>
+        Task.FromResult(
+            OperationResult<IReadOnlyList<ThemeSummary>>.Success(
+                Summaries
+                    .Where(item =>
+                        Themes.ContainsKey(item.ThemeId) &&
+                        DeletedThemeIds.Contains(item.ThemeId))
+                    .ToArray()));
 
     public Task<OperationResult<ThemePackage>> GetAsync(
         Guid themeId,
@@ -360,7 +1014,37 @@ internal sealed class FakeThemeRepository : IThemeRepository
         Guid themeId,
         CancellationToken cancellationToken)
     {
+        DeletedThemeIds.Add(themeId);
+        return Task.FromResult(OperationResult.Success());
+    }
+
+    public Task<OperationResult> RestoreDeletedAsync(
+        Guid themeId,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(
+            DeletedThemeIds.Remove(themeId)
+                ? OperationResult.Success()
+                : OperationResult.Failure(
+                    OperationErrorCode.NotFound,
+                    "回收站中不存在该主题。"));
+    }
+
+    public Task<OperationResult> PermanentlyDeleteAsync(
+        Guid themeId,
+        CancellationToken cancellationToken)
+    {
+        if (!DeletedThemeIds.Remove(themeId))
+        {
+            return Task.FromResult(
+                OperationResult.Failure(
+                    OperationErrorCode.NotFound,
+                    "回收站中不存在该主题。"));
+        }
+
+        PermanentDeleteCalls++;
         Themes.Remove(themeId);
+        Summaries.RemoveAll(item => item.ThemeId == themeId);
         return Task.FromResult(OperationResult.Success());
     }
 
@@ -410,26 +1094,33 @@ internal sealed class FakeThemeRepository : IThemeRepository
             null,
             new string('a', 64),
             false,
-            ThemeCompatibilityStatus.Unknown,
             ThemeApplyResult.NeverApplied,
             null);
 }
 
 internal sealed class FakeRuntimeService : ICodexThemeRuntime
 {
+    public CodexCachedCompatibilityStatus? CachedCompatibility { get; set; }
+
     public ThemeRuntimeStatus Status { get; set; } =
         new(
-            ThemeRuntimeState.NotRunning,
+            ThemeRuntimeState.Ready,
             null,
             false,
-            null,
+            1234,
             DateTimeOffset.UtcNow,
-            "Codex 未运行。");
+            "Codex 已就绪。");
 
     public TaskCompletionSource ApplyEntered { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public TaskCompletionSource? ApplyGate { get; set; }
+
+    public TaskCompletionSource? StatusGate { get; set; }
+
+    public int GetStatusCalls { get; private set; }
+
+    public int RestoreCalls { get; private set; }
 
     public async Task<OperationResult<ThemeRuntimeStatus>> ApplyTemporaryAsync(
         ThemePackage theme,
@@ -458,6 +1149,7 @@ internal sealed class FakeRuntimeService : ICodexThemeRuntime
     public Task<OperationResult<ThemeRuntimeStatus>> RestoreAsync(
         CancellationToken cancellationToken)
     {
+        RestoreCalls++;
         Status = Status with
         {
             State = ThemeRuntimeState.Default,
@@ -467,13 +1159,38 @@ internal sealed class FakeRuntimeService : ICodexThemeRuntime
         return Task.FromResult(OperationResult<ThemeRuntimeStatus>.Success(Status));
     }
 
+    public async Task<OperationResult<ThemeRuntimeStatus>> GetStatusAsync(
+        CancellationToken cancellationToken)
+    {
+        GetStatusCalls++;
+        if (StatusGate is not null)
+        {
+            await StatusGate.Task.WaitAsync(cancellationToken);
+        }
+
+        return OperationResult<ThemeRuntimeStatus>.Success(Status);
+    }
+
     public Task<OperationResult<ThemeRuntimeStatus>> GetStatusAsync(
+        CodexStatusRefreshMode refreshMode,
         CancellationToken cancellationToken) =>
-        Task.FromResult(OperationResult<ThemeRuntimeStatus>.Success(Status));
+        GetStatusAsync(cancellationToken);
+
+    public Task<OperationResult<CodexCachedCompatibilityStatus?>>
+        GetCachedCompatibilityAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(
+            OperationResult<CodexCachedCompatibilityStatus?>.SuccessOptional(
+                CachedCompatibility));
 }
 
 internal sealed class FakePersistenceService : IPersistenceService
 {
+    public int EnableCalls { get; private set; }
+
+    public int DisableCalls { get; private set; }
+
+    public OperationResult<ThemeRuntimeStatus>? DisableResult { get; set; }
+
     public ThemeRuntimeStatus Status { get; set; } =
         new(
             ThemeRuntimeState.Default,
@@ -493,6 +1210,7 @@ internal sealed class FakePersistenceService : IPersistenceService
         PersistenceOptions options,
         CancellationToken cancellationToken)
     {
+        EnableCalls++;
         Status = Status with
         {
             State = ThemeRuntimeState.Persistent,
@@ -511,6 +1229,12 @@ internal sealed class FakePersistenceService : IPersistenceService
     public Task<OperationResult<ThemeRuntimeStatus>> DisableAsync(
         CancellationToken cancellationToken)
     {
+        DisableCalls++;
+        if (DisableResult is not null)
+        {
+            return Task.FromResult(DisableResult);
+        }
+
         Status = Status with
         {
             State = ThemeRuntimeState.Default,
@@ -524,6 +1248,56 @@ internal sealed class FakePersistenceService : IPersistenceService
     public Task<OperationResult<ThemeRuntimeStatus>> GetStatusAsync(
         CancellationToken cancellationToken) =>
         Task.FromResult(OperationResult<ThemeRuntimeStatus>.Success(Status));
+}
+
+internal sealed class FakeExternalPersistenceService(
+    bool persistenceEnabled) : IExternalPersistenceService
+{
+    public int DisableCalls { get; private set; }
+
+    public ExternalPersistenceStatus Status { get; private set; } =
+        new(
+            "OkkSkin",
+            persistenceEnabled,
+            persistenceEnabled,
+            persistenceEnabled,
+            true,
+            [],
+            persistenceEnabled
+                ? "检测到 OkkSkin 持久化。"
+                : "OkkSkin 持久化未启用。");
+
+    public OperationResult<ExternalPersistenceDisableResult>? DisableResult { get; set; }
+
+    public Task<OperationResult<ExternalPersistenceStatus>> GetStatusAsync(
+        CancellationToken cancellationToken) =>
+        Task.FromResult(
+            OperationResult<ExternalPersistenceStatus>.Success(Status));
+
+    public Task<OperationResult<ExternalPersistenceDisableResult>> DisableAsync(
+        CancellationToken cancellationToken)
+    {
+        DisableCalls++;
+        if (DisableResult is not null)
+        {
+            return Task.FromResult(DisableResult);
+        }
+
+        Status = Status with
+        {
+            IsConfigured = false,
+            IsStartupRegistered = false,
+            IsAgentRunning = false,
+            Residuals = [],
+            UserMessage = "OkkSkin 持久化已停用。",
+        };
+        return Task.FromResult(
+            OperationResult<ExternalPersistenceDisableResult>.Success(
+                new ExternalPersistenceDisableResult(
+                    ExternalPersistenceDisableOutcome.Success,
+                    Status,
+                    Status.UserMessage)));
+    }
 }
 
 internal sealed class FakeStorageLocationService : IStorageLocationService
@@ -555,6 +1329,10 @@ internal sealed class FakeStorageLocationService : IStorageLocationService
 
 internal sealed class FakeDialogs : IUserDialogService
 {
+    public bool ConfirmResult { get; set; } = true;
+
+    public List<(string Title, string Message, string ConfirmText)> Confirmations { get; } = [];
+
     public Task<string?> RequestTextAsync(
         string title,
         string prompt,
@@ -566,8 +1344,11 @@ internal sealed class FakeDialogs : IUserDialogService
         string title,
         string message,
         string confirmText,
-        CancellationToken cancellationToken) =>
-        Task.FromResult(true);
+        CancellationToken cancellationToken)
+    {
+        Confirmations.Add((title, message, confirmText));
+        return Task.FromResult(ConfirmResult);
+    }
 
     public Task<string?> PickOpenFileAsync(
         string title,
@@ -592,6 +1373,106 @@ internal sealed class FakeDialogs : IUserDialogService
     public void ShowInformation(string title, string message)
     {
     }
+}
+
+internal sealed class FakeDiagnosticService :
+    IDiagnosticEventSink,
+    IDiagnosticQueryService,
+    IDiagnosticBundleService
+{
+    private static readonly Guid ReportId =
+        Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private readonly DiagnosticSnapshot snapshot;
+
+    public FakeDiagnosticService()
+    {
+        var item = new DiagnosticEvent(
+            DiagnosticEvent.CurrentSchemaVersion,
+            new DateTimeOffset(2026, 7, 24, 1, 2, 3, TimeSpan.Zero),
+            DiagnosticSource.Agent,
+            DiagnosticLevel.Information,
+            "agent.state.persistent",
+            "persistence.agent",
+            DiagnosticOutcome.State,
+            Guid.Parse("33333333-3333-3333-3333-333333333333"),
+            null,
+            null,
+            null,
+            "0.2.0",
+            "test-version",
+            new string('a', 64),
+            null);
+        snapshot = new DiagnosticSnapshot(
+            DiagnosticHealth.Normal,
+            "诊断记录正常",
+            item.TimestampUtc,
+            null,
+            null,
+            [new DiagnosticEventGroup(
+                item,
+                3,
+                item.TimestampUtc.AddMinutes(-30),
+                item.TimestampUtc)],
+            Path.GetTempPath(),
+            true,
+            0,
+            null);
+    }
+
+    public int ReadCalls { get; private set; }
+
+    public int DraftCalls { get; private set; }
+
+    public List<DiagnosticEvent> WrittenEvents { get; } = [];
+
+    public Task<OperationResult> WriteAsync(
+        DiagnosticEvent diagnosticEvent,
+        CancellationToken cancellationToken)
+    {
+        WrittenEvents.Add(diagnosticEvent);
+        return Task.FromResult(OperationResult.Success());
+    }
+
+    public OperationResult WriteCritical(DiagnosticEvent diagnosticEvent)
+    {
+        WrittenEvents.Add(diagnosticEvent);
+        return OperationResult.Success();
+    }
+
+    public Task<OperationResult<DiagnosticSnapshot>> ReadAsync(
+        int maximumEventGroups,
+        CancellationToken cancellationToken)
+    {
+        ReadCalls++;
+        return Task.FromResult(
+            OperationResult<DiagnosticSnapshot>.Success(snapshot));
+    }
+
+    public Task<OperationResult<DiagnosticIssueDraft>> CreateIssueDraftAsync(
+        DiagnosticIssueContext context,
+        CancellationToken cancellationToken)
+    {
+        DraftCalls++;
+        return Task.FromResult(
+            OperationResult<DiagnosticIssueDraft>.Success(
+                new DiagnosticIssueDraft(
+                    ReportId,
+                    "safe issue summary",
+                    snapshot)));
+    }
+
+    public Task<OperationResult<DiagnosticBundleResult>> ExportAsync(
+        string destinationPath,
+        DiagnosticIssueContext context,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(
+            OperationResult<DiagnosticBundleResult>.Success(
+                new DiagnosticBundleResult(
+                    ReportId,
+                    destinationPath,
+                    4,
+                    1024,
+                    new string('b', 64))));
 }
 
 internal sealed class FakeImagePipeline : IImagePipeline

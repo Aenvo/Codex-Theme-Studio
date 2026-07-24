@@ -5,11 +5,6 @@ namespace CodexThemeStudio.Contracts.Interfaces;
 
 public interface ICodexDiscoveryService
 {
-    Task<OperationResult<CodexInstallationInfo>> FindInstallationAsync(
-        CancellationToken cancellationToken);
-
-    Task<OperationResult<IReadOnlyList<CodexProcessInfo>>> FindProcessesAsync(
-        CodexInstallationInfo installation,
+    Task<OperationResult<CodexDiscoverySnapshot>> DiscoverAsync(
         CancellationToken cancellationToken);
 }
-

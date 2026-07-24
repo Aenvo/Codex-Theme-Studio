@@ -48,6 +48,9 @@ public sealed record OperationResult<T>
         return new OperationResult<T>(true, value, null);
     }
 
+    public static OperationResult<T> SuccessOptional(T? value) =>
+        new(true, value, null);
+
     public static OperationResult<T> Failure(OperationError error)
     {
         ArgumentNullException.ThrowIfNull(error);
@@ -60,4 +63,3 @@ public sealed record OperationResult<T>
         string? diagnosticCode = null) =>
         Failure(new OperationError(code, userMessage, diagnosticCode));
 }
-

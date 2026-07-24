@@ -14,8 +14,8 @@ DataRoot 迁移见[主题包与数据迁移格式 v1](theme-package-and-migratio
 - `name` 必须非空、不得包含控制字符，最长 120 个 UTF-16 字符；名称不唯一。
 - `variant`：`auto`、`light`、`dark`。
 - `palette` 的六个颜色字段只接受 `#RRGGBB` 或 `#RRGGBBAA`。
-- `art.safeArea`：`auto`、`center`、`top`、`bottom`、`left`、`right`、`none`。
-- `art.size`：`cover`、`contain`。
+- `art.safeArea` 仅作为旧主题兼容字段保留，Renderer 不再使用其值。
+- `art.size`：`cover`、`contain`、`crop`；只有 `crop` 使用 `focusX`、`focusY`。
 - `art.taskMode`：`ambient`、`hidden`、`full`。
 - `focusX`、`focusY`、首页/任务页透明度与遮罩均为 `0..1`。
 - `blur` 为 `0..64`。
@@ -74,4 +74,4 @@ DataRoot 不可用时会报告离线，不会静默创建新的默认空库。
 
 ## 后续边界
 
-- SQLite 完整性恢复和跨进程写入协调的真实集成场景：任务 11。
+- SQLite 完整性恢复和跨进程写入协调由集成测试与版本验收持续覆盖。

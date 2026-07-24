@@ -25,6 +25,34 @@ public sealed class CodexThemeRuntimeServiceTests
     }
 
     [Fact]
+    public async Task UnknownVersion_FirstApplyCompletesCleanupReapplyAndUnlocksPersistence()
+    {
+        var fixture = new RuntimeFixture();
+        var theme = CreateTheme(Guid.NewGuid());
+        fixture.Discovery.InstallationResult =
+            OperationResult<CodexInstallationInfo>.Success(
+                RuntimeFixture.Installation with
+                {
+                    Version = "99.0.0.0",
+                    ExecutableSha256 = "unknown-build-hash",
+                });
+
+        var result = await fixture.Service.ApplyTemporaryAsync(
+            theme,
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(CodexCompatibilityLevel.CompatibleByProbe, result.Value!.CompatibilityLevel);
+        Assert.True(result.Value.IsPersistenceEligible);
+        Assert.Equal(2, fixture.Renderer.ApplyCount);
+        Assert.Equal(1, fixture.Renderer.CleanupCount);
+        var qualified = await fixture.Qualification.IsQualifiedAsync(
+            "unknown-build-hash",
+            CancellationToken.None);
+        Assert.True(qualified.IsSuccess && qualified.Value);
+    }
+
+    [Fact]
     public async Task Switch_WhenNewApplyFails_ReappliesPreviousTheme()
     {
         var oldTheme = CreateTheme(Guid.NewGuid());
@@ -125,6 +153,8 @@ public sealed class CodexThemeRuntimeServiceTests
         Assert.True(first.IsSuccess);
         Assert.True(second.IsSuccess);
         Assert.Equal(ThemeRuntimeState.Default, fixture.Session.State.State);
+        Assert.Equal(RuntimeFixture.Process.ProcessId, fixture.Session.State.CodexProcessId);
+        Assert.Equal(RuntimeFixture.Process.StartedAtUtc, fixture.Session.State.CodexStartedAtUtc);
         Assert.Equal(2, fixture.Renderer.CleanupCount);
         Assert.Equal(0, fixture.Repository.DeleteCount);
     }
@@ -168,7 +198,56 @@ public sealed class CodexThemeRuntimeServiceTests
     }
 
     [Fact]
-    public async Task Status_ReportsInspectorResidualAndClosesIt()
+    public async Task Status_WarmCacheAndDefaultSession_UsesOneDiscoveryWithoutInspector()
+    {
+        var fixture = new RuntimeFixture();
+        var cached = await fixture.Qualification.CacheCapabilityAsync(
+            RuntimeFixture.CompatibleQualification(),
+            CancellationToken.None);
+
+        var result = await fixture.Service.GetStatusAsync(CancellationToken.None);
+
+        Assert.True(cached.IsSuccess, cached.Error?.DiagnosticCode);
+        Assert.True(result.IsSuccess, result.Error?.DiagnosticCode);
+        Assert.Equal(1, fixture.Discovery.DiscoverCount);
+        Assert.Equal(0, fixture.Renderer.StatusCount);
+        Assert.Equal("compatibility.cache_hit", result.Value!.CompatibilityDiagnosticCode);
+    }
+
+    [Fact]
+    public async Task Status_ColdCache_UsesOneDiscoveryAndOneCombinedInspection()
+    {
+        var fixture = new RuntimeFixture();
+
+        var result = await fixture.Service.GetStatusAsync(CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error?.DiagnosticCode);
+        Assert.Equal(1, fixture.Discovery.DiscoverCount);
+        Assert.Equal(1, fixture.Renderer.StatusCount);
+        Assert.Equal(CodexInspectionMode.Full, fixture.Renderer.LastInspectionMode);
+    }
+
+    [Fact]
+    public async Task Status_WarmCacheWithActiveSession_UsesRendererOnlyInspection()
+    {
+        var theme = CreateTheme(Guid.NewGuid());
+        var fixture = new RuntimeFixture(theme);
+        fixture.Session.State = AppliedSession(theme.Id);
+        var cached = await fixture.Qualification.CacheCapabilityAsync(
+            RuntimeFixture.CompatibleQualification(),
+            CancellationToken.None);
+
+        var result = await fixture.Service.GetStatusAsync(CancellationToken.None);
+
+        Assert.True(cached.IsSuccess, cached.Error?.DiagnosticCode);
+        Assert.True(result.IsSuccess, result.Error?.DiagnosticCode);
+        Assert.Equal(1, fixture.Discovery.DiscoverCount);
+        Assert.Equal(1, fixture.Renderer.StatusCount);
+        Assert.Equal(CodexInspectionMode.RendererOnly, fixture.Renderer.LastInspectionMode);
+    }
+
+    [Fact]
+    public async Task Status_ReportsInspectorResidualAlreadyClosedByCombinedInspection()
     {
         var fixture = new RuntimeFixture();
         fixture.Renderer.StatusResult =
@@ -180,11 +259,11 @@ public sealed class CodexThemeRuntimeServiceTests
         Assert.True(result.IsSuccess);
         Assert.Equal(ThemeRuntimeState.InspectorResidual, result.Value!.State);
         Assert.True(result.Value.HasInspectorResidual);
-        Assert.Equal(1, fixture.Discovery.CloseCount);
+        Assert.Equal(0, fixture.Discovery.CloseCount);
     }
 
     [Fact]
-    public async Task Status_DistinguishesNotInstalledNotRunningAndUnverified()
+    public async Task Status_DistinguishesNotInstalledNotRunningAndProbeCompatible()
     {
         var notInstalled = new RuntimeFixture();
         notInstalled.Discovery.InstallationResult =
@@ -209,8 +288,40 @@ public sealed class CodexThemeRuntimeServiceTests
 
         Assert.Equal(ThemeRuntimeState.NotInstalled, notInstalledStatus.Value!.State);
         Assert.Equal(ThemeRuntimeState.NotRunning, notRunningStatus.Value!.State);
-        Assert.Equal(ThemeRuntimeState.Unsupported, unverifiedStatus.Value!.State);
-        Assert.Equal(0, unverified.Renderer.StatusCount);
+        Assert.Equal(ThemeRuntimeState.Ready, unverifiedStatus.Value!.State);
+        Assert.Equal(
+            CodexCompatibilityLevel.CompatibleByProbe,
+            unverifiedStatus.Value.CompatibilityLevel);
+        Assert.Equal(1, unverified.Renderer.StatusCount);
+    }
+
+    [Fact]
+    public async Task Status_BlocksWhenRequiredCapabilityIsMissing()
+    {
+        var fixture = new RuntimeFixture();
+        fixture.Discovery.InstallationResult =
+            OperationResult<CodexInstallationInfo>.Success(
+                RuntimeFixture.Installation with { Version = "99.0.0.0" });
+        fixture.Discovery.ProbeResult = OperationResult<CodexProbeResult>.Success(
+            new CodexProbeResult(
+                RuntimeFixture.Process.ProcessId,
+                RuntimeFixture.Process.StartedAtUtc,
+                "150.0.7871.124",
+                1,
+                ["main"],
+                TimeSpan.Zero,
+                ExecuteJavaScriptAvailable: false,
+                DiagnosticCode: "capability.execute_javascript_missing"));
+
+        var result = await fixture.Service.GetStatusAsync(CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Unsupported, result.Value!.State);
+        Assert.Equal(CodexCompatibilityLevel.Incompatible, result.Value.CompatibilityLevel);
+        Assert.Equal("capability.execute_javascript_missing", result.Value.CompatibilityDiagnosticCode);
+        Assert.Equal(1, fixture.Renderer.StatusCount);
+        Assert.Null(
+            (await fixture.Qualification.ReadLatestAsync(CancellationToken.None)).Value);
     }
 
     [Fact]
@@ -321,7 +432,25 @@ public sealed class CodexThemeRuntimeServiceTests
                 "OpenAI.Codex_2p2nqsd0c76g0",
                 "OpenAI.Codex_26.715.4045.0_x64__2p2nqsd0c76g0",
                 "26.715.4045.0",
-                @"C:\Program Files\WindowsApps\OpenAI.Codex\ChatGPT.exe");
+                @"C:\Program Files\WindowsApps\OpenAI.Codex\ChatGPT.exe",
+                ExecutableSha256: new string('a', 64));
+
+        public static CodexCompatibilityQualificationStore.QualificationRecord
+            CompatibleQualification() =>
+            new(
+                Installation.ExecutableSha256,
+                Installation.Version,
+                Installation.PackageFullName,
+                Installation.ExecutablePath,
+                Installation.Source,
+                Installation.IdentityAssessment,
+                CodexCompatibilityLevel.Verified,
+                CodexCompatibilityQualificationStore.CurrentProbeContractVersion,
+                CodexCompatibilityQualificationStore.CurrentRequiredCapabilitiesVersion,
+                DateTimeOffset.Parse("2026-07-24T06:00:00Z"),
+                true,
+                true,
+                false);
 
         public static readonly CodexProcessInfo Process =
             new(
@@ -332,7 +461,7 @@ public sealed class CodexThemeRuntimeServiceTests
 
         public RuntimeFixture(params ThemePackage[] themes)
         {
-            Renderer = new FakeRenderer(Events);
+            Renderer = new FakeRenderer(Events, Discovery);
             Repository = new FakeRepository(Events);
             Session = new FakeSessionStore(Events);
             foreach (var theme in themes)
@@ -340,6 +469,7 @@ public sealed class CodexThemeRuntimeServiceTests
                 Repository.Themes[theme.Id] = theme;
             }
 
+            Qualification = CodexCompatibilityQualificationStore.CreateInMemory();
             Service = new CodexThemeRuntimeService(
                 Discovery,
                 Discovery,
@@ -347,6 +477,7 @@ public sealed class CodexThemeRuntimeServiceTests
                 Assets,
                 Repository,
                 Session,
+                qualificationStore: Qualification,
                 operationTimeout: TimeSpan.FromSeconds(5));
         }
 
@@ -363,6 +494,8 @@ public sealed class CodexThemeRuntimeServiceTests
         public FakeSessionStore Session { get; }
 
         public CodexThemeRuntimeService Service { get; }
+
+        public CodexCompatibilityQualificationStore Qualification { get; }
     }
 
     private sealed class FakeDiscovery :
@@ -377,20 +510,37 @@ public sealed class CodexThemeRuntimeServiceTests
 
         public int CloseCount { get; private set; }
 
-        public Task<OperationResult<CodexInstallationInfo>> FindInstallationAsync(
-            CancellationToken cancellationToken) =>
-            Task.FromResult(InstallationResult);
+        public OperationResult<CodexProbeResult> ProbeResult { get; set; } =
+            OperationResult<CodexProbeResult>.Success(
+                new CodexProbeResult(
+                    RuntimeFixture.Process.ProcessId,
+                    RuntimeFixture.Process.StartedAtUtc,
+                    "150.0.7871.124",
+                    1,
+                    ["main"],
+                    TimeSpan.Zero));
 
-        public Task<OperationResult<IReadOnlyList<CodexProcessInfo>>> FindProcessesAsync(
-            CodexInstallationInfo installation,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(
-                OperationResult<IReadOnlyList<CodexProcessInfo>>.Success(Processes));
+        public int DiscoverCount { get; private set; }
+
+        public Task<OperationResult<CodexDiscoverySnapshot>> DiscoverAsync(
+            CancellationToken cancellationToken)
+        {
+            DiscoverCount++;
+            return Task.FromResult(
+                InstallationResult.IsSuccess
+                    ? OperationResult<CodexDiscoverySnapshot>.Success(
+                        new CodexDiscoverySnapshot(
+                            InstallationResult.Value!,
+                            Processes,
+                            DateTimeOffset.UtcNow))
+                    : OperationResult<CodexDiscoverySnapshot>.Failure(
+                        InstallationResult.Error!));
+        }
 
         public Task<OperationResult<CodexProbeResult>> ProbeAsync(
             CodexProcessInfo process,
             CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+            Task.FromResult(ProbeResult);
 
         public Task<OperationResult> CloseInspectorAsync(
             CodexProcessInfo process,
@@ -401,7 +551,9 @@ public sealed class CodexThemeRuntimeServiceTests
         }
     }
 
-    private sealed class FakeRenderer(List<string> events) : IInjectorRendererClient
+    private sealed class FakeRenderer(
+        List<string> events,
+        FakeDiscovery discovery) : IInjectorRendererClient
     {
         public Queue<OperationResult<RendererRuntimeResult>> ApplyResults { get; } = [];
 
@@ -418,6 +570,8 @@ public sealed class CodexThemeRuntimeServiceTests
         public int CleanupCount { get; private set; }
 
         public int StatusCount { get; private set; }
+
+        public CodexInspectionMode? LastInspectionMode { get; private set; }
 
         public async Task<OperationResult<RendererRuntimeResult>> ApplyAsync(
             CodexProcessInfo process,
@@ -453,6 +607,32 @@ public sealed class CodexThemeRuntimeServiceTests
             CleanupCount++;
             return Task.FromResult(
                 OperationResult<RendererRuntimeResult>.Success(InactiveRenderer()));
+        }
+
+        public Task<OperationResult<CodexInspectionResult>> InspectAsync(
+            CodexProcessInfo process,
+            CodexInspectionMode mode,
+            CancellationToken cancellationToken)
+        {
+            StatusCount++;
+            LastInspectionMode = mode;
+            if (mode == CodexInspectionMode.Full && !discovery.ProbeResult.IsSuccess)
+            {
+                return Task.FromResult(
+                    OperationResult<CodexInspectionResult>.Failure(
+                        discovery.ProbeResult.Error!));
+            }
+
+            return Task.FromResult(
+                StatusResult.IsSuccess
+                    ? OperationResult<CodexInspectionResult>.Success(
+                        new CodexInspectionResult(
+                            mode == CodexInspectionMode.Full
+                                ? discovery.ProbeResult.Value
+                                : null,
+                            StatusResult.Value!))
+                    : OperationResult<CodexInspectionResult>.Failure(
+                        StatusResult.Error!));
         }
 
         private static Guid ReadThemeId(ReadOnlyMemory<byte> payload)
@@ -553,6 +733,22 @@ public sealed class CodexThemeRuntimeServiceTests
         }
 
         public Task<OperationResult<IReadOnlyList<ThemeSummary>>> ListAsync(
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<OperationResult<IReadOnlyList<ThemeSummary>>> ListDeletedAsync(
+            CancellationToken cancellationToken) =>
+            Task.FromResult(
+                OperationResult<IReadOnlyList<ThemeSummary>>.Success(
+                    Array.Empty<ThemeSummary>()));
+
+        public Task<OperationResult> RestoreDeletedAsync(
+            Guid themeId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<OperationResult> PermanentlyDeleteAsync(
+            Guid themeId,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 

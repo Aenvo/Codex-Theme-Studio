@@ -18,4 +18,11 @@ public interface ICodexThemeRuntime
 
     Task<OperationResult<ThemeRuntimeStatus>> GetStatusAsync(
         CancellationToken cancellationToken);
+
+    Task<OperationResult<ThemeRuntimeStatus>> GetStatusAsync(
+        CodexStatusRefreshMode refreshMode,
+        CancellationToken cancellationToken);
+
+    Task<OperationResult<CodexCachedCompatibilityStatus?>> GetCachedCompatibilityAsync(
+        CancellationToken cancellationToken);
 }

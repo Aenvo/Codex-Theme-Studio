@@ -17,7 +17,22 @@ public interface IInjectorRendererClient
     Task<OperationResult<RendererRuntimeResult>> CleanupAsync(
         CodexProcessInfo process,
         CancellationToken cancellationToken);
+
+    Task<OperationResult<CodexInspectionResult>> InspectAsync(
+        CodexProcessInfo process,
+        CodexInspectionMode mode,
+        CancellationToken cancellationToken);
 }
+
+public enum CodexInspectionMode
+{
+    Full = 0,
+    RendererOnly,
+}
+
+public sealed record CodexInspectionResult(
+    CodexProbeResult? Probe,
+    RendererRuntimeResult Renderer);
 
 public sealed record RendererRuntimeResult(
     int RuntimeVersion,
@@ -32,4 +47,5 @@ public sealed record RendererRuntimeResult(
     int Failures = 0,
     int? ProcessId = null,
     TimeSpan? InspectorOpenDuration = null,
-    bool InspectorWasAlreadyOpen = false);
+    bool InspectorWasAlreadyOpen = false,
+    bool KnownExternalThemeActive = false);

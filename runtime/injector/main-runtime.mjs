@@ -21,6 +21,70 @@ export function createMainOperationExpression(operation) {
   const serializedOperation = JSON.stringify(operation);
   return `(async () => {
     const state = globalThis.${mainStateKey};
+    const operation = ${serializedOperation};
+    const electron = process.mainModule.require("electron");
+    const { BrowserWindow } = electron;
+    const isEligibleAppWindow = (contents) => {
+      if (!contents || contents.isDestroyed()) return false;
+      try {
+        const parsed = new URL(contents.getURL());
+        return parsed.protocol === "app:" &&
+          parsed.searchParams.get("initialRoute") !== "/avatar-overlay" &&
+          !parsed.pathname.includes("/avatar-overlay") &&
+          !parsed.pathname.includes("/pet-overlay");
+      } catch {
+        return false;
+      }
+    };
+    const detectOkkSkin = \
+      '(() => { const root = document.documentElement; return ' +
+      'Boolean(document.getElementById("okkskin-style")) || ' +
+      'root.classList.contains("okkskin") || ' +
+      'Boolean(root.style.getPropertyValue("--ok-art")); })()';
+    const cleanupOkkSkin = \
+      '(() => { const style = document.getElementById("okkskin-style"); ' +
+      'if (style) style.remove(); const root = document.documentElement; ' +
+      'root.classList.remove("okkskin"); root.style.removeProperty("color-scheme"); ' +
+      '["--ok-bg","--ok-panel","--ok-accent","--ok-text","--ok-muted","--ok-line","--ok-art"]' +
+      '.forEach(name => root.style.removeProperty(name)); return true; })()';
+    const hasKnownOkkSkinRuntime = async () => {
+      if (Boolean(globalThis.__okkskinRJS)) return true;
+      for (const window of BrowserWindow.getAllWindows()) {
+        const contents = window?.webContents;
+        if (!isEligibleAppWindow(contents)) continue;
+        try {
+          if (await contents.executeJavaScript(detectOkkSkin, true)) return true;
+        } catch {
+          // Unknown windows do not become positive evidence.
+        }
+      }
+      return false;
+    };
+    if (operation === "cleanup") {
+      globalThis.__okkskinRJS = "";
+      for (const window of BrowserWindow.getAllWindows()) {
+        const contents = window?.webContents;
+        if (!isEligibleAppWindow(contents)) continue;
+        try {
+          await contents.executeJavaScript(cleanupOkkSkin, true);
+        } catch {
+          // Managed cleanup continues across independently failing windows.
+        }
+      }
+      const generation = state?.generation ?? null;
+      if (state) await state.stop(state.generation, true);
+      return {
+        runtimeVersion: 1,
+        active: false,
+        generation,
+        themeId: null,
+        eligibleWindows: 0,
+        appliedWindows: 0,
+        auxiliaryWindows: 0,
+        hookCount: 0,
+        knownExternalThemeActive: false,
+      };
+    }
     if (!state) {
       return {
         runtimeVersion: 1,
@@ -31,26 +95,16 @@ export function createMainOperationExpression(operation) {
         appliedWindows: 0,
         auxiliaryWindows: 0,
         hookCount: 0,
+        knownExternalThemeActive: await hasKnownOkkSkinRuntime(),
       };
     }
-    if (${serializedOperation} === "ensure") {
+    if (operation === "ensure") {
       return await state.ensure();
     }
-    if (${serializedOperation} === "status") {
-      return state.snapshot();
-    }
-    if (${serializedOperation} === "cleanup") {
-      const generation = state.generation;
-      await state.stop(generation, true);
+    if (operation === "status") {
       return {
-        runtimeVersion: 1,
-        active: false,
-        generation,
-        themeId: null,
-        eligibleWindows: 0,
-        appliedWindows: 0,
-        auxiliaryWindows: 0,
-        hookCount: 0,
+        ...state.snapshot(),
+        knownExternalThemeActive: await hasKnownOkkSkinRuntime(),
       };
     }
     return state.snapshot();
@@ -107,6 +161,33 @@ export async function mainRuntimeBootstrap(request) {
   const stateKey = "__CODEX_THEME_STUDIO_MAIN_V1__";
   const electron = process.mainModule.require("electron");
   const { app, BrowserWindow } = electron;
+  // A known OkkSkin runtime may be active while its user-level persistence remains
+  // intentionally configured. Suspend only the current Codex process hook before
+  // applying a managed Theme Studio theme; do not touch files, agents, or Run keys.
+  globalThis.__okkskinRJS = "";
+  const okkSkinCleanup = `(() => {
+    const style = document.getElementById("okkskin-style");
+    if (style) style.remove();
+    const root = document.documentElement;
+    root.classList.remove("okkskin");
+    root.style.removeProperty("color-scheme");
+    ["--ok-bg", "--ok-panel", "--ok-accent", "--ok-text", "--ok-muted", "--ok-line", "--ok-art"]
+      .forEach(name => root.style.removeProperty(name));
+    return true;
+  })()`;
+  for (const window of BrowserWindow.getAllWindows()) {
+    const contents = window?.webContents;
+    if (!contents || contents.isDestroyed()) continue;
+    try {
+      const parsed = new URL(contents.getURL());
+      if (parsed.protocol === "app:" &&
+          parsed.searchParams.get("initialRoute") !== "/avatar-overlay") {
+        await contents.executeJavaScript(okkSkinCleanup, true);
+      }
+    } catch {
+      // Unknown or auxiliary windows stay untouched.
+    }
+  }
   const previous = globalThis[stateKey];
   const previousGeneration = Number.isSafeInteger(previous?.generation)
     ? previous.generation

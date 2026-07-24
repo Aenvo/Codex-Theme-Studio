@@ -52,12 +52,14 @@ public sealed record ContrastAssessment(
 
 public static class ThemeContrast
 {
-    public static OperationResult<ContrastAssessment> Assess(ThemePalette palette)
+    public static OperationResult<ContrastAssessment> Assess(
+        ThemePalette palette,
+        ThemeVariant variant = ThemeVariant.Auto)
     {
-        var panel = Parse(palette.Panel);
-        var text = Parse(palette.Text);
-        var muted = Parse(palette.Muted);
-        if (panel is null || text is null || muted is null)
+        if (!ThemeColor.TryParse(palette.Background, out var background) ||
+            !ThemeColor.TryParse(palette.Panel, out var panel) ||
+            !ThemeColor.TryParse(palette.Text, out var text) ||
+            !ThemeColor.TryParse(palette.Muted, out var muted))
         {
             return OperationResult<ContrastAssessment>.Failure(
                 OperationErrorCode.ValidationFailed,
@@ -65,8 +67,22 @@ public static class ThemeContrast
                 "theme.contrast.color_invalid");
         }
 
-        var textRatio = Ratio(panel.Value, text.Value);
-        var mutedRatio = Ratio(panel.Value, muted.Value);
+        var bases = variant switch
+        {
+            ThemeVariant.Dark => new[] { new RgbaColor(0, 0, 0) },
+            ThemeVariant.Light => new[] { new RgbaColor(255, 255, 255) },
+            _ => new[] { new RgbaColor(0, 0, 0), new RgbaColor(255, 255, 255) },
+        };
+        var ratios = bases.Select(baseColor =>
+        {
+            var opaqueBackground = ThemeColor.Composite(background, baseColor);
+            var opaquePanel = ThemeColor.Composite(panel, opaqueBackground);
+            return (
+                Text: Ratio(opaquePanel, ThemeColor.Composite(text, opaquePanel)),
+                Muted: Ratio(opaquePanel, ThemeColor.Composite(muted, opaquePanel)));
+        }).ToArray();
+        var textRatio = ratios.Min(value => value.Text);
+        var mutedRatio = ratios.Min(value => value.Muted);
         var warning = textRatio < 4.5 || mutedRatio < 3;
         return OperationResult<ContrastAssessment>.Success(
             new ContrastAssessment(
@@ -78,28 +94,14 @@ public static class ThemeContrast
                     : "文字对比度达到常用可读性建议。"));
     }
 
-    private static (byte R, byte G, byte B)? Parse(string value)
-    {
-        if (value.Length is not (7 or 9) || value[0] != '#')
-        {
-            return null;
-        }
-
-        return byte.TryParse(value.AsSpan(1, 2), System.Globalization.NumberStyles.HexNumber, null, out var r) &&
-               byte.TryParse(value.AsSpan(3, 2), System.Globalization.NumberStyles.HexNumber, null, out var g) &&
-               byte.TryParse(value.AsSpan(5, 2), System.Globalization.NumberStyles.HexNumber, null, out var b)
-            ? (r, g, b)
-            : null;
-    }
-
-    private static double Ratio((byte R, byte G, byte B) first, (byte R, byte G, byte B) second)
+    private static double Ratio(RgbaColor first, RgbaColor second)
     {
         var a = Luminance(first);
         var b = Luminance(second);
         return (Math.Max(a, b) + 0.05) / (Math.Min(a, b) + 0.05);
     }
 
-    private static double Luminance((byte R, byte G, byte B) color)
+    private static double Luminance(RgbaColor color)
     {
         static double Channel(byte value)
         {

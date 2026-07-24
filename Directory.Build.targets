@@ -1,0 +1,13 @@
+<Project>
+  <Target
+    Name="ExcludeSkiaSharpNativeSymbolsFromBuildOutput"
+    AfterTargets="ResolvePackageAssets">
+    <ItemGroup>
+      <NativeCopyLocalItems
+        Remove="@(NativeCopyLocalItems)"
+        Condition="
+          '%(NativeCopyLocalItems.NuGetPackageId)' == 'SkiaSharp.NativeAssets.Win32' and
+          '%(NativeCopyLocalItems.Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
+</Project>

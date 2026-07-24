@@ -225,6 +225,97 @@ public class SqliteThemeRepositoryTests
     }
 
     [Fact]
+    public async Task DeletedTheme_CanBeListedRestoredAndPermanentlyRemovedViaSystemRecycler()
+    {
+        await using var environment = await StorageTestEnvironment.CreateAsync();
+        var recycler = new RecordingThemeDirectoryRecycleService();
+        var repository = environment.CreateRepository(recycler);
+        var theme = StorageTestEnvironment.CreateTheme("Recycle lifecycle");
+        Assert.True(
+            (await repository.SaveAsync(
+                theme,
+                new ThemeCreateOptions(),
+                CancellationToken.None)).IsSuccess);
+
+        Assert.True((await repository.DeleteAsync(theme.Id, CancellationToken.None)).IsSuccess);
+        Assert.Single((await repository.ListDeletedAsync(CancellationToken.None)).Value!);
+
+        Assert.True(
+            (await repository.RestoreDeletedAsync(theme.Id, CancellationToken.None)).IsSuccess);
+        Assert.Single((await repository.ListAsync(CancellationToken.None)).Value!);
+        Assert.Empty((await repository.ListDeletedAsync(CancellationToken.None)).Value!);
+
+        Assert.True((await repository.DeleteAsync(theme.Id, CancellationToken.None)).IsSuccess);
+        var purged = await repository.PermanentlyDeleteAsync(
+            theme.Id,
+            CancellationToken.None);
+
+        Assert.True(purged.IsSuccess, purged.Error?.DiagnosticCode);
+        Assert.Empty((await repository.ListAsync(CancellationToken.None)).Value!);
+        Assert.Empty((await repository.ListDeletedAsync(CancellationToken.None)).Value!);
+        var recycledPath = Assert.Single(recycler.RecycledPaths);
+        Assert.Equal(
+            Path.GetFullPath(
+                Path.Combine(environment.DataRoot, StorageLayout.GetThemeDirectory(theme.Id))),
+            recycledPath,
+            ignoreCase: true);
+        Assert.False(Directory.Exists(recycledPath));
+        Assert.True(Directory.Exists(recycledPath + ".system-recycle"));
+    }
+
+    [Fact]
+    public async Task PermanentDelete_RecycleFailureRollsBackDatabaseRemoval()
+    {
+        await using var environment = await StorageTestEnvironment.CreateAsync();
+        var recycler = new RecordingThemeDirectoryRecycleService(fail: true);
+        var repository = environment.CreateRepository(recycler);
+        var theme = StorageTestEnvironment.CreateTheme("Recycle failure");
+        Assert.True(
+            (await repository.SaveAsync(
+                theme,
+                new ThemeCreateOptions(),
+                CancellationToken.None)).IsSuccess);
+        Assert.True((await repository.DeleteAsync(theme.Id, CancellationToken.None)).IsSuccess);
+
+        var purged = await repository.PermanentlyDeleteAsync(
+            theme.Id,
+            CancellationToken.None);
+
+        Assert.False(purged.IsSuccess);
+        Assert.Equal(OperationErrorCode.StorageUnavailable, purged.Error!.Code);
+        Assert.Single((await repository.ListDeletedAsync(CancellationToken.None)).Value!);
+        Assert.True(
+            Directory.Exists(
+                Path.Combine(environment.DataRoot, StorageLayout.GetThemeDirectory(theme.Id))));
+    }
+
+    [Fact]
+    public async Task RestoreDeleted_MissingThemeDirectoryFailsClosed()
+    {
+        await using var environment = await StorageTestEnvironment.CreateAsync();
+        var repository = environment.CreateRepository();
+        var theme = StorageTestEnvironment.CreateTheme("Missing restore directory");
+        Assert.True(
+            (await repository.SaveAsync(
+                theme,
+                new ThemeCreateOptions(),
+                CancellationToken.None)).IsSuccess);
+        Assert.True((await repository.DeleteAsync(theme.Id, CancellationToken.None)).IsSuccess);
+        var themeDirectory = Path.GetFullPath(
+            Path.Combine(environment.DataRoot, StorageLayout.GetThemeDirectory(theme.Id)));
+        Directory.Move(themeDirectory, themeDirectory + ".missing");
+
+        var restored = await repository.RestoreDeletedAsync(
+            theme.Id,
+            CancellationToken.None);
+
+        Assert.False(restored.IsSuccess);
+        Assert.Equal("theme.restore_deleted.directory_missing", restored.Error!.DiagnosticCode);
+        Assert.Single((await repository.ListDeletedAsync(CancellationToken.None)).Value!);
+        Assert.Empty((await repository.ListAsync(CancellationToken.None)).Value!);
+    }
+
+    [Fact]
     public async Task Save_DoesNotOverwriteNewerSchemaFile()
     {
         await using var environment = await StorageTestEnvironment.CreateAsync();
@@ -327,5 +418,26 @@ public class SqliteThemeRepositoryTests
 
         Assert.False(update.IsSuccess);
         Assert.Equal(["original"], themes.Value!.Single().Tags);
+    }
+}
+
+internal sealed class RecordingThemeDirectoryRecycleService(bool fail = false)
+    : IThemeDirectoryRecycleService
+{
+    public List<string> RecycledPaths { get; } = [];
+
+    public OperationResult MoveToSystemRecycleBin(string fullPath)
+    {
+        RecycledPaths.Add(fullPath);
+        if (fail)
+        {
+            return OperationResult.Failure(
+                OperationErrorCode.StorageUnavailable,
+                "模拟 Windows 回收站不可用。",
+                "test.recycle.failure");
+        }
+
+        Directory.Move(fullPath, fullPath + ".system-recycle");
+        return OperationResult.Success();
     }
 }

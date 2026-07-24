@@ -56,8 +56,12 @@ internal sealed class StorageTestEnvironment : IAsyncDisposable
         return environment;
     }
 
-    public SqliteThemeRepository CreateRepository() =>
-        new(DataRoot, new ThemeDocumentSerializer());
+    public SqliteThemeRepository CreateRepository(
+        IThemeDirectoryRecycleService? directoryRecycler = null) =>
+        new(
+            DataRoot,
+            new ThemeDocumentSerializer(),
+            directoryRecycler: directoryRecycler);
 
     public static ThemePackage CreateTheme(
         string name,
@@ -105,4 +109,3 @@ internal sealed class StorageTestEnvironment : IAsyncDisposable
         return ValueTask.CompletedTask;
     }
 }
-

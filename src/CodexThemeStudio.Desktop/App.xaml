@@ -1,59 +1,15 @@
 <Application x:Class="CodexThemeStudio.Desktop.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:converters="clr-namespace:CodexThemeStudio.Desktop.Converters">
     <Application.Resources>
-        <SolidColorBrush x:Key="WindowBrush" Color="#F5F7FB" />
-        <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
-        <SolidColorBrush x:Key="SurfaceMutedBrush" Color="#EEF2F7" />
-        <SolidColorBrush x:Key="TextBrush" Color="#172033" />
-        <SolidColorBrush x:Key="MutedTextBrush" Color="#657087" />
-        <SolidColorBrush x:Key="BorderBrush" Color="#DDE3EC" />
-        <SolidColorBrush x:Key="AccentBrush" Color="#5A54E8" />
-        <SolidColorBrush x:Key="AccentSoftBrush" Color="#EAE9FF" />
-        <SolidColorBrush x:Key="SuccessBrush" Color="#18794E" />
-        <SolidColorBrush x:Key="WarningBrush" Color="#9A6700" />
-        <SolidColorBrush x:Key="DangerBrush" Color="#B42318" />
-
-        <Style TargetType="Window">
-            <Setter Property="Background" Value="{DynamicResource WindowBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
-            <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI" />
-            <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
-        </Style>
-
-        <Style TargetType="Button">
-            <Setter Property="MinHeight" Value="36" />
-            <Setter Property="Padding" Value="14,7" />
-            <Setter Property="Margin" Value="0,0,8,0" />
-            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-
-        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
-            <Setter Property="Foreground" Value="White" />
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-        </Style>
-
-        <Style x:Key="DangerButtonStyle" TargetType="Button">
-            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
-        </Style>
-
-        <Style TargetType="TextBox">
-            <Setter Property="MinHeight" Value="38" />
-            <Setter Property="Padding" Value="11,7" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-        </Style>
-
-        <Style TargetType="ComboBox">
-            <Setter Property="MinHeight" Value="38" />
-            <Setter Property="Padding" Value="9,5" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
-        </Style>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/DesignTokens.xaml" />
+                <ResourceDictionary Source="Themes/Icons.xaml" />
+                <ResourceDictionary Source="Themes/ComponentStyles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <converters:CssColorBrushConverter x:Key="CssColorBrushConverter" />
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

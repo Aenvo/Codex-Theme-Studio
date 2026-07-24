@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CodexThemeStudio.Contracts.Interfaces;
@@ -16,11 +17,19 @@ public sealed class InjectorCommandClient :
     private readonly string nodeExecutablePath;
     private readonly string injectorScriptPath;
     private readonly TimeSpan commandTimeout;
+    private readonly CodexTargetSelectionService? targetSelection;
+    private readonly IDiagnosticEventSink? diagnosticSink;
+    private readonly Guid diagnosticSessionId;
+    private readonly string diagnosticAppVersion;
 
     public InjectorCommandClient(
         string nodeExecutablePath,
         string injectorScriptPath,
-        TimeSpan? commandTimeout = null)
+        TimeSpan? commandTimeout = null,
+        CodexTargetSelectionService? targetSelection = null,
+        IDiagnosticEventSink? diagnosticSink = null,
+        Guid? diagnosticSessionId = null,
+        string? diagnosticAppVersion = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeExecutablePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(injectorScriptPath);
@@ -28,15 +37,38 @@ public sealed class InjectorCommandClient :
         this.nodeExecutablePath = Path.GetFullPath(nodeExecutablePath);
         this.injectorScriptPath = Path.GetFullPath(injectorScriptPath);
         this.commandTimeout = commandTimeout ?? TimeSpan.FromSeconds(45);
+        this.targetSelection = targetSelection;
+        this.diagnosticSink = diagnosticSink;
+        this.diagnosticSessionId = diagnosticSessionId ?? Guid.Empty;
+        this.diagnosticAppVersion = diagnosticAppVersion ?? "unknown";
     }
 
-    public async Task<OperationResult<CodexInstallationInfo>> FindInstallationAsync(
+    public async Task<OperationResult<CodexDiscoverySnapshot>> DiscoverAsync(
         CancellationToken cancellationToken)
     {
-        var response = await ExecuteAsync(["discover"], cancellationToken).ConfigureAwait(false);
+        CodexTargetSelection? selected = null;
+        if (targetSelection is not null)
+        {
+            var resolved = await targetSelection.ResolveAsync(cancellationToken).ConfigureAwait(false);
+            if (!resolved.IsSuccess)
+            {
+                return OperationResult<CodexDiscoverySnapshot>.Failure(resolved.Error!);
+            }
+
+            selected = resolved.Value;
+        }
+
+        var arguments = new List<string> { "discover" };
+        if (selected is not null)
+        {
+            arguments.Add("--executable");
+            arguments.Add(selected.ExecutablePath);
+        }
+
+        var response = await ExecuteAsync(arguments, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccess)
         {
-            return OperationResult<CodexInstallationInfo>.Failure(response.Error!);
+            return OperationResult<CodexDiscoverySnapshot>.Failure(response.Error!);
         }
 
         try
@@ -45,47 +77,41 @@ public sealed class InjectorCommandClient :
                 .GetProperty("installation")
                 .Deserialize<CodexInstallationInfo>(JsonOptions);
 
-            return installation is not null && ProcessIdentityPolicy.IsOfficialInstallation(installation)
-                ? OperationResult<CodexInstallationInfo>.Success(installation)
-                : OperationResult<CodexInstallationInfo>.Failure(
-                    OperationErrorCode.CodexIdentityMismatch,
-                    "检测到的 Codex 安装未通过官方 Store 包身份校验。",
-                    "installation_identity_rejected");
-        }
-        catch (JsonException)
-        {
-            return InvalidResponse<CodexInstallationInfo>("discover_payload_invalid");
-        }
-    }
+            if (installation is null)
+            {
+                return InvalidResponse<CodexDiscoverySnapshot>("discover_payload_invalid");
+            }
 
-    public async Task<OperationResult<IReadOnlyList<CodexProcessInfo>>> FindProcessesAsync(
-        CodexInstallationInfo installation,
-        CancellationToken cancellationToken)
-    {
-        if (!ProcessIdentityPolicy.IsOfficialInstallation(installation))
-        {
-            return OperationResult<IReadOnlyList<CodexProcessInfo>>.Failure(
-                OperationErrorCode.CodexIdentityMismatch,
-                "Codex 安装身份未通过校验。",
-                "installation_identity_rejected");
-        }
-
-        var response = await ExecuteAsync(["discover"], cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccess)
-        {
-            return OperationResult<IReadOnlyList<CodexProcessInfo>>.Failure(response.Error!);
-        }
-
-        try
-        {
-            var processes = response.Value!.RootElement
+            var processes = response.Value.RootElement
                 .GetProperty("processes")
                 .Deserialize<CodexProcessInfo[]>(JsonOptions) ?? [];
-            return OperationResult<IReadOnlyList<CodexProcessInfo>>.Success(processes);
+            var fingerprint = selected?.ExecutableSha256 ??
+                await ComputeSha256Async(installation.ExecutablePath, cancellationToken)
+                    .ConfigureAwait(false);
+            var official = ProcessIdentityPolicy.IsOfficialInstallation(installation);
+            var normalizedInstallation = installation with
+            {
+                Source = selected is null
+                    ? CodexInstallationSource.StoreAutomatic
+                    : CodexInstallationSource.ManualExecutable,
+                IdentityAssessment = official
+                    ? CodexIdentityAssessment.TrustedStore
+                    : CodexIdentityAssessment.UnverifiedSource,
+                ExecutableSha256 = fingerprint,
+                SourceAcknowledged = selected is null || string.Equals(
+                    selected.AcknowledgedSha256,
+                    fingerprint,
+                    StringComparison.OrdinalIgnoreCase),
+            };
+            return OperationResult<CodexDiscoverySnapshot>.Success(
+                new CodexDiscoverySnapshot(
+                    normalizedInstallation,
+                    processes,
+                    DateTimeOffset.UtcNow));
         }
         catch (JsonException)
         {
-            return InvalidResponse<IReadOnlyList<CodexProcessInfo>>("discover_processes_invalid");
+            return InvalidResponse<CodexDiscoverySnapshot>("discover_payload_invalid");
         }
     }
 
@@ -94,7 +120,7 @@ public sealed class InjectorCommandClient :
         CancellationToken cancellationToken)
     {
         var response = await ExecuteAsync(
-            ["probe", "--pid", process.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+            TargetArguments("probe", process),
             cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccess)
         {
@@ -121,11 +147,7 @@ public sealed class InjectorCommandClient :
         CancellationToken cancellationToken)
     {
         var response = await ExecuteAsync(
-            [
-                "close-inspector",
-                "--pid",
-                process.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            ],
+            TargetArguments("close-inspector", process),
             cancellationToken).ConfigureAwait(false);
         return response.IsSuccess
             ? OperationResult.Success()
@@ -143,6 +165,49 @@ public sealed class InjectorCommandClient :
         CancellationToken cancellationToken) =>
         ExecuteRendererAsync("renderer-status", process, null, cancellationToken);
 
+    public async Task<OperationResult<CodexInspectionResult>> InspectAsync(
+        CodexProcessInfo process,
+        CodexInspectionMode mode,
+        CancellationToken cancellationToken)
+    {
+        if (mode == CodexInspectionMode.RendererOnly)
+        {
+            var rendererOnly = await GetStatusAsync(process, cancellationToken)
+                .ConfigureAwait(false);
+            return rendererOnly.IsSuccess
+                ? OperationResult<CodexInspectionResult>.Success(
+                    new CodexInspectionResult(null, rendererOnly.Value!))
+                : OperationResult<CodexInspectionResult>.Failure(rendererOnly.Error!);
+        }
+
+        var response = await ExecuteAsync(
+            TargetArguments("inspect-status", process),
+            cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccess)
+        {
+            return OperationResult<CodexInspectionResult>.Failure(response.Error!);
+        }
+
+        using var document = response.Value!;
+        try
+        {
+            var probe = document.RootElement
+                .GetProperty("probe")
+                .Deserialize<CodexProbeResult>(JsonOptions);
+            var renderer = document.RootElement
+                .GetProperty("renderer")
+                .Deserialize<RendererRuntimeResult>(JsonOptions);
+            return probe is null || renderer is null
+                ? InvalidResponse<CodexInspectionResult>("inspection_payload_missing")
+                : OperationResult<CodexInspectionResult>.Success(
+                    new CodexInspectionResult(probe, renderer));
+        }
+        catch (JsonException)
+        {
+            return InvalidResponse<CodexInspectionResult>("inspection_payload_invalid");
+        }
+    }
+
     public Task<OperationResult<RendererRuntimeResult>> CleanupAsync(
         CodexProcessInfo process,
         CancellationToken cancellationToken) =>
@@ -155,11 +220,7 @@ public sealed class InjectorCommandClient :
         CancellationToken cancellationToken)
     {
         var response = await ExecuteAsync(
-            [
-                command,
-                "--pid",
-                process.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            ],
+            TargetArguments(command, process),
             cancellationToken,
             payload).ConfigureAwait(false);
         if (!response.IsSuccess)
@@ -187,6 +248,31 @@ public sealed class InjectorCommandClient :
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken,
         ReadOnlyMemory<byte>? standardInput = null)
+    {
+        var command = arguments[0];
+        var correlationId = Guid.NewGuid();
+        await WriteDiagnosticAsync(
+            command,
+            DiagnosticOutcome.Started,
+            correlationId,
+            error: null).ConfigureAwait(false);
+
+        var result = await ExecuteCoreAsync(
+            arguments,
+            cancellationToken,
+            standardInput).ConfigureAwait(false);
+        await WriteDiagnosticAsync(
+            command,
+            result.IsSuccess ? DiagnosticOutcome.Succeeded : DiagnosticOutcome.Failed,
+            correlationId,
+            result.Error).ConfigureAwait(false);
+        return result;
+    }
+
+    private async Task<OperationResult<JsonDocument>> ExecuteCoreAsync(
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken,
+        ReadOnlyMemory<byte>? standardInput)
     {
         if (!File.Exists(nodeExecutablePath) || !File.Exists(injectorScriptPath))
         {
@@ -297,6 +383,48 @@ public sealed class InjectorCommandClient :
         }
     }
 
+    private async Task WriteDiagnosticAsync(
+        string command,
+        DiagnosticOutcome outcome,
+        Guid correlationId,
+        OperationError? error)
+    {
+        if (diagnosticSink is null)
+        {
+            return;
+        }
+
+        var eventCommand = command.Replace('-', '_');
+        var eventSuffix = outcome switch
+        {
+            DiagnosticOutcome.Started => "started",
+            DiagnosticOutcome.Succeeded => "completed",
+            _ => "failed",
+        };
+        try
+        {
+            _ = await diagnosticSink.WriteAsync(
+                DiagnosticEventFactory.Create(
+                    CodexThemeStudio.Contracts.Models.DiagnosticSource.Desktop,
+                    outcome == DiagnosticOutcome.Failed
+                        ? DiagnosticLevel.Warning
+                        : DiagnosticLevel.Information,
+                    $"desktop.injector.{eventCommand}.{eventSuffix}",
+                    outcome,
+                    diagnosticSessionId,
+                    diagnosticAppVersion,
+                    operation: command,
+                    correlationId: correlationId,
+                    error: error),
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            // Diagnostics are best effort and must never change runtime behavior.
+        }
+    }
+
     private static async Task<string> ReadLimitedAsync(
         StreamReader reader,
         CancellationToken cancellationToken)
@@ -372,6 +500,30 @@ public sealed class InjectorCommandClient :
         catch (InvalidOperationException)
         {
         }
+    }
+
+    private static string[] TargetArguments(string command, CodexProcessInfo process) =>
+    [
+        command,
+        "--pid",
+        process.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        "--executable",
+        process.ExecutablePath,
+    ];
+
+    private static async Task<string> ComputeSha256Async(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            81920,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var hash = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);

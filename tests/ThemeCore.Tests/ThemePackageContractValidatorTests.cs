@@ -20,6 +20,30 @@ public class ThemePackageContractValidatorTests
     }
 
     [Fact]
+    public void Serializer_RoundTripsCropArtSize()
+    {
+        var theme = CreateValidTheme("裁切主题") with
+        {
+            Art = CreateValidTheme("裁切主题").Art with
+            {
+                Size = ThemeArtSize.Crop,
+                FocusX = 0.2,
+                FocusY = 0.8,
+            },
+        };
+        var serializer = new ThemeDocumentSerializer();
+
+        var serialized = serializer.Serialize(theme);
+        var read = serializer.Read(serialized.Value!);
+
+        Assert.True(serialized.IsSuccess);
+        Assert.Equal(ThemeDocumentReadStatus.Success, read.Status);
+        Assert.Equal(ThemeArtSize.Crop, read.Theme!.Art.Size);
+        Assert.Equal(0.2, read.Theme.Art.FocusX);
+        Assert.Equal(0.8, read.Theme.Art.FocusY);
+    }
+
+    [Fact]
     public void Serializer_RejectsUnknownFieldInCurrentSchema()
     {
         var serializer = new ThemeDocumentSerializer();

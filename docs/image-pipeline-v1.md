@@ -10,7 +10,7 @@
 - 选择原因：支持 .NET 8 和 Windows 桌面，能够解码 PNG、JPEG、WebP，
   提供 EXIF 方向信息，并能重新编码 WebP。
 - 发布影响：包包含 Skia Windows 原生资源，也会带来额外便携包体积。
-  第三方 Notices、原生二进制哈希和最终包体积仍在任务 12 汇总验证。
+  第三方 Notices、原生二进制哈希和包体积由各版本发布验收记录汇总验证。
 
 没有使用许可为 Six Labors Split License 的 ImageSharp，也没有复制参考
 项目的图片处理源码或测试素材。

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Windows;
 using CodexThemeStudio.CodexAdapter;
 using CodexThemeStudio.Contracts.Interfaces;
 using CodexThemeStudio.Desktop.Services;
@@ -16,8 +17,16 @@ public sealed class AppServices
 
     public MainWindowViewModel MainWindowViewModel { get; }
 
-    public static async Task<AppServices> CreateAsync(CancellationToken cancellationToken)
+    public static async Task<AppServices> CreateAsync(
+        CancellationToken cancellationToken,
+        LocalDiagnosticService? diagnostics = null,
+        Guid? diagnosticSessionId = null,
+        string? appVersion = null)
     {
+        diagnostics ??= new LocalDiagnosticService(
+            LocalDiagnosticService.GetDefaultLogDirectory());
+        appVersion ??= DiagnosticEventFactory.GetApplicationVersion(
+            typeof(AppServices).Assembly);
         var storageLocation = StorageLocationService.CreateDefault();
         var defaultDataRoot = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -53,14 +62,26 @@ public sealed class AppServices
             dataRoot,
             repository,
             imageImport);
-        var injector = CreateInjectorClient();
+        var targetSelection = new CodexTargetSelectionService();
+        var injector = CreateInjectorClient(
+            targetSelection,
+            diagnostics,
+            diagnosticSessionId,
+            appVersion);
+        var currentSessionStore = new AtomicCurrentSessionStore(dataRoot);
+        IExternalPersistenceService externalPersistence =
+            new OkkSkinExternalPersistenceService();
+        var externalThemeCatalog = new ExternalThemeCatalogService(
+            new OkkSkinExternalThemeSource(injector, currentSessionStore),
+            repository,
+            imageImport);
         ICodexThemeRuntime runtime = new CodexThemeRuntimeService(
             injector,
             injector,
             injector,
             assetStore,
             repository,
-            new AtomicCurrentSessionStore(dataRoot));
+            currentSessionStore);
         IPersistenceService persistence = new PersistenceService(
             runtime,
             assetStore,
@@ -69,7 +90,9 @@ public sealed class AppServices
             new ManagedAgentInstaller(),
             new WindowsRunStartupManager(),
             new AgentProcessController(),
-            AppContext.BaseDirectory);
+            PersistenceBundleLocator.Find(
+                AppContext.BaseDirectory,
+                appVersion));
 
         var resolver = new TrustedPathResolver(dataRoot);
         string? ResolveThumbnail(string? relativePath)
@@ -105,11 +128,25 @@ public sealed class AppServices
                 repository,
                 imagePipeline,
                 assetStore,
-                ResolveDataPath));
+                ResolveDataPath),
+            externalTheme: null,
+            externalPersistence,
+            targetSelection,
+            diagnostics,
+            diagnostics,
+            diagnostics,
+            static text => Clipboard.SetText(text),
+            appVersion,
+            diagnosticSessionId,
+            externalThemeCatalog);
         return new AppServices(viewModel);
     }
 
-    private static InjectorCommandClient CreateInjectorClient()
+    private static InjectorCommandClient CreateInjectorClient(
+        CodexTargetSelectionService targetSelection,
+        IDiagnosticEventSink diagnostics,
+        Guid? diagnosticSessionId,
+        string appVersion)
     {
         var runtimeRoot = FindRuntimeRoot();
         var nodePath = Path.Combine(runtimeRoot, "node", "node.exe");
@@ -120,7 +157,11 @@ public sealed class AppServices
 
         return new InjectorCommandClient(
             nodePath,
-            Path.Combine(runtimeRoot, "injector", "index.mjs"));
+            Path.Combine(runtimeRoot, "injector", "index.mjs"),
+            targetSelection: targetSelection,
+            diagnosticSink: diagnostics,
+            diagnosticSessionId: diagnosticSessionId,
+            diagnosticAppVersion: appVersion);
     }
 
     private static string FindRuntimeRoot()

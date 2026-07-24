@@ -1,24 +1,37 @@
 [CmdletBinding()]
 param(
-    [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version = '1.0.0',
+    [string]$Version,
 
     [switch]$SkipVerification
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
-$solutionPath = Join-Path $projectRoot 'CodexThemeStudio.sln'
-$runtimeIdentifier = 'win-x64'
-$nodeVersion = '24.18.0'
-$nodeArchiveName = "node-v$nodeVersion-win-x64.zip"
-$nodeArchiveSha256 = '0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821'
+$globalJson = Get-Content -Raw -LiteralPath (Join-Path $projectRoot 'global.json') |
+    ConvertFrom-Json
+$projectProperties = [xml](Get-Content -Raw -LiteralPath (
+    Join-Path $projectRoot 'Directory.Build.props'))
+$requiredSdkVersion = [string]$globalJson.sdk.version
+$declaredVersion = [string](
+    $projectProperties.Project.PropertyGroup.Version |
+        Select-Object -First 1)
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    $Version = $declaredVersion
+}
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Release version must use major.minor.patch format. Actual: $Version"
+}
+$runtimeBaseline = Get-Content -Raw -LiteralPath (
+    Join-Path $projectRoot 'eng\runtime-baseline.json') |
+    ConvertFrom-Json
+$runtimeIdentifier = [string]$runtimeBaseline.runtimeIdentifier
+$nodeVersion = [string]$runtimeBaseline.nodeVersion
+$nodeArchiveName = "node-v$nodeVersion-$runtimeIdentifier.zip"
+$nodeArchiveSha256 = [string]$runtimeBaseline.nodeArchiveSha256
 $artifactRoot = Join-Path $projectRoot 'artifacts'
 $cacheRoot = Join-Path $artifactRoot 'cache'
-$releaseRoot = Join-Path $artifactRoot "release\$Version"
+$finalReleaseRoot = Join-Path $artifactRoot "release\$Version"
 $packageName = "CodexThemeManager-$Version-win-x64-portable"
-$packageDirectory = Join-Path $releaseRoot $packageName
-$zipPath = Join-Path $releaseRoot "$packageName.zip"
 
 function Resolve-DotNet {
     $candidates = @()
@@ -27,7 +40,8 @@ function Resolve-DotNet {
     }
 
     if ($env:LOCALAPPDATA) {
-        $candidates += (Join-Path $env:LOCALAPPDATA 'CodexThemeStudio\devtools\dotnet-8.0.423\dotnet.exe')
+        $candidates += (Join-Path $env:LOCALAPPDATA (
+            "CodexThemeStudio\devtools\dotnet-$requiredSdkVersion\dotnet.exe"))
     }
 
     $command = Get-Command dotnet -ErrorAction SilentlyContinue
@@ -36,12 +50,18 @@ function Resolve-DotNet {
     }
 
     foreach ($candidate in $candidates | Select-Object -Unique) {
-        if (Test-Path -LiteralPath $candidate) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            continue
+        }
+
+        $sdks = & $candidate --list-sdks
+        if ($LASTEXITCODE -eq 0 -and
+            $sdks -match "^$([regex]::Escape($requiredSdkVersion))\s") {
             return $candidate
         }
     }
 
-    throw 'The .NET 8.0.423 SDK was not found.'
+    throw "Required .NET SDK $requiredSdkVersion was not found."
 }
 
 function Invoke-Checked {
@@ -119,8 +139,8 @@ function Copy-RequiredFile {
     Copy-Item -LiteralPath $Source -Destination $Destination
 }
 
-if (Test-Path -LiteralPath $releaseRoot) {
-    throw "Release output already exists and will not be overwritten: $releaseRoot"
+if (Test-Path -LiteralPath $finalReleaseRoot) {
+    throw "Release output already exists and will not be overwritten: $finalReleaseRoot"
 }
 
 $dotnet = Resolve-DotNet
@@ -128,11 +148,16 @@ $dotnetRoot = Split-Path -Parent $dotnet
 $workRoot = Join-Path $artifactRoot ("work\package-" + [guid]::NewGuid().ToString('N'))
 $desktopPublish = Join-Path $workRoot 'desktop'
 $agentPublish = Join-Path $workRoot 'agent'
+$releaseRoot = Join-Path $workRoot 'release'
+$packageDirectory = Join-Path $releaseRoot $packageName
+$zipPath = Join-Path $releaseRoot "$packageName.zip"
 $nodeArchive = Join-Path $cacheRoot $nodeArchiveName
-$nodeExtractRoot = Join-Path $cacheRoot "node-v$nodeVersion-win-x64"
+$nodeExtractRoot = Join-Path $cacheRoot "node-v$nodeVersion-$runtimeIdentifier"
+$packageCompleted = $false
 
 New-Item -ItemType Directory -Force -Path $cacheRoot, $workRoot | Out-Null
 
+try {
 if (-not $SkipVerification) {
     & (Join-Path $projectRoot 'build.ps1') -Configuration Release
     if ($LASTEXITCODE -ne 0) {
@@ -171,8 +196,12 @@ Invoke-Checked $dotnet @(
     '--configuration', 'Release',
     '--runtime', $runtimeIdentifier,
     '--self-contained', 'true',
+    '--no-restore',
+    '--disable-build-servers',
+    '-m:1',
     '--output', $desktopPublish,
     '-p:RestoreLockedMode=true',
+    '-p:UseSharedCompilation=false',
     "-p:Version=$Version",
     '-p:DebugType=None',
     '-p:DebugSymbols=false'
@@ -183,8 +212,12 @@ Invoke-Checked $dotnet @(
     '--configuration', 'Release',
     '--runtime', $runtimeIdentifier,
     '--self-contained', 'true',
+    '--no-restore',
+    '--disable-build-servers',
+    '-m:1',
     '--output', $agentPublish,
     '-p:RestoreLockedMode=true',
+    '-p:UseSharedCompilation=false',
     "-p:Version=$Version",
     '-p:DebugType=None',
     '-p:DebugSymbols=false'
@@ -227,8 +260,17 @@ Copy-RequiredFile `
     (Join-Path $projectRoot 'README.md') `
     (Join-Path $packageDirectory 'README.md')
 Copy-RequiredFile `
+    (Join-Path $projectRoot 'LICENSE') `
+    (Join-Path $packageDirectory 'LICENSE')
+Copy-RequiredFile `
     (Join-Path $projectRoot 'docs\user-guide.md') `
     (Join-Path $packageDirectory 'docs\user-guide.md')
+Copy-RequiredFile `
+    (Join-Path $projectRoot 'docs\building.md') `
+    (Join-Path $packageDirectory 'docs\building.md')
+Copy-RequiredFile `
+    (Join-Path $projectRoot 'docs\releasing.md') `
+    (Join-Path $packageDirectory 'docs\releasing.md')
 Copy-RequiredFile `
     (Join-Path $projectRoot 'THIRD-PARTY-NOTICES.md') `
     (Join-Path $packageDirectory 'THIRD-PARTY-NOTICES.md')
@@ -263,11 +305,24 @@ Copy-RequiredFile `
 Copy-RequiredFile `
     (Join-Path $globalPackages 'skiasharp.nativeassets.win32\4.150.1\THIRD-PARTY-NOTICES.txt') `
     (Join-Path $licensesRoot 'SkiaSharp-THIRD-PARTY-NOTICES.txt')
+Copy-RequiredFile `
+    (Join-Path $projectRoot 'third_party\Lucide\LICENSE.txt') `
+    (Join-Path $licensesRoot 'Lucide-LICENSE.txt')
 
-Invoke-WebRequest -Uri 'https://licenses.nuget.org/MIT' `
-    -OutFile (Join-Path $licensesRoot 'MIT.txt')
-Invoke-WebRequest -Uri 'https://www.apache.org/licenses/LICENSE-2.0.txt' `
-    -OutFile (Join-Path $licensesRoot 'Apache-2.0.txt')
+$licenseCacheRoot = Join-Path $cacheRoot 'licenses'
+New-Item -ItemType Directory -Force -Path $licenseCacheRoot | Out-Null
+$mitLicenseCache = Join-Path $licenseCacheRoot 'MIT.txt'
+$apacheLicenseCache = Join-Path $licenseCacheRoot 'Apache-2.0.txt'
+if (-not (Test-Path -LiteralPath $mitLicenseCache -PathType Leaf)) {
+    Invoke-WebRequest -Uri 'https://licenses.nuget.org/MIT' `
+        -OutFile $mitLicenseCache
+}
+if (-not (Test-Path -LiteralPath $apacheLicenseCache -PathType Leaf)) {
+    Invoke-WebRequest -Uri 'https://www.apache.org/licenses/LICENSE-2.0.txt' `
+        -OutFile $apacheLicenseCache
+}
+Copy-RequiredFile $mitLicenseCache (Join-Path $licensesRoot 'MIT.txt')
+Copy-RequiredFile $apacheLicenseCache (Join-Path $licensesRoot 'Apache-2.0.txt')
 
 $mainExecutable = $renamedDesktopExecutable
 $agentExecutable = Join-Path $packageDirectory 'agent\CodexThemeStudio.Agent.exe'
@@ -333,8 +388,24 @@ $metadata = [ordered]@{
     ($metadata | ConvertTo-Json -Depth 4),
     [Text.UTF8Encoding]::new($false))
 
-Write-Host "Portable package: $packageDirectory"
-Write-Host "ZIP: $zipPath"
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $finalReleaseRoot) |
+    Out-Null
+Move-Item -LiteralPath $releaseRoot -Destination $finalReleaseRoot
+$packageCompleted = $true
+
+Write-Host "Portable package: $(Join-Path $finalReleaseRoot $packageName)"
+Write-Host "ZIP: $(Join-Path $finalReleaseRoot "$packageName.zip")"
 Write-Host "Files: $($packageFiles.Count)"
 Write-Host "Uncompressed bytes: $packageBytes"
 Write-Host "ZIP SHA-256: $zipHash"
+}
+finally {
+    if ($packageCompleted) {
+        if (Test-Path -LiteralPath $workRoot) {
+            Remove-Item -LiteralPath $workRoot -Recurse -Force
+        }
+    }
+    else {
+        Write-Warning "Packaging did not complete. Diagnostic work directory retained: $workRoot"
+    }
+}

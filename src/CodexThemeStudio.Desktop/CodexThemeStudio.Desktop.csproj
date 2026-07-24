@@ -7,9 +7,11 @@
     <AssemblyName>CodexThemeStudio.Desktop</AssemblyName>
     <RootNamespace>CodexThemeStudio.Desktop</RootNamespace>
     <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
+    <Resource Include="Assets\app-icon.png" />
     <ProjectReference Include="..\CodexThemeStudio.Contracts\CodexThemeStudio.Contracts.csproj" />
     <ProjectReference Include="..\CodexThemeStudio.ThemeCore\CodexThemeStudio.ThemeCore.csproj" />
     <ProjectReference Include="..\CodexThemeStudio.Storage\CodexThemeStudio.Storage.csproj" />

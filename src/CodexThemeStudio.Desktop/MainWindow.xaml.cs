@@ -1,13 +1,21 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Effects;
+using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Desktop.ViewModels;
 
 namespace CodexThemeStudio.Desktop;
 
 public partial class MainWindow : Window
 {
+    private int dialogBackdropDepth;
+
     public MainWindow()
         : this(null)
     {
@@ -16,10 +24,11 @@ public partial class MainWindow : Window
     public MainWindow(MainWindowViewModel? viewModel)
     {
         InitializeComponent();
-        DataContext = viewModel;
+        SourceInitialized += (_, _) => EnableDarkTitleBar();
         PreviewKeyDown += OnPreviewKeyDown;
-        Loaded += (_, _) => UpdateFocusMarker();
-        PreviewArtSurface.SizeChanged += (_, _) => UpdateFocusMarker();
+        PreviewMouseLeftButtonDown += OnPreviewMouseLeftButtonDown;
+        Loaded += (_, _) => UpdatePreviewImageLayout();
+        PreviewArtSurface.SizeChanged += (_, _) => UpdatePreviewImageLayout();
         DataContextChanged += (_, args) =>
         {
             if (args.OldValue is MainWindowViewModel oldViewModel &&
@@ -34,6 +43,7 @@ public partial class MainWindow : Window
                 newViewModel.Editor.PropertyChanged += OnEditorPropertyChanged;
             }
         };
+        DataContext = viewModel;
         Closed += (_, _) => viewModel?.Dispose();
     }
 
@@ -54,21 +64,70 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnPreviewFocusClick(object sender, MouseButtonEventArgs e)
+    private void OnPreviewMouseLeftButtonDown(
+        object sender,
+        MouseButtonEventArgs e)
     {
-        if (DataContext is not MainWindowViewModel { Editor: { } editor } ||
-            sender is not FrameworkElement surface ||
-            surface.ActualWidth <= 0 ||
-            surface.ActualHeight <= 0)
+        if (e.OriginalSource is DependencyObject clickSource)
         {
-            return;
+            ClearSearchFocusOnOutsideClick(SearchBox, clickSource);
+        }
+    }
+
+    internal static bool ClearSearchFocusOnOutsideClick(
+        TextBox searchBox,
+        DependencyObject clickSource)
+    {
+        if (!searchBox.IsKeyboardFocusWithin ||
+            ReferenceEquals(FindVisualAncestor<TextBox>(clickSource), searchBox))
+        {
+            return false;
         }
 
-        var point = e.GetPosition(surface);
-        editor.FocusX = Math.Clamp(point.X / surface.ActualWidth, 0, 1);
-        editor.FocusY = Math.Clamp(point.Y / surface.ActualHeight, 0, 1);
-        UpdateFocusMarker();
-        e.Handled = true;
+        Keyboard.ClearFocus();
+        return true;
+    }
+
+    private void OnThemeListPreviewMouseLeftButtonDown(
+        object sender,
+        MouseButtonEventArgs e)
+    {
+        if (sender is ListBox listBox &&
+            e.OriginalSource is DependencyObject clickSource)
+        {
+            ClearThemeSelectionOnBackgroundClick(listBox, clickSource);
+        }
+    }
+
+    internal static bool ClearThemeSelectionOnBackgroundClick(
+        ListBox listBox,
+        DependencyObject clickSource)
+    {
+        if (FindVisualAncestor<ListBoxItem>(clickSource) is not null ||
+            FindVisualAncestor<ScrollBar>(clickSource) is not null)
+        {
+            return false;
+        }
+
+        listBox.UnselectAll();
+        listBox.Focus();
+        return true;
+    }
+
+    private static T? FindVisualAncestor<T>(DependencyObject element)
+        where T : DependencyObject
+    {
+        for (DependencyObject? current = element;
+             current is not null;
+             current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is T match)
+            {
+                return match;
+            }
+        }
+
+        return null;
     }
 
     private void OnEditorPropertyChanged(
@@ -76,27 +135,45 @@ public partial class MainWindow : Window
         System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(ThemeEditorViewModel.FocusX) or
-            nameof(ThemeEditorViewModel.FocusY))
+            nameof(ThemeEditorViewModel.FocusY) or
+            nameof(ThemeEditorViewModel.ArtSize))
         {
-            UpdateFocusMarker();
+            UpdatePreviewImageLayout();
         }
     }
 
-    private void UpdateFocusMarker()
+    private void OnPreviewImageTargetUpdated(
+        object sender,
+        DataTransferEventArgs e) =>
+        UpdatePreviewImageLayout();
+
+    private void UpdatePreviewImageLayout()
     {
         if (DataContext is not MainWindowViewModel { Editor: { } editor } ||
+            PreviewBackgroundImage.Source is not { } imageSource ||
+            imageSource.Width <= 0 ||
+            imageSource.Height <= 0 ||
             PreviewArtSurface.ActualWidth <= 0 ||
             PreviewArtSurface.ActualHeight <= 0)
         {
             return;
         }
 
-        Canvas.SetLeft(
-            FocusMarker,
-            (editor.FocusX * PreviewArtSurface.ActualWidth) - (FocusMarker.Width / 2));
-        Canvas.SetTop(
-            FocusMarker,
-            (editor.FocusY * PreviewArtSurface.ActualHeight) - (FocusMarker.Height / 2));
+        var widthScale = PreviewArtSurface.ActualWidth / imageSource.Width;
+        var heightScale = PreviewArtSurface.ActualHeight / imageSource.Height;
+        var scale = editor.ArtSize == ThemeArtSize.Contain
+            ? Math.Min(widthScale, heightScale)
+            : Math.Max(widthScale, heightScale);
+        var renderedWidth = imageSource.Width * scale;
+        var renderedHeight = imageSource.Height * scale;
+        var focusX = editor.IsCropMode ? editor.FocusX : 0.5;
+        var focusY = editor.IsCropMode ? editor.FocusY : 0.5;
+
+        PreviewBackgroundImage.Width = renderedWidth;
+        PreviewBackgroundImage.Height = renderedHeight;
+        PreviewBackgroundImage.RenderTransform = new TranslateTransform(
+            (PreviewArtSurface.ActualWidth - renderedWidth) * focusX,
+            (PreviewArtSurface.ActualHeight - renderedHeight) * focusY);
     }
 
     private void OnEditorImageDragOver(object sender, DragEventArgs e)
@@ -125,4 +202,67 @@ public partial class MainWindow : Window
 
     private static bool HasSupportedImageExtension(string path) =>
         Path.GetExtension(path).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".webp";
+
+    private void EnableDarkTitleBar()
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var enabled = 1;
+        _ = DwmSetWindowAttribute(handle, 20, ref enabled, sizeof(int));
+    }
+
+    internal IDisposable EnterDialogBackdrop()
+    {
+        dialogBackdropDepth++;
+        if (dialogBackdropDepth == 1)
+        {
+            ApplicationSurface.Effect = new BlurEffect
+            {
+                Radius = 4,
+                RenderingBias = RenderingBias.Performance,
+            };
+            DialogLightbox.Visibility = Visibility.Visible;
+        }
+
+        return new DialogBackdropLease(this);
+    }
+
+    private void ExitDialogBackdrop()
+    {
+        if (dialogBackdropDepth == 0 || --dialogBackdropDepth != 0)
+        {
+            return;
+        }
+
+        DialogLightbox.Visibility = Visibility.Collapsed;
+        ApplicationSurface.Effect = null;
+    }
+
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr window,
+        int attribute,
+        ref int value,
+        int valueSize);
+
+    private sealed class DialogBackdropLease(MainWindow owner) : IDisposable
+    {
+        private MainWindow? owner = owner;
+
+        public void Dispose()
+        {
+            var current = owner;
+            if (current is null)
+            {
+                return;
+            }
+
+            owner = null;
+            current.ExitDialogBackdrop();
+        }
+    }
 }

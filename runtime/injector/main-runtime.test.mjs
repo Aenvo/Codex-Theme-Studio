@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import vm from "node:vm";
-import { mainRuntimeBootstrap } from "./main-runtime.mjs";
+import {
+  createMainOperationExpression,
+  mainRuntimeBootstrap,
+} from "./main-runtime.mjs";
 
 test("main runtime isolates auxiliary windows and installs guarded hooks", async () => {
   const main = new FakeWindow(1, "app://-/index.html", true);
@@ -21,6 +24,48 @@ test("main runtime isolates auxiliary windows and installs guarded hooks", async
   assert.equal(main.webContents.listenerCount("dom-ready"), 1);
   assert.equal(avatar.webContents.listenerCount("dom-ready"), 1);
   assert.equal(environment.app.listenerCount("browser-window-created"), 1);
+});
+
+test("managed apply pauses only the current process OkkSkin hook", async () => {
+  const main = new FakeWindow(1, "app://-/index.html", true);
+  const avatar = new FakeWindow(
+    2,
+    "app://-/index.html?initialRoute=/avatar-overlay",
+    false);
+  const environment = createMainEnvironment([main, avatar]);
+  environment.context.__okkskinRJS = "active-hook";
+
+  await runMain(environment);
+
+  assert.equal(environment.context.__okkskinRJS, "");
+  assert.equal(
+    main.webContents.expressions.some(expression => expression.includes("okkskin-style")),
+    true);
+  assert.equal(
+    avatar.webContents.expressions.some(expression => expression.includes("okkskin-style")),
+    false);
+});
+
+test("status detects and cleanup removes OkkSkin without managed state", async () => {
+  const main = new FakeWindow(1, "app://-/index.html", true);
+  main.webContents.okkSkinActive = true;
+  const avatar = new FakeWindow(
+    2,
+    "app://-/index.html?initialRoute=/avatar-overlay",
+    false);
+  avatar.webContents.okkSkinActive = true;
+  const environment = createMainEnvironment([main, avatar]);
+  environment.context.__okkskinRJS = "active-hook";
+
+  const status = await runOperation(environment, "status");
+  assert.equal(status.knownExternalThemeActive, true);
+
+  const cleaned = await runOperation(environment, "cleanup");
+  assert.equal(cleaned.active, false);
+  assert.equal(cleaned.knownExternalThemeActive, false);
+  assert.equal(environment.context.__okkskinRJS, "");
+  assert.equal(main.webContents.okkSkinActive, false);
+  assert.equal(avatar.webContents.okkSkinActive, true);
 });
 
 test("late DOM, renderer refresh, and future windows are ensured", async () => {
@@ -89,6 +134,11 @@ async function runMain(
   return await script.runInContext(environment.context);
 }
 
+async function runOperation(environment, operation) {
+  const script = new vm.Script(createMainOperationExpression(operation));
+  return await script.runInContext(environment.context);
+}
+
 function createMainEnvironment(windows) {
   const app = new EventEmitter();
   const electron = {
@@ -124,6 +174,8 @@ class FakeWebContents extends EventEmitter {
     this.url = url;
     this.rendererEligible = rendererEligible;
     this.executeCount = 0;
+    this.expressions = [];
+    this.okkSkinActive = false;
   }
 
   isDestroyed() {
@@ -136,6 +188,14 @@ class FakeWebContents extends EventEmitter {
 
   async executeJavaScript(expression) {
     this.executeCount += 1;
+    this.expressions.push(expression);
+    if (expression.includes("classList.contains(\"okkskin\")")) {
+      return this.okkSkinActive;
+    }
+    if (expression.includes("style.remove()") && expression.includes("--ok-art")) {
+      this.okkSkinActive = false;
+      return true;
+    }
     if (expression.includes("state.cleanup")) {
       return true;
     }
