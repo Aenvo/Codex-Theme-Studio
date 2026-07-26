@@ -8,7 +8,8 @@ namespace CodexThemeStudio.CodexAdapter;
 
 public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
 {
-    private const int MaximumImageBytes = 16 * 1024 * 1024;
+    private const int MaximumImageBytes =
+        ImageSizeLimits.MaximumManagedImageBytes;
     private readonly ICodexDiscoveryService discoveryService;
     private readonly ICodexInspectorService inspectorService;
     private readonly IInjectorRendererClient rendererClient;
@@ -677,7 +678,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
             {
                 return OperationResult<byte[]>.Failure(
                     OperationErrorCode.ValidationFailed,
-                    "主题图片超过 16 MB 安全上限。",
+                    "主题图片超过 32 MiB 安全上限。",
                     "runtime.image_too_large");
             }
 

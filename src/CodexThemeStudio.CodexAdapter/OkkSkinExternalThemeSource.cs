@@ -10,7 +10,8 @@ namespace CodexThemeStudio.CodexAdapter;
 
 public sealed class OkkSkinExternalThemeSource : IExternalThemeSource
 {
-    private const long MaximumImageBytes = 16L * 1024 * 1024;
+    private const long MaximumImageBytes =
+        ImageSizeLimits.MaximumManagedImageBytes;
     private readonly ICodexDiscoveryService discovery;
     private readonly IInjectorRendererClient? rendererClient;
     private readonly ICurrentSessionStore? sessionStore;

@@ -8,7 +8,8 @@ namespace CodexThemeStudio.CodexAdapter;
 
 public static class RendererPayloadFactory
 {
-    public const int MaximumImageBytes = 16 * 1024 * 1024;
+    public const int MaximumImageBytes =
+        ImageSizeLimits.MaximumManagedImageBytes;
 
     public static OperationResult<byte[]> Create(
         ThemePackage theme,

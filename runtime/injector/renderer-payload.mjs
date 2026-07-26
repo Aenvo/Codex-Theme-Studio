@@ -1,5 +1,8 @@
 import { protocolError } from "./security.mjs";
 
+export const MAX_MANAGED_IMAGE_BYTES = 32 * 1024 * 1024;
+export const MAX_STRUCTURED_PAYLOAD_BYTES = 48 * 1024 * 1024;
+
 const exactColorPattern = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/iu;
 const exactUuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -116,7 +119,7 @@ export function prepareRendererPayload(input) {
     throw validationError("invalid_image_content_type");
   }
   const bytes = decodeBase64(image.base64);
-  if (bytes.length === 0 || bytes.length > 16 * 1024 * 1024) {
+  if (bytes.length === 0 || bytes.length > MAX_MANAGED_IMAGE_BYTES) {
     throw validationError("invalid_image_size");
   }
   if (!matchesImageSignature(bytes, image.contentType)) {
@@ -150,7 +153,7 @@ export function prepareRendererPayload(input) {
 }
 
 export function readStructuredInput(stream, {
-  maxBytes = 24 * 1024 * 1024,
+  maxBytes = MAX_STRUCTURED_PAYLOAD_BYTES,
 } = {}) {
   return new Promise((resolve, reject) => {
     const chunks = [];

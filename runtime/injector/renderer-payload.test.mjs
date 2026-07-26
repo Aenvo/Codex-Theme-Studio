@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareRendererPayload } from "./renderer-payload.mjs";
+import {
+  MAX_MANAGED_IMAGE_BYTES,
+  MAX_STRUCTURED_PAYLOAD_BYTES,
+  prepareRendererPayload,
+} from "./renderer-payload.mjs";
 import { createInput } from "./renderer-test-fixture.mjs";
 
 test("prepares a serialized payload and maps frozen Schema v1 task modes", () => {
@@ -15,6 +19,14 @@ test("prepares a serialized payload and maps frozen Schema v1 task modes", () =>
   assert.equal(full.palette.accent, "#CC66EE");
   assert.equal(full.art.panelBlur, 12);
   assert.equal(full.art.cropScale, 1);
+});
+
+test("keeps the managed image and Base64 payload limits coordinated", () => {
+  assert.equal(MAX_MANAGED_IMAGE_BYTES, 32 * 1024 * 1024);
+  assert.equal(MAX_STRUCTURED_PAYLOAD_BYTES, 48 * 1024 * 1024);
+  assert.ok(
+    MAX_STRUCTURED_PAYLOAD_BYTES >
+      Math.ceil(MAX_MANAGED_IMAGE_BYTES / 3) * 4);
 });
 
 test("crop mode preserves the explicit focus point and renders as cover", () => {

@@ -345,7 +345,7 @@ public sealed class PersistenceSnapshotStore : IPersistenceSnapshotStore
             {
                 return Failure<byte[]>(
                     OperationErrorCode.ValidationFailed,
-                    "主题图片超过 16 MB 安全上限。",
+                    "主题图片超过 32 MiB 安全上限。",
                     "persistence.snapshot.image_too_large");
             }
 

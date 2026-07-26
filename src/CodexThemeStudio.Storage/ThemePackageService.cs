@@ -12,7 +12,7 @@ namespace CodexThemeStudio.Storage;
 public sealed class ThemePackageService : IThemePackageService
 {
     public const int CurrentPackageSchemaVersion = 1;
-    public const long MaximumPackageBytes = 32L * 1024 * 1024;
+    public const long MaximumPackageBytes = 40L * 1024 * 1024;
     public const long MaximumExpandedBytes = 64L * 1024 * 1024;
     public const int MaximumEntries = 16;
 
@@ -96,7 +96,7 @@ public sealed class ThemePackageService : IThemePackageService
         {
             var backgroundBytes = await ReadBoundedAsync(
                 backgroundPath.Value!,
-                ImagePipeline.MaximumInputBytes,
+                ImageSizeLimits.MaximumManagedImageBytes,
                 cancellationToken);
             var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
             {
@@ -109,7 +109,7 @@ public sealed class ThemePackageService : IThemePackageService
             {
                 files["thumbnail.webp"] = await ReadBoundedAsync(
                     thumbnail,
-                    ImagePipeline.MaximumInputBytes,
+                    ImageSizeLimits.MaximumManagedImageBytes,
                     cancellationToken);
             }
 
@@ -210,7 +210,7 @@ public sealed class ThemePackageService : IThemePackageService
         {
             return Failure<ThemePackageImportResult>(
                 OperationErrorCode.ValidationFailed,
-                "主题包超过 32 MB 上限。",
+                "主题包超过 40 MiB 上限。",
                 "theme_package.import.archive_too_large");
         }
 
@@ -269,7 +269,7 @@ public sealed class ThemePackageService : IThemePackageService
                     if (expandedBytes > MaximumExpandedBytes)
                     {
                         return InvalidImport(
-                            "主题包解压后超过 64 MB 上限。",
+                            "主题包解压后超过 64 MiB 上限。",
                             "theme_package.import.expanded_too_large");
                     }
                 }

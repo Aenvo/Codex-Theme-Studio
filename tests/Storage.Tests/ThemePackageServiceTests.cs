@@ -11,6 +11,26 @@ namespace CodexThemeStudio.Storage.Tests;
 public sealed class ThemePackageServiceTests
 {
     [Fact]
+    public void ImageAndPackageLimits_RemainCoordinated()
+    {
+        Assert.Equal(
+            100L * 1024 * 1024,
+            ImageSizeLimits.MaximumSourceBytes);
+        Assert.Equal(
+            32 * 1024 * 1024,
+            ImageSizeLimits.MaximumManagedImageBytes);
+        Assert.Equal(
+            ImageSizeLimits.MaximumSourceBytes,
+            ImagePipeline.MaximumInputBytes);
+        Assert.True(
+            ThemePackageService.MaximumPackageBytes >
+            ImageSizeLimits.MaximumManagedImageBytes);
+        Assert.True(
+            ThemePackageService.MaximumExpandedBytes >
+            ThemePackageService.MaximumPackageBytes);
+    }
+
+    [Fact]
     public async Task ExportedPackage_ImportsIntoFreshDataRoot()
     {
         await using var source = await StorageTestEnvironment.CreateAsync();

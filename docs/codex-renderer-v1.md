@@ -12,7 +12,7 @@ Injector 只从 UTF-8 JSON 标准输入读取主题，主题值不进入命令�
 执行严格字段白名单，并再次校验：
 
 - Schema v1、UUID、名称、枚举、颜色和数值范围；
-- PNG/JPEG/WebP Content-Type、Base64、16 MiB 上限和文件签名；
+- PNG/JPEG/WebP Content-Type、Base64、32 MiB 受管图片上限和文件签名；
 - crop focus、cover/contain/crop、opacity、overlay、blur 和 variant；
 - 旧 `safeArea` 字段继续校验以兼容 Schema v1，但不参与渲染。
 
@@ -25,7 +25,8 @@ Injector 只从 UTF-8 JSON 标准输入读取主题，主题值不进入命令�
 | `hidden` | `off` |
 
 Payload 由 `JSON.stringify` 整体序列化到固定程序，不把颜色、路径、图片或主题名
-拼接成可执行代码。
+拼接成可执行代码。标准输入 JSON 上限为 48 MiB，可容纳 32 MiB 图片的 Base64
+膨胀和主题元数据，同时继续阻断无界输入。
 
 ## 窗口识别
 

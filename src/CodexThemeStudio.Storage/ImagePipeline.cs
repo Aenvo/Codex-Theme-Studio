@@ -8,7 +8,9 @@ namespace CodexThemeStudio.Storage;
 
 public sealed class ImagePipeline : IImagePipeline
 {
-    public const long MaximumInputBytes = 16L * 1024 * 1024;
+    public const long MaximumInputBytes = ImageSizeLimits.MaximumSourceBytes;
+    public const int MaximumManagedImageBytes =
+        ImageSizeLimits.MaximumManagedImageBytes;
     public const int MaximumDimension = 16_384;
     public const long MaximumPixels = 50_000_000;
     public const int EditorPreviewMaximumWidth = 1_600;
@@ -271,7 +273,7 @@ public sealed class ImagePipeline : IImagePipeline
             {
                 return OperationResult<byte[]>.Failure(
                     OperationErrorCode.ValidationFailed,
-                    "图片文件超过 16 MB 上限。",
+                    "图片文件超过 100 MiB 上限。",
                     "image.input.too_large");
             }
 
@@ -366,6 +368,13 @@ public sealed class ImagePipeline : IImagePipeline
             codec.EncodedOrigin is not SKEncodedOrigin.TopLeft;
         using var oriented = ApplyOrientation(decoded, codec.EncodedOrigin);
         var runtime = EncodeWebP(oriented);
+        if (runtime.Bytes.Length > MaximumManagedImageBytes)
+        {
+            return OperationResult<EncodedImageSet>.Failure(
+                OperationErrorCode.ValidationFailed,
+                "图片重新编码后超过 32 MiB 上限，请降低图片复杂度或尺寸。",
+                "image.output.too_large");
+        }
 
         cancellationToken.ThrowIfCancellationRequested();
         using var editorBitmap = ResizeContained(
@@ -373,6 +382,13 @@ public sealed class ImagePipeline : IImagePipeline
             EditorPreviewMaximumWidth,
             EditorPreviewMaximumHeight);
         var editor = EncodeWebP(editorBitmap);
+        if (editor.Bytes.Length > MaximumManagedImageBytes)
+        {
+            return OperationResult<EncodedImageSet>.Failure(
+                OperationErrorCode.ValidationFailed,
+                "图片预览重新编码后超过 32 MiB 上限。",
+                "image.preview_output.too_large");
+        }
 
         cancellationToken.ThrowIfCancellationRequested();
         using var cardBitmap = ResizeContained(
@@ -380,6 +396,13 @@ public sealed class ImagePipeline : IImagePipeline
             CardThumbnailMaximumWidth,
             CardThumbnailMaximumHeight);
         var card = EncodeWebP(cardBitmap);
+        if (card.Bytes.Length > MaximumManagedImageBytes)
+        {
+            return OperationResult<EncodedImageSet>.Failure(
+                OperationErrorCode.ValidationFailed,
+                "图片缩略图重新编码后超过 32 MiB 上限。",
+                "image.thumbnail_output.too_large");
+        }
 
         return OperationResult<EncodedImageSet>.Success(
             new EncodedImageSet(

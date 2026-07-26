@@ -9,7 +9,7 @@
 | R-01 | .NET 8 将于 2026-11-10 结束支持 | SDK 固定为 8.0.423，发布为 self-contained；跨越 EOL 前必须用新 ADR 评估迁移到受支持 LTS | Open |
 | R-02 | 便携包未签名 | manifest 和 SHA256SUMS 提供完整性校验，README 明确披露未知发布者警告；不建议绕过安全软件 | Open |
 | R-03 | 本机没有有效病毒扫描证据 | Defender 调用曾返回 `0x800106ba`；公开分发前必须在启用且签名库最新的防病毒环境复扫 | Open |
-| R-04 | 未在无开发 Runtime 的干净 Windows 用户或 VM 验收 | self-contained 文件、随包 Node 和中文/空格路径启动分别验证；仍不能替代干净环境 | Open |
+| R-04 | 未在无开发 Runtime 的干净 Windows 用户或 VM 验收 | self-contained 文件、随包 Node、中文/空格路径启动及另一台非完全干净 Windows 机器上的可运行性已验证；仍不能替代无预装 .NET/Node 的干净环境 | Open |
 | R-05 | 当前 Codex 完全重启后的 Agent 恢复未在本会话复验 | enable/disable、当前 PID 和自动化新 PID/PID 复用路径已有证据；完整宿主重启仍未覆盖 | Open |
 | R-06 | 真实外置磁盘 DataRoot 迁移未覆盖 | 临时真实文件系统测试覆盖复制、哈希、SQLite 完整性、离线、取消和回滚；物理断连仍未覆盖 | Open |
 | R-07 | 能力探测可能无法覆盖未来 Codex 或第三方构建的全部行为差异 | 当前真实证据覆盖 Store Codex `26.715.4045.0`、`26.715.10079.0` 与 `26.721.3404.0` x64；`26.721.3404.0` 的应用内更新将 Electron 从 `150.0.7871.124` 更新到 `150.0.7871.128`，完整能力探测与首次应用/清理/重应用闭环通过。能力缺失和清理残留仍 fail-closed；非 Store 真实实例验证为 `To be confirmed` | Open |

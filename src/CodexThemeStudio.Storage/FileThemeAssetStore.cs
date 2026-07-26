@@ -1,4 +1,5 @@
 using CodexThemeStudio.Contracts.Interfaces;
+using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Contracts.Results;
 using CodexThemeStudio.ThemeCore;
 
@@ -6,7 +7,8 @@ namespace CodexThemeStudio.Storage;
 
 public sealed class FileThemeAssetStore : IThemeAssetStore
 {
-    private const long MaximumAssetBytes = 16L * 1024 * 1024;
+    private const long MaximumAssetBytes =
+        ImageSizeLimits.MaximumManagedImageBytes;
     private const long MaximumThemeDocumentBytes = 512L * 1024;
 
     private readonly TrustedPathResolver pathResolver;
@@ -70,7 +72,7 @@ public sealed class FileThemeAssetStore : IThemeAssetStore
                 {
                     return OperationResult<string>.Failure(
                         OperationErrorCode.ValidationFailed,
-                        "主题资源超过 16 MB 上限。",
+                        "主题资源超过 32 MiB 上限。",
                         "asset.too_large");
                 }
 

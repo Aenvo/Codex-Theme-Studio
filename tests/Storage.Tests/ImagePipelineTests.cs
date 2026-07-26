@@ -193,7 +193,7 @@ public class ImagePipelineTests
     }
 
     [Fact]
-    public async Task Process_RejectsInputLargerThanSixteenMegabytes()
+    public async Task Process_RejectsInputLargerThanOneHundredMebibytes()
     {
         await using var environment = await StorageTestEnvironment.CreateAsync();
         var pipeline = new ImagePipeline(environment.DataRoot);

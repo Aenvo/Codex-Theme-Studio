@@ -1,5 +1,11 @@
 namespace CodexThemeStudio.Contracts.Models;
 
+public static class ImageSizeLimits
+{
+    public const long MaximumSourceBytes = 100L * 1024 * 1024;
+    public const int MaximumManagedImageBytes = 32 * 1024 * 1024;
+}
+
 public enum ImageSourceFormat
 {
     Png = 0,
