@@ -56,7 +56,7 @@ Agent 安装目录按发布内容寻址，不引用便携 GUI 原路径。发布
 - 同一实例成功应用后默认 60 秒内不打开 Inspector。
 - 到达复核间隔后只读取最小 Renderer 状态；标记丢失才重新应用。
 - 每轮解析已保存的手选 EXE；路径失效时回退当前用户 Store 自动发现。
-- Agent 仅对已验证版本或当前 EXE SHA-256 已完成本机首次闭环的目标注入；指纹变化时暂停，等待 GUI 重新验证。
+- Agent 仅对当前精确 EXE SHA-256 已完成本机首次闭环的目标注入；版本命中不能替代本机资格，指纹变化时暂停，等待 GUI 重新验证。
 - Named Mutex 保证单实例；Named Event 用于 GUI 停用或切换时通知退出。
 - GUI 与 Agent 的 Inspector 操作共用当前用户命名 Mutex，避免并发打开、查询或
   关闭同一 Inspector；普通安装与 PID 发现不受该锁影响。
@@ -86,3 +86,8 @@ CodexThemeStudio.Agent.exe signal-stop
 Run 值名为 `CodexThemeStudio.PersistenceAgent`。命令中的 Agent 和配置路径始终
 单独加双引号，因此包含空格或中文时仍可运行。移除启动项失败时
 `DisableAsync` 返回失败，不继续报告“已停用”。
+
+取得当前 EXE 指纹资格后，`EnableAsync` 和 `SwitchAsync` 允许在 Codex 未运行时完成
+快照、配置和启动项更新；即时应用返回 `CodexNotFound` 时不回滚已验证的持久化配置，
+Agent 启动后保持空闲并等待后续可信 PID。`DisableAsync` 在离线状态仍移除启动项、
+停止 Agent 并清除持久主题标记，运行时 Restore 只清除安全会话状态。

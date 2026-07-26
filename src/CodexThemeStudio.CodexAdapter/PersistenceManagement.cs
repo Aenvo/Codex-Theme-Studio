@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using CodexThemeStudio.Contracts.Interfaces;
 using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Contracts.Results;
@@ -48,6 +49,17 @@ public interface IAgentProcessController
 
 public sealed class ManagedAgentInstaller : IManagedAgentInstaller
 {
+    private const int ManifestSchemaVersion = 1;
+    private const int MaximumManifestBytes = 1024 * 1024;
+    private const int MaximumInstallFiles = 4096;
+    private const long MaximumInstallBytes = 1024L * 1024L * 1024L;
+    private const string ManifestRelativePath = "agent/agent-bundle-manifest.json";
+    private static readonly JsonSerializerOptions ManifestJsonOptions =
+        new(JsonSerializerDefaults.Web)
+        {
+            PropertyNameCaseInsensitive = false,
+        };
+
     public async Task<OperationResult<ManagedAgentInstallation>> InstallAsync(
         string sourceDirectory,
         string stableAgentRoot,
@@ -64,81 +76,117 @@ public sealed class ManagedAgentInstaller : IManagedAgentInstaller
 
         var source = Path.GetFullPath(sourceDirectory);
         var root = Path.GetFullPath(stableAgentRoot);
-        var nestedAgentSource = Path.Combine(source, "agent");
-        var agentBundleSource =
-            File.Exists(Path.Combine(nestedAgentSource, "CodexThemeStudio.Agent.exe"))
-                ? nestedAgentSource
-                : source;
-        var agentSource = Path.Combine(
-            agentBundleSource,
-            "CodexThemeStudio.Agent.exe");
-        var nodeSource = Path.Combine(source, "runtime", "node", "node.exe");
-        var injectorSource = Path.Combine(
-            source,
-            "runtime",
-            "injector",
-            "index.mjs");
-        if (!File.Exists(agentSource) ||
-            !File.Exists(nodeSource) ||
-            !File.Exists(injectorSource))
+        if (!Directory.Exists(source) ||
+            IsReparsePoint(source))
         {
             return Failure<ManagedAgentInstallation>(
                 OperationErrorCode.NotFound,
-                "Agent 安装包不完整，缺少 Agent、Node Runtime 或 Injector。",
+                "Agent 安装包不完整或来源不受信任。",
                 "persistence.install.bundle_incomplete");
         }
 
         try
         {
-            var files = Directory.EnumerateFiles(
-                    agentBundleSource,
-                    "*",
-                    SearchOption.AllDirectories)
-                .Select(path => new AgentInstallFile(
-                    path,
-                    Path.GetRelativePath(agentBundleSource, path)))
-                .Concat(
-                    string.Equals(
-                        agentBundleSource,
-                        source,
-                        StringComparison.OrdinalIgnoreCase)
-                        ? []
-                        : EnumerateSharedRuntimeFiles(source))
-                .GroupBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.Single())
-                .OrderBy(file => file.RelativePath, StringComparer.Ordinal)
-                .ToArray();
+            var manifestResult = await ReadManifestAsync(
+                source,
+                cancellationToken);
+            if (!manifestResult.IsSuccess)
+            {
+                return OperationResult<ManagedAgentInstallation>.Failure(
+                    manifestResult.Error!);
+            }
+
+            var filesResult = await ValidateFilesAsync(
+                source,
+                manifestResult.Value!,
+                cancellationToken);
+            if (!filesResult.IsSuccess)
+            {
+                return OperationResult<ManagedAgentInstallation>.Failure(
+                    filesResult.Error!);
+            }
+
+            var files = filesResult.Value!;
             using var aggregate = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             foreach (var file in files)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var relative = file.RelativePath.Replace('\\', '/');
-                aggregate.AppendData(Encoding.UTF8.GetBytes(relative));
-                await using var stream = File.OpenRead(file.SourcePath);
-                var hash = await SHA256.HashDataAsync(stream, cancellationToken);
-                aggregate.AppendData(hash);
+                aggregate.AppendData(Encoding.UTF8.GetBytes(file.DestinationRelativePath));
+                aggregate.AppendData(file.Hash);
             }
 
             var fingerprint = Convert
                 .ToHexString(aggregate.GetHashAndReset())
                 .ToLowerInvariant();
             var versions = Path.Combine(root, "versions");
+            Directory.CreateDirectory(root);
+            if (IsReparsePoint(root))
+            {
+                return Failure<ManagedAgentInstallation>(
+                    OperationErrorCode.InvalidPath,
+                    "稳定 Agent 安装目录不能是重解析点。",
+                    "persistence.install.path_invalid");
+            }
+
+            Directory.CreateDirectory(versions);
+            if (IsReparsePoint(versions))
+            {
+                return Failure<ManagedAgentInstallation>(
+                    OperationErrorCode.InvalidPath,
+                    "稳定 Agent 版本目录不能是重解析点。",
+                    "persistence.install.path_invalid");
+            }
+
             var destination = Path.Combine(versions, fingerprint);
-            if (!Directory.Exists(destination))
+            if (Directory.Exists(destination))
+            {
+                var existing = await VerifyInstalledFilesAsync(
+                    destination,
+                    files,
+                    cancellationToken);
+                if (!existing.IsSuccess)
+                {
+                    return OperationResult<ManagedAgentInstallation>.Failure(
+                        existing.Error!);
+                }
+            }
+            else
             {
                 var staging = Path.Combine(
                     versions,
                     $".{fingerprint}.{Guid.NewGuid():N}.staging");
                 Directory.CreateDirectory(staging);
-                foreach (var file in files)
+                try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var target = Path.Combine(staging, file.RelativePath);
-                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                    File.Copy(file.SourcePath, target, overwrite: false);
-                }
+                    foreach (var file in files)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var target = ResolveRelativePath(
+                            staging,
+                            file.DestinationRelativePath);
+                        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                        File.Copy(file.SourcePath, target, overwrite: false);
+                    }
 
-                Directory.Move(staging, destination);
+                    var staged = await VerifyInstalledFilesAsync(
+                        staging,
+                        files,
+                        cancellationToken);
+                    if (!staged.IsSuccess)
+                    {
+                        return OperationResult<ManagedAgentInstallation>.Failure(
+                            staged.Error!);
+                    }
+
+                    Directory.Move(staging, destination);
+                }
+                finally
+                {
+                    if (Directory.Exists(staging))
+                    {
+                        Directory.Delete(staging, recursive: true);
+                    }
+                }
             }
 
             var installedAgent = Path.Combine(
@@ -172,6 +220,24 @@ public sealed class ManagedAgentInstaller : IManagedAgentInstaller
                     installedInjector,
                     fingerprint));
         }
+        catch (JsonException)
+        {
+            return Failure<ManagedAgentInstallation>(
+                OperationErrorCode.ValidationFailed,
+                "Agent 安装清单无效。",
+                "persistence.install.manifest_invalid");
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or
+            InvalidDataException or
+            NotSupportedException or
+            PathTooLongException)
+        {
+            return Failure<ManagedAgentInstallation>(
+                OperationErrorCode.ValidationFailed,
+                "Agent 安装清单包含无效路径。",
+                "persistence.install.manifest_invalid");
+        }
         catch (OperationCanceledException)
         {
             return Failure<ManagedAgentInstallation>(
@@ -195,42 +261,295 @@ public sealed class ManagedAgentInstaller : IManagedAgentInstaller
         }
     }
 
+    private static async Task<OperationResult<AgentBundleManifest>>
+        ReadManifestAsync(
+            string source,
+            CancellationToken cancellationToken)
+    {
+        var manifestPath = ResolveRelativePath(source, ManifestRelativePath);
+        if (!IsRegularFileWithinRoot(manifestPath, source))
+        {
+            return Failure<AgentBundleManifest>(
+                OperationErrorCode.NotFound,
+                "Agent 安装包缺少受信任的安装清单。",
+                "persistence.install.manifest_missing");
+        }
+
+        var info = new FileInfo(manifestPath);
+        if (info.Length is <= 0 or > MaximumManifestBytes)
+        {
+            return Failure<AgentBundleManifest>(
+                OperationErrorCode.ValidationFailed,
+                "Agent 安装清单大小无效。",
+                "persistence.install.manifest_invalid");
+        }
+
+        await using var stream = File.OpenRead(manifestPath);
+        var manifest = await JsonSerializer.DeserializeAsync<AgentBundleManifest>(
+            stream,
+            ManifestJsonOptions,
+            cancellationToken);
+        if (manifest is null ||
+            manifest.SchemaVersion != ManifestSchemaVersion ||
+            manifest.Files is null ||
+            manifest.Files.Count is <= 0 or > MaximumInstallFiles)
+        {
+            return Failure<AgentBundleManifest>(
+                OperationErrorCode.ValidationFailed,
+                "Agent 安装清单版本或文件数量无效。",
+                "persistence.install.manifest_invalid");
+        }
+
+        return OperationResult<AgentBundleManifest>.Success(manifest);
+    }
+
+    private static async Task<OperationResult<AgentInstallFile[]>>
+        ValidateFilesAsync(
+            string source,
+            AgentBundleManifest manifest,
+            CancellationToken cancellationToken)
+    {
+        var destinationPaths = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+        var files = new List<AgentInstallFile>(manifest.Files.Count);
+        long totalBytes = 0;
+        foreach (var entry in manifest.Files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!TryNormalizeRelativePath(entry.Source, out var sourceRelative) ||
+                !TryNormalizeRelativePath(
+                    entry.Destination,
+                    out var destinationRelative) ||
+                !destinationPaths.Add(destinationRelative) ||
+                entry.Bytes is <= 0 or > MaximumInstallBytes ||
+                !TryParseSha256(entry.Sha256, out var expectedHash))
+            {
+                return Failure<AgentInstallFile[]>(
+                    OperationErrorCode.ValidationFailed,
+                    "Agent 安装清单包含无效路径、大小或哈希。",
+                    "persistence.install.manifest_invalid");
+            }
+
+            totalBytes = checked(totalBytes + entry.Bytes);
+            if (totalBytes > MaximumInstallBytes)
+            {
+                return Failure<AgentInstallFile[]>(
+                    OperationErrorCode.ValidationFailed,
+                    "Agent 安装清单总大小超出限制。",
+                    "persistence.install.manifest_invalid");
+            }
+
+            var sourcePath = ResolveRelativePath(source, sourceRelative);
+            if (!IsRegularFileWithinRoot(sourcePath, source))
+            {
+                return Failure<AgentInstallFile[]>(
+                    OperationErrorCode.NotFound,
+                    "Agent 安装包缺少清单声明的文件。",
+                    "persistence.install.bundle_incomplete");
+            }
+
+            var info = new FileInfo(sourcePath);
+            if (info.Length != entry.Bytes)
+            {
+                return Failure<AgentInstallFile[]>(
+                    OperationErrorCode.InvalidResponse,
+                    "Agent 安装包文件大小与清单不一致。",
+                    "persistence.install.bundle_mismatch");
+            }
+
+            await using var stream = File.OpenRead(sourcePath);
+            var actualHash = await SHA256.HashDataAsync(stream, cancellationToken);
+            if (!actualHash.AsSpan().SequenceEqual(expectedHash))
+            {
+                return Failure<AgentInstallFile[]>(
+                    OperationErrorCode.InvalidResponse,
+                    "Agent 安装包文件哈希与清单不一致。",
+                    "persistence.install.bundle_mismatch");
+            }
+
+            files.Add(new AgentInstallFile(
+                sourcePath,
+                destinationRelative,
+                actualHash,
+                entry.Bytes));
+        }
+
+        var required = new[]
+        {
+            "CodexThemeStudio.Agent.exe",
+            "runtime/node/node.exe",
+            "runtime/injector/index.mjs",
+        };
+        if (required.Any(path => !destinationPaths.Contains(path)))
+        {
+            return Failure<AgentInstallFile[]>(
+                OperationErrorCode.ValidationFailed,
+                "Agent 安装清单缺少必需入口。",
+                "persistence.install.manifest_invalid");
+        }
+
+        return OperationResult<AgentInstallFile[]>.Success(
+            files.OrderBy(
+                    file => file.DestinationRelativePath,
+                    StringComparer.Ordinal)
+                .ToArray());
+    }
+
+    private static async Task<OperationResult> VerifyInstalledFilesAsync(
+        string root,
+        IReadOnlyList<AgentInstallFile> files,
+        CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(root) || IsReparsePoint(root))
+        {
+            return OperationResult.Failure(
+                OperationErrorCode.InvalidResponse,
+                "稳定 Agent 目录内容不完整。",
+                "persistence.install.destination_invalid");
+        }
+
+        foreach (var file in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var path = ResolveRelativePath(
+                root,
+                file.DestinationRelativePath);
+            if (!IsRegularFileWithinRoot(path, root) ||
+                new FileInfo(path).Length != file.Bytes)
+            {
+                return OperationResult.Failure(
+                    OperationErrorCode.InvalidResponse,
+                    "稳定 Agent 目录内容不完整。",
+                    "persistence.install.destination_invalid");
+            }
+
+            await using var stream = File.OpenRead(path);
+            var actualHash = await SHA256.HashDataAsync(stream, cancellationToken);
+            if (!actualHash.AsSpan().SequenceEqual(file.Hash))
+            {
+                return OperationResult.Failure(
+                    OperationErrorCode.InvalidResponse,
+                    "稳定 Agent 目录内容校验失败。",
+                    "persistence.install.destination_invalid");
+            }
+        }
+
+        return OperationResult.Success();
+    }
+
+    private static bool TryNormalizeRelativePath(
+        string? value,
+        out string normalized)
+    {
+        normalized = string.Empty;
+        if (string.IsNullOrWhiteSpace(value) ||
+            Path.IsPathFullyQualified(value))
+        {
+            return false;
+        }
+
+        var segments = value
+            .Replace('\\', '/')
+            .Split('/', StringSplitOptions.None);
+        if (segments.Any(segment =>
+                string.IsNullOrWhiteSpace(segment) ||
+                segment is "." or ".."))
+        {
+            return false;
+        }
+
+        normalized = string.Join('/', segments);
+        return true;
+    }
+
+    private static bool TryParseSha256(
+        string? value,
+        out byte[] hash)
+    {
+        hash = [];
+        if (value is not { Length: 64 })
+        {
+            return false;
+        }
+
+        try
+        {
+            hash = Convert.FromHexString(value);
+            return hash.Length == 32;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static string ResolveRelativePath(string root, string relativePath)
+    {
+        var fullRoot = Path.GetFullPath(root)
+            .TrimEnd(Path.DirectorySeparatorChar) +
+            Path.DirectorySeparatorChar;
+        var path = Path.GetFullPath(Path.Combine(
+            fullRoot,
+            relativePath.Replace('/', Path.DirectorySeparatorChar)));
+        if (!path.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("Relative path escaped its root.");
+        }
+
+        return path;
+    }
+
+    private static bool IsRegularFileWithinRoot(string path, string root)
+    {
+        if (!File.Exists(path) || IsReparsePoint(path))
+        {
+            return false;
+        }
+
+        var fullRoot = Path.GetFullPath(root);
+        var directory = new DirectoryInfo(Path.GetDirectoryName(path)!);
+        while (!string.Equals(
+                   directory.FullName,
+                   fullRoot,
+                   StringComparison.OrdinalIgnoreCase))
+        {
+            if (!directory.Exists ||
+                IsReparsePoint(directory.FullName) ||
+                directory.Parent is null)
+            {
+                return false;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return true;
+    }
+
+    private static bool IsReparsePoint(string path) =>
+        (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+
     private static OperationResult<T> Failure<T>(
         OperationErrorCode code,
         string message,
         string diagnosticCode) =>
         OperationResult<T>.Failure(code, message, diagnosticCode);
 
-    private static IEnumerable<AgentInstallFile> EnumerateSharedRuntimeFiles(
-        string source)
-    {
-        foreach (var relativeRoot in new[]
-                 {
-                     Path.Combine("runtime", "node"),
-                     Path.Combine("runtime", "injector"),
-                 })
-        {
-            var directory = Path.Combine(source, relativeRoot);
-            if (!Directory.Exists(directory))
-            {
-                continue;
-            }
+    private sealed record AgentBundleManifest(
+        int SchemaVersion,
+        IReadOnlyList<AgentBundleManifestFile> Files);
 
-            foreach (var path in Directory.EnumerateFiles(
-                         directory,
-                         "*",
-                         SearchOption.AllDirectories))
-            {
-                yield return new AgentInstallFile(
-                    path,
-                    Path.GetRelativePath(source, path));
-            }
-        }
-    }
+    private sealed record AgentBundleManifestFile(
+        string Source,
+        string Destination,
+        long Bytes,
+        string Sha256);
 
     private sealed record AgentInstallFile(
         string SourcePath,
-        string RelativePath);
+        string DestinationRelativePath,
+        byte[] Hash,
+        long Bytes);
 }
 
 public sealed class WindowsRunStartupManager : IAgentStartupManager

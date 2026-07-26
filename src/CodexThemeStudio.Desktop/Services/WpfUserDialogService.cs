@@ -26,7 +26,6 @@ public sealed class WpfUserDialogService : IUserDialogService
     public Task<bool> ConfirmAsync(
         string title,
         string message,
-        string confirmText,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -34,7 +33,6 @@ public sealed class WpfUserDialogService : IUserDialogService
         var dialog = AppDialogWindow.CreateConfirmation(
             title,
             message,
-            confirmText,
             owner);
         _ = ShowWithBackdrop(owner, dialog.ShowDialog);
         return Task.FromResult(dialog.Accepted);

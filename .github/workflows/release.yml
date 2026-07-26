@@ -1,0 +1,205 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      release_root: ${{ steps.release.outputs.release_root }}
+      package_name: ${{ steps.release.outputs.package_name }}
+      artifact_name: ${{ steps.release.outputs.artifact_name }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          global-json-file: global.json
+
+      - name: Read pinned Node version
+        id: runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $baseline = Get-Content -Raw .\eng\runtime-baseline.json |
+            ConvertFrom-Json
+          if ($baseline.nodeVersion -ne '24.18.0') {
+            throw "Unexpected pinned Node version: $($baseline.nodeVersion)"
+          }
+          "node_version=$($baseline.nodeVersion)" >> $env:GITHUB_OUTPUT
+
+      - name: Install pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ steps.runtime.outputs.node_version }}
+
+      - name: Build, test, and package
+        shell: powershell
+        run: .\package.ps1
+
+      - name: Validate release assets
+        id: release
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [xml]$props = Get-Content -Raw .\Directory.Build.props
+          $version = [string](
+            $props.Project.PropertyGroup.Version |
+              Select-Object -First 1)
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and
+              $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match version $version."
+          }
+
+          $releaseRoot = ".\artifacts\release\$version"
+          $packageName = "Codex-Theme-Studio-$version-win-x64-portable"
+          $packageRoot = Join-Path $releaseRoot $packageName
+          $zip = Join-Path $releaseRoot "$packageName.zip"
+          $checksums = Join-Path $releaseRoot 'SHA256SUMS.txt'
+          $manifestPath = Join-Path $releaseRoot 'release-manifest.json'
+          $manifest = Get-Content -Raw $manifestPath | ConvertFrom-Json
+          $agentManifest = Get-Content -Raw (
+            Join-Path $packageRoot 'agent\agent-bundle-manifest.json') |
+              ConvertFrom-Json
+
+          if ($manifest.schemaVersion -ne 2 -or
+              $manifest.version -ne $version -or
+              $manifest.signed -ne $false -or
+              $manifest.zipBytes -gt 120000000 -or
+              $agentManifest.schemaVersion -ne 1) {
+            throw 'Release manifest validation failed.'
+          }
+
+          $actualHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $manifest.zipSha256) {
+            throw 'Release ZIP hash does not match release-manifest.json.'
+          }
+
+          $checksumHash = (
+            (Get-Content $checksums | Select-Object -First 1) -split '\s+')[0]
+          if ($checksumHash -ne $actualHash) {
+            throw 'Release ZIP hash does not match SHA256SUMS.txt.'
+          }
+
+          $forbidden = @(
+            Get-ChildItem $packageRoot -Recurse -Force -File |
+              Where-Object {
+                $_.Extension -in @(
+                  '.pdb', '.trx', '.log', '.db', '.sqlite', '.sqlite3') -or
+                $_.Name -match '(?i)(screenshot|credential|secret|token)'
+              })
+          if ($forbidden.Count -gt 0) {
+            throw "Forbidden release files: $($forbidden.FullName -join ', ')"
+          }
+
+          $blockedThemeNames = @('鸣潮', '生化危机2', '刺客信条')
+          $blockedImageHashes = @(
+            'ab99c8ac4be85a276393e5a6823ef5986af9551e39822de1a88f000e962a1ca6',
+            'ae091d3608b37b098c1e559011c219fc4b82e872b81d3795f3d71cc506dfaca0',
+            '20997fa0d25211359dd5f24a0ccaf6778fb47407b74471a4af722cec34f3d607')
+          $privateThemeFiles = @(
+            Get-ChildItem $packageRoot -Recurse -Force -File |
+              Where-Object {
+                $_.Name -ieq 'themes.db' -or
+                $_.Name -ieq 'theme.json' -or
+                $_.Extension -ieq '.cttheme' -or
+                $blockedImageHashes -contains (
+                  Get-FileHash $_.FullName -Algorithm SHA256
+                ).Hash.ToLowerInvariant()
+              })
+          if ($privateThemeFiles.Count -gt 0) {
+            throw "Private theme assets found: $(
+              $privateThemeFiles.FullName -join ', ')"
+          }
+          $textExtensions = @(
+            '.css', '.js', '.json', '.md', '.mjs', '.ps1', '.txt', '.xaml', '.xml')
+          foreach ($file in Get-ChildItem $packageRoot -Recurse -Force -File) {
+            if ($textExtensions -notcontains $file.Extension.ToLowerInvariant()) {
+              continue
+            }
+            $content = [IO.File]::ReadAllText($file.FullName)
+            foreach ($themeName in $blockedThemeNames) {
+              if ($content.IndexOf(
+                  $themeName,
+                  [StringComparison]::Ordinal) -ge 0) {
+                throw "Private test theme name found in $($file.FullName)."
+              }
+            }
+          }
+
+          $mainSignature = Get-AuthenticodeSignature (
+            Join-Path $packageRoot 'CodexThemeManager.exe')
+          $agentSignature = Get-AuthenticodeSignature (
+            Join-Path $packageRoot 'agent\CodexThemeStudio.Agent.exe')
+          if ($mainSignature.Status -ne 'NotSigned' -or
+              $agentSignature.Status -ne 'NotSigned') {
+            throw 'Unexpected signing status for unsigned 1.2.0 release.'
+          }
+
+          $artifactName = "Codex-Theme-Studio-$version-release"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "release_root=$releaseRoot" >> $env:GITHUB_OUTPUT
+          "package_name=$packageName" >> $env:GITHUB_OUTPUT
+          "artifact_name=$artifactName" >> $env:GITHUB_OUTPUT
+
+      - name: Upload private validation artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.release.outputs.artifact_name }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ steps.release.outputs.release_root }}/${{ steps.release.outputs.package_name }}.zip
+            ${{ steps.release.outputs.release_root }}/SHA256SUMS.txt
+            ${{ steps.release.outputs.release_root }}/release-manifest.json
+
+  draft-release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: windows-2022
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download validated release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: artifacts/release/${{ needs.build.outputs.version }}
+
+      - name: Create draft GitHub Release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = '${{ needs.build.outputs.version }}'
+          $root = '.\artifacts\release\' + $version
+          $package = '${{ needs.build.outputs.package_name }}'
+          gh release create $env:GITHUB_REF_NAME `
+            (Join-Path $root "$package.zip") `
+            (Join-Path $root 'SHA256SUMS.txt') `
+            (Join-Path $root 'release-manifest.json') `
+            --draft `
+            --verify-tag `
+            --fail-on-no-commits `
+            --generate-notes `
+            --title "Codex Theme Studio v$version" `
+            --notes "init：建立初始github版本`n`nUnsigned Windows x64 portable build. Verify SHA256SUMS.txt before use. This project is not an official OpenAI product."

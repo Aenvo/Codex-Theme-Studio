@@ -93,6 +93,21 @@ public sealed class PersistenceAgentTests
     }
 
     [Fact]
+    public async Task Agent_UnqualifiedVerifiedFingerprintPausesWithoutInspector()
+    {
+        var fixture = new AgentFixture(qualified: false);
+
+        var result = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Unsupported, result.Value!.State);
+        Assert.Equal(0, fixture.Renderer.StatusCount);
+        Assert.Equal(0, fixture.Renderer.ApplyCount);
+    }
+
+    [Fact]
     public async Task Agent_SamePidWithDifferentStartTimeIsNotPidReuse()
     {
         var fixture = new AgentFixture();
@@ -232,17 +247,55 @@ public sealed class PersistenceAgentTests
             return;
         }
 
+        var suffix = Guid.NewGuid().ToString("N");
+        var mutexName = $@"Local\CodexThemeStudio.Tests.Agent.{suffix}";
+        var stopEventName = $@"Local\CodexThemeStudio.Tests.Agent.Stop.{suffix}";
         using var mutex = new Mutex(
             initiallyOwned: true,
-            PersistenceAgentRunner.MutexName,
+            mutexName,
             out var createdNew);
         Assert.True(createdNew);
 
         var exitCode = await new PersistenceAgentRunner(
-                @"C:\does-not-need-to-exist.json")
+                @"C:\does-not-need-to-exist.json",
+                "test",
+                mutexName,
+                stopEventName)
             .RunAsync(CancellationToken.None);
 
         Assert.Equal(3, exitCode);
+    }
+
+    [Fact]
+    public async Task Runner_WithIsolatedNamesStartsAsFirstInstance()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var runner = new PersistenceAgentRunner(
+            @"C:\does-not-need-to-exist.json",
+            "test",
+            $@"Local\CodexThemeStudio.Tests.Agent.{suffix}",
+            $@"Local\CodexThemeStudio.Tests.Agent.Stop.{suffix}");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var exitCode = await runner.RunAsync(cancellation.Token);
+
+        Assert.Equal(0, exitCode);
+    }
+
+    [Fact]
+    public void Runner_PublicConstructorUsesProductionWaitHandleNames()
+    {
+        var runner = new PersistenceAgentRunner(
+            @"C:\does-not-need-to-exist.json");
+
+        Assert.Equal(PersistenceAgentRunner.MutexName, runner.InstanceMutexName);
+        Assert.Equal(PersistenceAgentRunner.StopEventName, runner.ShutdownEventName);
     }
 
     private static string CreateTemporaryDirectory()
@@ -292,10 +345,16 @@ public sealed class PersistenceAgentTests
 
     private sealed class AgentFixture
     {
-        public AgentFixture(TimeProvider? timeProvider = null)
+        public AgentFixture(
+            TimeProvider? timeProvider = null,
+            bool qualified = true)
         {
             Snapshot.Current = CreateSnapshot(Guid.NewGuid(), new string('a', 64));
             TimeProvider = timeProvider ?? TimeProvider.System;
+            Qualification = qualified
+                ? CodexCompatibilityQualificationStore.CreateInMemory(
+                    string.Empty)
+                : CodexCompatibilityQualificationStore.CreateInMemory();
             Engine = CreateEngine();
         }
 
@@ -308,6 +367,8 @@ public sealed class PersistenceAgentTests
         public MemoryStateStore State { get; } = new();
 
         public TimeProvider TimeProvider { get; }
+
+        public CodexCompatibilityQualificationStore Qualification { get; }
 
         public PersistenceAgentEngine Engine { get; }
 
@@ -333,6 +394,7 @@ public sealed class PersistenceAgentTests
                 Discovery,
                 Renderer,
                 State,
+                qualificationStore: Qualification,
                 timeProvider: TimeProvider);
     }
 

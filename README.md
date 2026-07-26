@@ -4,14 +4,23 @@ Codex Theme Studio 是面向 Windows 10/11 x64 的本地 Codex 桌面端主题�
 
 ## 下载与启动
 
-1. 获取 `CodexThemeManager-<version>-win-x64-portable.zip`。
-2. 对照同目录的 `SHA256SUMS.txt` 校验 ZIP。
-3. 将 ZIP 完整解压到普通可写目录，例如 `D:\Apps\Codex Theme Studio`。不要直接在压缩包中运行。
-4. 双击 `CodexThemeManager.exe`。
+1. 打开 [GitHub Releases](https://github.com/Aenvo/Codex-Theme-Studio/releases/latest)。
+2. 下载 `Codex-Theme-Studio-<version>-win-x64-portable.zip`。
+3. 对照同一 Release 中的 `SHA256SUMS.txt` 校验 ZIP。
+4. 将 ZIP 完整解压到普通可写目录，例如
+   `%USERPROFILE%\Apps\Codex Theme Studio`。不要直接在压缩包中运行。
+5. 双击 `CodexThemeManager.exe`。
 
-应用为 Windows x64 self-contained 便携包，不要求预装 .NET、Node.js、npm 或 npx，不要求管理员权限。首个版本尚未进行代码签名，因此 Windows 可能显示未知发布者警告；只应使用哈希与发布记录匹配的包。
+GitHub Releases 页面自动附带的 `Source code (zip)` / `Source code (tar.gz)`
+只是源码，不能直接运行。普通用户应下载 Release Assets 中名称包含
+`win-x64-portable.zip` 的便携包及其 `SHA256SUMS.txt`。
+
+应用为 Windows x64 self-contained 便携包，不要求预装 .NET、Node.js、npm 或 npx，不要求管理员权限。当前 `1.2.0` 未进行代码签名，因此 Windows 可能显示未知发布者警告；只应使用哈希与发布记录匹配的包。
 
 首次启动会使用 `%LOCALAPPDATA%\CodexThemeStudio\Data` 作为明确的默认数据目录，不会自动启用持久化，也不会自动联网。程序目录可以移动，但用户数据和已安装的持久化 Agent 不存放在程序目录内。
+
+发布包不附带第三方壁纸或维护者本机的主题数据。用户可以导入自己有权使用的
+本地图片创建主题。
 
 ## 主要能力
 
@@ -33,14 +42,17 @@ Codex Theme Studio 是面向 Windows 10/11 x64 的本地 Codex 桌面端主题�
 - 当前经过真实验证的 Codex 版本为 `26.715.4045.0`、`26.715.10079.0` 和 `26.721.3404.0`。这些记录是兼容证据，不是运行白名单；未知版本在完整能力探测通过后可以临时使用。
 - 新 EXE 指纹首次临时显示会自动执行“应用 → 清理 → 重新应用”闭环；闭环成功后才开放持久化。项目不扫描任意目录或模糊匹配其他 Electron 进程。
 - 主题通过本机回环 Inspector 短时应用。操作结束后会关闭 Inspector，但 Codex 更新仍可能改变兼容性。
-- 第一版是解压即用的便携目录，不是单文件 EXE，不包含安装器和自动更新。
-- 该版本未签名，也未通过公开下载渠道发布。
+- 当前发布形态是解压即用的便携目录，不是单文件 EXE，不包含安装器和自动更新。
+- 当前 `1.2.0` 未签名；Windows 可能显示未知发布者警告。
 
 ## 隐私与安全
 
 主题编辑、切换和持久化不依赖外部服务器。应用不会上传背景图片、主题数据、日志或 Codex 页面，不读取对话正文、认证信息、API Key、模型、MCP 或权限配置。它不修改 `WindowsApps`、`app.asar`、Codex EXE、Appx 或数字签名。
 
 主题包只接受声明式白名单字段，不能携带 JavaScript、命令、可执行文件、HTML 或远端 CSS。图片按内容识别，完整解码后重新编码，并移除不必要元数据。
+
+安全问题请勿通过公开 Issue 披露；报告方式和支持范围见
+[安全政策](./SECURITY.md)。
 
 ## 开发与构建
 
@@ -53,13 +65,23 @@ Codex Theme Studio 是面向 Windows 10/11 x64 的本地 Codex 桌面端主题�
 
 第二条命令默认从 `Directory.Build.props` 读取版本，并执行 Release 验证、下载及校验固定 Node Runtime、生成 Windows x64 self-contained 目录、ZIP、哈希和发布清单。完整构建见[构建文档](./docs/building.md)，Windows PowerShell 5.1、原子写入和 Codex 更新闭环见[兼容性测试方案](./docs/testing/runtime-compatibility-plan.md)，发布步骤见[发布流程](./docs/releasing.md)；版本验收记录保留在源码仓库中，不嵌入被验收的 ZIP。
 
-仅在本地开发时，可以先关闭仍在运行的旧便携版 `CodexThemeManager.exe`，再双击 `Start-CodexThemeStudio.cmd`。该脚本会构建并启动当前源码的 Release Desktop 输出，不是最终用户的发布入口，也不会覆盖已有便携发布目录。UI 贡献者应同时遵循 [design.md](./design.md) 中的设计 token、图标与交互规范。
+1.2.0 起，打包阶段会通过版本化 manifest 去除 Desktop 与 Agent 间内容完全
+相同的 .NET Runtime 文件。启用持久化时，应用会校验清单并在当前用户目录重建
+完整的稳定 Agent，因此程序目录移动或删除后，已安装 Agent 的行为保持不变。
 
-项目可以通过包含 `.git` 和当前工作树的本地交接 ZIP 转移到另一台 Windows 机器，不要求存在 GitHub remote。交接 ZIP 与最终用户便携发布包用途不同；接收方应先校验随包 SHA-256 和交接清单，再阅读项目级 `AGENTS.md` 与[构建文档](./docs/building.md)中的“本地机器交接”步骤。
+本地源码启动、完整验证命令和环境迁移说明见[构建文档](./docs/building.md)。
+UI 贡献者应同时遵循 [design.md](./design.md) 中的设计 token、图标与交互规范。
+
+## 相关文档
+
+- [用户指南](./docs/user-guide.md)：完整操作、数据位置、清理与故障诊断。
+- [构建文档](./docs/building.md)：开发环境、测试命令和源码启动。
+- [发布流程](./docs/releasing.md)：版本、tag、Draft Release 与人工发布门禁。
+- [安全政策](./SECURITY.md)：支持版本和漏洞报告方式。
 
 ## 第三方组件
 
-界面图标在设计与开发阶段通过 `icons0/i0` 从 Lucide 集合检索和选型，随后转换为随程序内置的原生 WPF Geometry；应用构建和运行不从在线图标服务加载资源。依赖版本、许可证与归属见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)，便携包附带对应 `LICENSES/` 文本。
+界面图标基于 Lucide 集合并转换为随程序内置的原生 WPF Geometry；应用构建和运行不从在线图标服务加载资源。依赖版本、许可证与归属见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)，便携包附带对应 `LICENSES/` 文本。
 
 ## 许可证
 

@@ -18,7 +18,7 @@
 
 Node 按 `runtime/node`、`artifacts/cache`、最新本地发布包、系统 PATH 的顺序查找，但只有版本精确为 `v24.18.0` 才会接受。
 
-普通构建、测试和 Agent 自检固定选择 `win-x64`，并保持 framework-dependent；这会避免把其他平台的 native assets 复制到本地输出。正式发布仍由 `package.ps1` 分别生成 Desktop 和 Agent 的 self-contained 输出。
+普通构建、测试和 Agent 自检固定选择 `win-x64`，并保持 framework-dependent；这会避免把其他平台的 native assets 复制到本地输出。正式发布仍由 `package.ps1` 分别生成 Desktop 和 Agent 的隔离 self-contained 暂存输出，再按 `agent-bundle-manifest.json` 去除最终 ZIP 中内容完全相同的运行时文件。
 
 ## 一键验证
 
@@ -61,27 +61,34 @@ node --test `
 
 如果系统 `dotnet` 没有 8.0.423 SDK，使用 `build.ps1` 或先设置 `DOTNET_ROOT`。
 
-## 本地机器交接
+## 克隆与开发环境迁移
 
-项目可以在不依赖 GitHub remote 的情况下，通过完整项目交接 ZIP 转移到另一台 Windows 机器。交接包不是最终用户便携发布包，应保留 `.git`、打包时的已修改和未跟踪文件、源码、测试、文档、许可证、`artifacts/cache` 中的固定 Node Runtime，以及归档保留策略要求的发布 ZIP、校验和与 manifest。
+公开仓库是源码与历史的真相源。新开发环境应从 GitHub 克隆，不依赖本机交接快照：
 
-机器级 `.NET SDK` 和 NuGet 全局缓存不属于项目交接包。接收方应安装 `.NET SDK 8.0.423`，或把对应 SDK 放到受信任目录并设置 `DOTNET_ROOT`；首次 locked restore 仍可能需要访问 NuGet 源。交接包内的固定 Node Runtime 可以直接由 `build.ps1` 发现并复用。
+```powershell
+git clone https://github.com/Aenvo/Codex-Theme-Studio.git
+Set-Location '.\Codex-Theme-Studio'
+```
 
-当前源码维护基线仍由 `Directory.Build.props` 固定为 `1.1.7`。交接包保留的 `1.1.8`、`1.1.9` 和 `1.1.10` 只有 ZIP、校验和与 manifest，没有对应本地验收记录，因此必须标记为未验收归档，不能据此升级源码基线或声明发布通过。
+安装 `.NET SDK 8.0.423` 和 Node.js `24.18.0`，或恢复经过校验的固定 Node
+缓存。机器级 .NET SDK 与 NuGet 全局缓存不属于仓库；首次 locked restore 可能需要
+访问 NuGet 源。
 
-接收方按以下顺序验收：
+迁移后按以下顺序验收：
 
-1. 对照随包校验文件核对交接 ZIP 的 SHA-256。
-2. 将 ZIP 完整解压到普通可写目录，不要直接在压缩包中构建。
-3. 阅读根目录 `HANDOFF.md`、`HANDOFF-MANIFEST.json`、`AGENTS.md`、本文件和 `docs/risks/risk-register.md`。
-4. 确认 `.git` 存在，运行 `git status --short --branch` 和 `git log -1 --oneline`；没有 remote 是允许状态，不要重新初始化仓库或清理当前工作树。
-5. 核对 `global.json` 与 `eng/runtime-baseline.json` 的固定版本，然后运行：
+1. 运行 `git status --short --branch` 和 `git log -1 --oneline`，确认分支与工作树。
+2. 核对 `global.json`、`Directory.Build.props` 和
+   `eng/runtime-baseline.json` 中的固定版本。
+3. 阅读本文件与 `docs/risks/risk-register.md`。
+4. 在仓库根目录运行：
 
 ```powershell
 .\build.ps1 -Configuration Release
 ```
 
-交接清单中的分支、HEAD、文件数、字节数和工作树状态只是打包时快照。接收方完成解压后应以实际文件系统和 Git 输出为准。`bin/`、`obj/`、`artifacts/work`、`artifacts/validation` 和已解压发布目录不进入交接包，它们可由构建、验证或发布流程重新生成。
+不要把 `bin/`、`obj/`、`artifacts/work`、`artifacts/validation`、已解压发布目录或
+本地用户数据当作源码迁移。它们应由构建、验证或发布流程重新生成。本机保留的
+`1.1.7` 回滚包仅用于本机恢复，不替代 Git 历史或当前 `1.2.0` 验收记录。
 
 ## 生成物清理
 
@@ -92,6 +99,10 @@ node --test `
 ```
 
 当前 `ArchivesOnly` 策略保留每个发布版本的 ZIP、`SHA256SUMS.txt` 和 `release-manifest.json`，只回收对应的解压便携目录。`artifacts/cache` 包含固定 Node Runtime，始终排除在清理范围之外。
+
+历史归档目录的批量移除不属于 `ArchivesOnly` 策略。此类操作必须先核对精确
+版本、Git 状态和恢复点，并使用已经验证的同卷回收站机制；不得永久删除或清空
+回收站。1.2.0 的本地保留策略是当前版本加已验收的 1.1.7 回滚包。
 
 实际执行必须显式提供 `-Execute`、确认短语、`-ReleaseRetention ArchivesOnly` 和一个位于项目外部、尚不存在的证据备份目录：
 

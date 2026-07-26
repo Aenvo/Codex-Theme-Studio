@@ -16,6 +16,12 @@ $ErrorActionPreference = 'Stop'
 $officialName = 'OpenAI.Codex'
 $officialFamily = 'OpenAI.Codex_2p2nqsd0c76g0'
 $officialPublisherId = '2p2nqsd0c76g0'
+$securityModule = Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1'
+if (-not (Test-Path -LiteralPath $securityModule -PathType Leaf)) {
+    throw 'The Windows PowerShell security module is unavailable.'
+}
+
+Import-Module -Name $securityModule -ErrorAction Stop
 
 function Get-OfficialPackage {
     $packages = @(Get-AppxPackage -Name $officialName | Where-Object {

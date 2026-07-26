@@ -23,23 +23,6 @@ public sealed class ThemeDraftTests
         Assert.Equal(original, draft.Build());
     }
 
-    [Fact]
-    public void Contrast_WarnsForUnreadableText()
-    {
-        var result = ThemeContrast.Assess(
-            new ThemePalette(
-                "#FFFFFF",
-                "#FFFFFF",
-                "#5555FF",
-                "#FDFDFD",
-                "#FAFAFA",
-                "#EEEEEE"));
-
-        Assert.True(result.IsSuccess);
-        Assert.True(result.Value!.HasWarning);
-        Assert.True(result.Value.TextRatio < 4.5);
-    }
-
     private static ThemePackage CreateTheme() =>
         new(
             1,

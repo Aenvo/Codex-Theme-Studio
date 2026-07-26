@@ -2,6 +2,7 @@ using System.Windows;
 using CodexThemeStudio.CodexAdapter;
 using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Desktop.Controls;
+using CodexThemeStudio.Desktop.Services;
 
 namespace CodexThemeStudio.Desktop;
 
@@ -9,6 +10,7 @@ public partial class App : Application
 {
     private readonly Guid diagnosticSessionId = Guid.NewGuid();
     private LocalDiagnosticService? diagnostics;
+    private IColorHistoryService? colorHistory;
     private string appVersion = "unknown";
     private bool terminatingAfterFailure;
 
@@ -58,6 +60,7 @@ public partial class App : Application
                 diagnostics,
                 diagnosticSessionId,
                 appVersion);
+            colorHistory = services.ColorHistory;
             _ = await diagnostics.WriteAsync(
                 CreateLifecycleEvent(
                     DiagnosticLevel.Information,
@@ -106,6 +109,20 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        try
+        {
+            Task.Run(async () =>
+            {
+                if (colorHistory is not null)
+                {
+                    await colorHistory.FlushAsync(CancellationToken.None);
+                }
+            }).GetAwaiter().GetResult();
+        }
+        catch (Exception)
+        {
+        }
+
         if (diagnostics is not null && !terminatingAfterFailure)
         {
             _ = diagnostics.WriteCritical(

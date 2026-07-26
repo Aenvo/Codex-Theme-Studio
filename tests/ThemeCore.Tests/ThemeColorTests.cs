@@ -29,21 +29,4 @@ public sealed class ThemeColorTests
         Assert.Equal("#B98AE933", ThemeColor.Format(color));
     }
 
-    [Fact]
-    public void Contrast_CompositesTransparentPanelAndText()
-    {
-        var result = ThemeContrast.Assess(
-            new ThemePalette(
-                "#000000",
-                "#FFFFFF80",
-                "#3B82F6",
-                "#FFFFFFFF",
-                "#FFFFFF99",
-                "#B98AE933"),
-            ThemeVariant.Dark);
-
-        Assert.True(result.IsSuccess);
-        Assert.True(result.Value!.TextRatio > 1);
-        Assert.True(result.Value.MutedTextRatio > 1);
-    }
 }

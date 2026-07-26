@@ -19,7 +19,6 @@ internal partial class AppDialogWindow : Window
     private AppDialogWindow(
         string title,
         string message,
-        string supportingText,
         AppDialogKind kind,
         Window? owner)
     {
@@ -29,10 +28,6 @@ internal partial class AppDialogWindow : Window
         Title = title;
         TitleText.Text = title;
         MessageText.Text = message;
-        SupportingText.Text = supportingText;
-        SupportingText.Visibility = string.IsNullOrWhiteSpace(supportingText)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
 
         if (owner is not null)
         {
@@ -59,9 +54,8 @@ internal partial class AppDialogWindow : Window
     internal static AppDialogWindow CreateConfirmation(
         string title,
         string message,
-        string supportingText,
         Window? owner) =>
-        new(title, message, supportingText, AppDialogKind.Confirmation, owner);
+        new(title, message, AppDialogKind.Confirmation, owner);
 
     internal static AppDialogWindow CreateInformation(
         string title,
@@ -71,7 +65,6 @@ internal partial class AppDialogWindow : Window
         new(
             title,
             message,
-            string.Empty,
             isError ? AppDialogKind.Error : AppDialogKind.Information,
             owner);
 
@@ -84,7 +77,6 @@ internal partial class AppDialogWindow : Window
         var dialog = new AppDialogWindow(
             title,
             prompt,
-            string.Empty,
             AppDialogKind.TextInput,
             owner);
         dialog.InputTextBox.Text = initialValue;

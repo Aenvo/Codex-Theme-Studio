@@ -9,7 +9,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CodexThemeStudio.Contracts\CodexThemeStudio.Contracts.csproj" />
-    <ProjectReference Include="..\CodexThemeStudio.Storage\CodexThemeStudio.Storage.csproj" />
     <ProjectReference Include="..\CodexThemeStudio.CodexAdapter\CodexThemeStudio.CodexAdapter.csproj" />
   </ItemGroup>
 

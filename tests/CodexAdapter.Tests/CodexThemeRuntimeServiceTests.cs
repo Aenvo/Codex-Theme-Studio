@@ -53,6 +53,34 @@ public sealed class CodexThemeRuntimeServiceTests
     }
 
     [Fact]
+    public async Task VerifiedVersion_NewFingerprintStillCompletesQualificationCycle()
+    {
+        var fixture = new RuntimeFixture();
+        var theme = CreateTheme(Guid.NewGuid());
+        const string newFingerprint =
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        fixture.Discovery.InstallationResult =
+            OperationResult<CodexInstallationInfo>.Success(
+                RuntimeFixture.Installation with
+                {
+                    ExecutableSha256 = newFingerprint,
+                });
+
+        var result = await fixture.Service.ApplyTemporaryAsync(
+            theme,
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value!.IsPersistenceEligible);
+        Assert.Equal(2, fixture.Renderer.ApplyCount);
+        Assert.Equal(1, fixture.Renderer.CleanupCount);
+        var qualified = await fixture.Qualification.IsQualifiedAsync(
+            newFingerprint,
+            CancellationToken.None);
+        Assert.True(qualified.IsSuccess && qualified.Value);
+    }
+
+    [Fact]
     public async Task Switch_WhenNewApplyFails_ReappliesPreviousTheme()
     {
         var oldTheme = CreateTheme(Guid.NewGuid());
@@ -175,6 +203,24 @@ public sealed class CodexThemeRuntimeServiceTests
     }
 
     [Fact]
+    public async Task Restore_WhenCodexIsNotRunningClearsOnlySafeSessionState()
+    {
+        var theme = CreateTheme(Guid.NewGuid());
+        var fixture = new RuntimeFixture(theme);
+        fixture.Session.State = AppliedSession(theme.Id);
+        fixture.Discovery.Processes = [];
+
+        var result = await fixture.Service.RestoreAsync(CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Default, result.Value!.State);
+        Assert.Equal(ThemeRuntimeState.Default, fixture.Session.State.State);
+        Assert.Null(fixture.Session.State.ThemeId);
+        Assert.Equal(0, fixture.Renderer.CleanupCount);
+        Assert.Equal(0, fixture.Repository.DeleteCount);
+    }
+
+    [Fact]
     public async Task Status_ReportsPartialMarkersWithoutClaimingVisibleEffect()
     {
         var theme = CreateTheme(Guid.NewGuid());
@@ -275,6 +321,12 @@ public sealed class CodexThemeRuntimeServiceTests
             await notInstalled.Service.GetStatusAsync(CancellationToken.None);
 
         var notRunning = new RuntimeFixture();
+        notRunning.Discovery.InstallationResult =
+            OperationResult<CodexInstallationInfo>.Success(
+                RuntimeFixture.Installation with
+                {
+                    ExecutableSha256 = new string('c', 64),
+                });
         notRunning.Discovery.Processes = [];
         var notRunningStatus =
             await notRunning.Service.GetStatusAsync(CancellationToken.None);
@@ -287,7 +339,9 @@ public sealed class CodexThemeRuntimeServiceTests
             await unverified.Service.GetStatusAsync(CancellationToken.None);
 
         Assert.Equal(ThemeRuntimeState.NotInstalled, notInstalledStatus.Value!.State);
+        Assert.False(notInstalledStatus.Value.IsPersistenceEligible);
         Assert.Equal(ThemeRuntimeState.NotRunning, notRunningStatus.Value!.State);
+        Assert.False(notRunningStatus.Value.IsPersistenceEligible);
         Assert.Equal(ThemeRuntimeState.Ready, unverifiedStatus.Value!.State);
         Assert.Equal(
             CodexCompatibilityLevel.CompatibleByProbe,
@@ -469,7 +523,8 @@ public sealed class CodexThemeRuntimeServiceTests
                 Repository.Themes[theme.Id] = theme;
             }
 
-            Qualification = CodexCompatibilityQualificationStore.CreateInMemory();
+            Qualification = CodexCompatibilityQualificationStore.CreateInMemory(
+                Installation.ExecutableSha256);
             Service = new CodexThemeRuntimeService(
                 Discovery,
                 Discovery,

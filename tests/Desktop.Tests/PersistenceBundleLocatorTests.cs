@@ -20,6 +20,21 @@ public sealed class PersistenceBundleLocatorTests
     }
 
     [Fact]
+    public void Find_HandlesApplicationDirectoryWithTrailingSeparator()
+    {
+        using var fixture = new BundleFixture();
+        fixture.CreateBundle(fixture.ApplicationDirectory);
+
+        var result = PersistenceBundleLocator.Find(
+            fixture.ApplicationDirectory + Path.DirectorySeparatorChar,
+            "1.2.0");
+
+        Assert.Equal(
+            Path.GetFullPath(fixture.ApplicationDirectory),
+            result);
+    }
+
+    [Fact]
     public void Find_UsesExactVersionDevelopmentRelease_WhenOutputIsIncomplete()
     {
         using var fixture = new BundleFixture();
@@ -90,7 +105,7 @@ public sealed class PersistenceBundleLocatorTests
                 "artifacts",
                 "release",
                 version,
-                $"CodexThemeManager-{version}-win-x64-portable");
+                $"Codex-Theme-Studio-{version}-win-x64-portable");
             CreateBundle(bundle);
             return bundle;
         }
@@ -100,6 +115,7 @@ public sealed class PersistenceBundleLocatorTests
             var files = new[]
             {
                 Path.Combine(root, "agent", "CodexThemeStudio.Agent.exe"),
+                Path.Combine(root, "agent", "agent-bundle-manifest.json"),
                 Path.Combine(root, "runtime", "node", "node.exe"),
                 Path.Combine(root, "runtime", "injector", "index.mjs"),
             };

@@ -1,9 +1,109 @@
 <UserControl x:Class="CodexThemeStudio.Desktop.Controls.ColorField"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:CodexThemeStudio.Desktop.Controls"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d" d:DesignWidth="280" d:DesignHeight="52">
+    <UserControl.Resources>
+        <Style x:Key="HistorySwatchButtonStyle" TargetType="Button">
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="3">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource ForegroundBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ColorFieldOpenButtonStyle" TargetType="Button" BasedOn="{StaticResource ButtonBaseStyle}">
+            <Setter Property="Background" Value="{DynamicResource CardBrush}" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource InputBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource ForegroundBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsOpen, ElementName=PickerPopup}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SelectionSurfaceBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="ColorChannelSliderStyle" TargetType="Slider">
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Margin" Value="0,3,0,7" />
+            <Setter Property="local:SliderJumpBehavior.IsEnabled" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid Height="18">
+                            <Border Height="12" VerticalAlignment="Center" CornerRadius="6"
+                                    Background="{TemplateBinding Background}" BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="1" />
+                            <Track x:Name="PART_Track" Height="18"
+                                   Minimum="{TemplateBinding Minimum}"
+                                   Maximum="{TemplateBinding Maximum}"
+                                   Value="{Binding Value, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                   Orientation="{TemplateBinding Orientation}"
+                                   IsDirectionReversed="{TemplateBinding IsDirectionReversed}">
+                                <Track.DecreaseRepeatButton>
+                            <RepeatButton Opacity="0" Command="{x:Static Slider.DecreaseLarge}" />
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Width="18" Height="18">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Ellipse Fill="{DynamicResource PrimaryForegroundBrush}"
+                                                         Stroke="{DynamicResource PrimaryBrush}" StrokeThickness="3" />
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                            <RepeatButton Opacity="0" Command="{x:Static Slider.IncreaseLarge}" />
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -12,6 +112,7 @@
         <TextBlock Margin="1,0,0,5" Foreground="{DynamicResource MutedForegroundBrush}"
                    FontSize="12" Text="{Binding Label, RelativeSource={RelativeSource AncestorType=UserControl}}" />
         <Button x:Name="OpenButton" Grid.Row="1" Margin="0" Padding="9,7"
+                Style="{StaticResource ColorFieldOpenButtonStyle}"
                 HorizontalContentAlignment="Stretch" Click="OnOpenClick">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -35,23 +136,18 @@
                Placement="Bottom" HorizontalOffset="0" VerticalOffset="6"
                AllowsTransparency="True" StaysOpen="False"
                Opened="OnPopupOpened" Closed="OnPopupClosed">
-            <Border Width="314" Padding="14" Style="{DynamicResource PopupChromeStyle}"
+            <Border Width="316" Padding="12" Style="{DynamicResource PopupChromeStyle}"
                     Background="{DynamicResource PopoverBrush}">
                 <Grid PreviewKeyDown="OnPopupPreviewKeyDown">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="150" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="148" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <DockPanel Margin="0,0,0,10">
                         <TextBlock FontWeight="SemiBold" Text="选择颜色" />
-                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                   Foreground="{DynamicResource MutedForegroundBrush}"
-                                   Text="CSS RGBA" />
                     </DockPanel>
 
                     <Grid x:Name="SaturationValueSurface" Grid.Row="1" ClipToBounds="True"
@@ -75,14 +171,14 @@
                         </Border>
                         <Canvas IsHitTestVisible="False">
                             <Ellipse x:Name="SelectionMarker" Width="16" Height="16"
-                                     Stroke="White" StrokeThickness="2" Fill="Transparent" />
+                                     Stroke="White" StrokeThickness="3" Fill="Transparent" />
                         </Canvas>
                     </Grid>
 
                     <StackPanel Grid.Row="2" Margin="0,11,0,0">
-                        <TextBlock Foreground="{DynamicResource MutedForegroundBrush}" FontSize="11" Text="色相" />
-                        <Slider x:Name="HueSlider" Minimum="0" Maximum="360" Margin="0,3,0,7"
-                                ValueChanged="OnHueChanged">
+                        <Slider x:Name="HueSlider" Style="{StaticResource ColorChannelSliderStyle}"
+                                Minimum="0" Maximum="360" ValueChanged="OnHueChanged"
+                                PreviewMouseLeftButtonUp="OnChannelMouseUp">
                             <Slider.Background>
                                 <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
                                     <GradientStop Color="#FFFF0000" Offset="0" />
@@ -95,62 +191,93 @@
                                 </LinearGradientBrush>
                             </Slider.Background>
                         </Slider>
-                        <DockPanel>
-                            <TextBlock Foreground="{DynamicResource MutedForegroundBrush}" FontSize="11" Text="透明度" />
-                            <TextBlock x:Name="AlphaPopupText" DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                       Foreground="{DynamicResource MutedForegroundBrush}" FontSize="11" />
-                        </DockPanel>
-                        <Border Margin="0,3,0,0" Background="{DynamicResource CheckerboardBrush}" CornerRadius="4">
-                            <Slider x:Name="AlphaSlider" Minimum="0" Maximum="255" Margin="0"
-                                    ValueChanged="OnAlphaChanged" />
+                        <Slider x:Name="SaturationSlider" Style="{StaticResource ColorChannelSliderStyle}"
+                                Minimum="0" Maximum="1" ValueChanged="OnSaturationChanged"
+                                PreviewMouseLeftButtonUp="OnChannelMouseUp">
+                            <Slider.Background>
+                                <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                                    <GradientStop x:Name="SaturationStartGradientStop" Color="Gray" Offset="0" />
+                                    <GradientStop x:Name="SaturationEndGradientStop" Color="Red" Offset="1" />
+                                </LinearGradientBrush>
+                            </Slider.Background>
+                        </Slider>
+                        <Border Margin="0,3,0,0" Background="{DynamicResource CheckerboardBrush}" CornerRadius="6">
+                            <Slider x:Name="AlphaSlider" Style="{StaticResource ColorChannelSliderStyle}"
+                                    Minimum="0" Maximum="100" SmallChange="1" LargeChange="10"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" Margin="0" ValueChanged="OnAlphaChanged"
+                                    PreviewMouseLeftButtonUp="OnChannelMouseUp" />
                         </Border>
                     </StackPanel>
 
-                    <Grid Grid.Row="3" Margin="0,12,0,0">
+                    <Grid Grid.Row="3" Margin="0,10,0,0">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="46" />
-                            <ColumnDefinition Width="46" />
+                            <ColumnDefinition Width="74" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <Border Margin="0,0,7,0" Background="{DynamicResource CheckerboardBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6">
-                            <Border x:Name="OriginalPreview" CornerRadius="5" />
-                        </Border>
-                        <Border Grid.Column="1" Margin="0,0,7,0" Background="{DynamicResource CheckerboardBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6">
-                            <Border x:Name="CurrentPreview" CornerRadius="5" />
-                        </Border>
-                        <TextBox x:Name="HexInput" Grid.Column="2" FontFamily="Consolas"
-                                 TextChanged="OnHexTextChanged" />
+                        <ComboBox x:Name="FormatSelector" SelectedIndex="0"
+                                  SelectionChanged="OnFormatSelectionChanged"
+                                  AutomationProperties.Name="颜色格式">
+                            <ComboBoxItem Content="Hex" />
+                            <ComboBoxItem Content="RGB" />
+                            <ComboBoxItem Content="CSS" />
+                        </ComboBox>
+                        <Grid Grid.Column="1" Margin="8,0,0,0">
+                            <Grid x:Name="HexInputs">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="48" />
+                                    <ColumnDefinition Width="18" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="HexInput" FontFamily="Consolas" TextChanged="OnHexTextChanged"
+                                         GotKeyboardFocus="OnValueInputGotKeyboardFocus"
+                                         PreviewMouseDown="OnValueInputPreviewMouseDown"
+                                         LostKeyboardFocus="OnValueInputLostKeyboardFocus" />
+                                <TextBox x:Name="HexOpacityInput" Grid.Column="1" FontFamily="Consolas"
+                                         TextAlignment="Right" TextChanged="OnHexOpacityTextChanged"
+                                         GotKeyboardFocus="OnValueInputGotKeyboardFocus"
+                                         PreviewMouseDown="OnValueInputPreviewMouseDown"
+                                         LostKeyboardFocus="OnValueInputLostKeyboardFocus" />
+                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="%" />
+                            </Grid>
+                            <Grid x:Name="RgbInputs" Visibility="Collapsed">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="RedInput" TextChanged="OnRgbTextChanged" GotKeyboardFocus="OnValueInputGotKeyboardFocus" PreviewMouseDown="OnValueInputPreviewMouseDown" LostKeyboardFocus="OnValueInputLostKeyboardFocus" />
+                                <TextBox x:Name="GreenInput" Grid.Column="1" TextChanged="OnRgbTextChanged" GotKeyboardFocus="OnValueInputGotKeyboardFocus" PreviewMouseDown="OnValueInputPreviewMouseDown" LostKeyboardFocus="OnValueInputLostKeyboardFocus" />
+                                <TextBox x:Name="BlueInput" Grid.Column="2" TextChanged="OnRgbTextChanged" GotKeyboardFocus="OnValueInputGotKeyboardFocus" PreviewMouseDown="OnValueInputPreviewMouseDown" LostKeyboardFocus="OnValueInputLostKeyboardFocus" />
+                                <TextBox x:Name="AlphaPercentInput" Grid.Column="3" TextChanged="OnRgbTextChanged" GotKeyboardFocus="OnValueInputGotKeyboardFocus" PreviewMouseDown="OnValueInputPreviewMouseDown" LostKeyboardFocus="OnValueInputLostKeyboardFocus" />
+                            </Grid>
+                            <TextBox x:Name="CssInput" Visibility="Collapsed" FontFamily="Consolas"
+                                     TextChanged="OnCssTextChanged" GotKeyboardFocus="OnValueInputGotKeyboardFocus"
+                                     PreviewMouseDown="OnValueInputPreviewMouseDown"
+                                     LostKeyboardFocus="OnValueInputLostKeyboardFocus" />
+                        </Grid>
                     </Grid>
 
-                    <ItemsControl x:Name="ThemePalette" Grid.Row="4" Margin="0,12,0,0">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Button Width="28" Height="28" Margin="0,0,6,6" Padding="3"
-                                        Tag="{Binding}" Click="OnSwatchClick" ToolTip="{Binding}">
-                                    <Border Background="{DynamicResource CheckerboardBrush}" CornerRadius="5">
-                                        <Border Background="{Binding Converter={StaticResource CssColorBrushConverter}}"
-                                                CornerRadius="4" />
-                                    </Border>
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <TextBlock Grid.Row="5" Margin="0,2,0,0" FontSize="11"
-                               Foreground="{DynamicResource MutedForegroundBrush}"
-                               Text="格式：#RRGGBB 或 #RRGGBBAA" />
-
-                    <StackPanel Grid.Row="6" Margin="0,12,0,0" Orientation="Horizontal"
-                                HorizontalAlignment="Right">
-                        <Button Style="{DynamicResource GhostButtonStyle}" Content="取消" Click="OnCancelClick" />
-                        <Button Style="{DynamicResource PrimaryButtonStyle}" Margin="0"
-                                Content="应用" Click="OnApplyClick" />
+                    <StackPanel Grid.Row="4" Margin="0,10,0,0">
+                        <ItemsControl x:Name="HistoryPalette"
+                                      ItemsSource="{Binding ColorHistory, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Width="22" Height="22" Margin="0,0,5,5" Tag="{Binding}"
+                                            Style="{StaticResource HistorySwatchButtonStyle}"
+                                            Click="OnSwatchClick" ToolTip="{Binding}">
+                                        <Border Background="{DynamicResource CheckerboardBrush}" CornerRadius="2">
+                                            <Border Background="{Binding Converter={StaticResource CssColorBrushConverter}}" CornerRadius="1" />
+                                        </Border>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
+
                 </Grid>
             </Border>
         </Popup>

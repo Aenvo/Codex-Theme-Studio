@@ -260,8 +260,8 @@ public sealed class PersistenceAgentEngine
             installed.ExecutableSha256,
             cancellationToken);
         var persistenceEligible = installed.SourceAcknowledged &&
-            (versionPolicy.IsVerified(installed.Version) ||
-                (qualification.IsSuccess && qualification.Value));
+            qualification.IsSuccess &&
+            qualification.Value;
         if (!persistenceEligible)
         {
             return Success(
@@ -495,14 +495,33 @@ public sealed class PersistenceAgentRunner
 
     private readonly string configurationPath;
     private readonly string appVersion;
+    private readonly string mutexName;
+    private readonly string stopEventName;
 
     public PersistenceAgentRunner(
         string configurationPath,
         string appVersion = "unknown")
+        : this(configurationPath, appVersion, MutexName, StopEventName)
+    {
+    }
+
+    internal PersistenceAgentRunner(
+        string configurationPath,
+        string appVersion,
+        string mutexName,
+        string stopEventName)
     {
         this.configurationPath = Path.GetFullPath(configurationPath);
         this.appVersion = appVersion;
+        this.mutexName = RequireWaitHandleName(mutexName, nameof(mutexName));
+        this.stopEventName = RequireWaitHandleName(
+            stopEventName,
+            nameof(stopEventName));
     }
+
+    internal string InstanceMutexName => mutexName;
+
+    internal string ShutdownEventName => stopEventName;
 
     public async Task<int> RunAsync(CancellationToken cancellationToken)
     {
@@ -511,7 +530,10 @@ public sealed class PersistenceAgentRunner
             return 4;
         }
 
-        using var mutex = new Mutex(initiallyOwned: true, MutexName, out var createdNew);
+        using var mutex = new Mutex(
+            initiallyOwned: true,
+            mutexName,
+            out var createdNew);
         if (!createdNew)
         {
             return 3;
@@ -520,7 +542,7 @@ public sealed class PersistenceAgentRunner
         using var stopEvent = new EventWaitHandle(
             false,
             EventResetMode.ManualReset,
-            StopEventName);
+            stopEventName);
         var configurationStore =
             new PersistenceAgentConfigurationStore(configurationPath);
         var delay = TimeSpan.FromSeconds(5);
@@ -723,6 +745,12 @@ public sealed class PersistenceAgentRunner
 
     private static TimeSpan NextBackoff(TimeSpan current) =>
         TimeSpan.FromSeconds(Math.Min(60, Math.Max(5, current.TotalSeconds * 2)));
+
+    private static string RequireWaitHandleName(string value, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
+        return value;
+    }
 
     private static DiagnosticLevel GetLevel(ThemeRuntimeState state) =>
         state switch

@@ -28,10 +28,12 @@ $runtimeIdentifier = [string]$runtimeBaseline.runtimeIdentifier
 $nodeVersion = [string]$runtimeBaseline.nodeVersion
 $nodeArchiveName = "node-v$nodeVersion-$runtimeIdentifier.zip"
 $nodeArchiveSha256 = [string]$runtimeBaseline.nodeArchiveSha256
+$targetZipBytes = 100000000L
+$maximumZipBytes = 120000000L
 $artifactRoot = Join-Path $projectRoot 'artifacts'
 $cacheRoot = Join-Path $artifactRoot 'cache'
 $finalReleaseRoot = Join-Path $artifactRoot "release\$Version"
-$packageName = "CodexThemeManager-$Version-win-x64-portable"
+$packageName = "Codex-Theme-Studio-$Version-win-x64-portable"
 
 function Resolve-DotNet {
     $candidates = @()
@@ -139,6 +141,79 @@ function Copy-RequiredFile {
     Copy-Item -LiteralPath $Source -Destination $Destination
 }
 
+function Get-RelativePublishPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Root,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $prefix = [IO.Path]::GetFullPath($Root).TrimEnd(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    if (-not $fullPath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Publish file escaped its source root: $fullPath"
+    }
+
+    return $fullPath.Substring($prefix.Length).Replace('\', '/')
+}
+
+function Get-Sha256Lower {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function Assert-NoPrivateThemeAssets {
+    param([Parameter(Mandatory = $true)][string]$PackageRoot)
+
+    $blockedThemeNames = @('鸣潮', '生化危机2', '刺客信条')
+    $blockedImageHashes = @(
+        'ab99c8ac4be85a276393e5a6823ef5986af9551e39822de1a88f000e962a1ca6',
+        'ae091d3608b37b098c1e559011c219fc4b82e872b81d3795f3d71cc506dfaca0',
+        '20997fa0d25211359dd5f24a0ccaf6778fb47407b74471a4af722cec34f3d607'
+    )
+    $textExtensions = @(
+        '.css', '.js', '.json', '.md', '.mjs', '.ps1', '.txt', '.xaml', '.xml')
+    $violations = [Collections.Generic.List[string]]::new()
+
+    foreach ($file in Get-ChildItem -LiteralPath $PackageRoot -Recurse -File) {
+        $relativePath = Get-RelativePublishPath -Root $PackageRoot -Path $file.FullName
+        if ($file.Name -ieq 'themes.db' -or
+            $file.Name -ieq 'theme.json' -or
+            $file.Extension -ieq '.cttheme') {
+            $violations.Add($relativePath)
+            continue
+        }
+
+        $hash = Get-Sha256Lower $file.FullName
+        if ($blockedImageHashes -contains $hash) {
+            $violations.Add("$relativePath (blocked test wallpaper hash)")
+            continue
+        }
+
+        if ($textExtensions -contains $file.Extension.ToLowerInvariant()) {
+            $content = [IO.File]::ReadAllText($file.FullName)
+            foreach ($themeName in $blockedThemeNames) {
+                if ($content.IndexOf(
+                    $themeName,
+                    [StringComparison]::Ordinal) -ge 0) {
+                    $violations.Add("$relativePath (blocked test theme name)")
+                    break
+                }
+            }
+        }
+    }
+
+    if ($violations.Count -gt 0) {
+        throw "Release contains private theme data or third-party test wallpapers: $(
+            $violations -join ', ')"
+    }
+}
+
 if (Test-Path -LiteralPath $finalReleaseRoot) {
     throw "Release output already exists and will not be overwritten: $finalReleaseRoot"
 }
@@ -203,6 +278,7 @@ Invoke-Checked $dotnet @(
     '-p:RestoreLockedMode=true',
     '-p:UseSharedCompilation=false',
     "-p:Version=$Version",
+    '-p:SatelliteResourceLanguages=zh-Hans',
     '-p:DebugType=None',
     '-p:DebugSymbols=false'
 )
@@ -219,15 +295,61 @@ Invoke-Checked $dotnet @(
     '-p:RestoreLockedMode=true',
     '-p:UseSharedCompilation=false',
     "-p:Version=$Version",
+    '-p:SatelliteResourceLanguages=zh-Hans',
     '-p:DebugType=None',
     '-p:DebugSymbols=false'
 )
 
 New-Item -ItemType Directory -Force -Path $packageDirectory | Out-Null
 Copy-TreeWithoutOverwriteConflict -Source $desktopPublish -Destination $packageDirectory
-Copy-TreeWithoutOverwriteConflict `
-    -Source $agentPublish `
-    -Destination (Join-Path $packageDirectory 'agent')
+$unexpectedSatelliteLanguages = @(
+    'cs', 'de', 'es', 'fr', 'it', 'ja', 'ko', 'pl',
+    'pt-BR', 'ru', 'tr', 'zh-Hant')
+$unexpectedSatelliteDirectories = @(
+    Get-ChildItem -LiteralPath $packageDirectory -Directory |
+        Where-Object Name -In $unexpectedSatelliteLanguages)
+if ($unexpectedSatelliteDirectories.Count -gt 0) {
+    throw "Unexpected satellite language directories were published: $(
+        ($unexpectedSatelliteDirectories.Name -join ', '))"
+}
+
+$agentPackageRoot = Join-Path $packageDirectory 'agent'
+New-Item -ItemType Directory -Force -Path $agentPackageRoot | Out-Null
+$agentManifestFiles = @()
+$sharedAgentRuntimeBytes = [int64]0
+$agentUniqueBytes = [int64]0
+foreach ($file in Get-ChildItem -LiteralPath $agentPublish -Recurse -File) {
+    if ($file.Extension -ieq '.pdb') {
+        continue
+    }
+
+    $relativePath = Get-RelativePublishPath `
+        -Root $agentPublish `
+        -Path $file.FullName
+    $desktopPeer = Join-Path $desktopPublish $relativePath
+    $sourceRelativePath = $null
+    $fileHash = Get-Sha256Lower $file.FullName
+    if ((Test-Path -LiteralPath $desktopPeer -PathType Leaf) -and
+        (Get-Item -LiteralPath $desktopPeer).Length -eq $file.Length -and
+        (Get-Sha256Lower $desktopPeer) -eq $fileHash) {
+        $sourceRelativePath = $relativePath
+        $sharedAgentRuntimeBytes += [int64]$file.Length
+    }
+    else {
+        $sourceRelativePath = "agent/$relativePath"
+        Copy-RequiredFile `
+            $file.FullName `
+            (Join-Path $agentPackageRoot $relativePath)
+        $agentUniqueBytes += [int64]$file.Length
+    }
+
+    $agentManifestFiles += [pscustomobject][ordered]@{
+        source = $sourceRelativePath
+        destination = $relativePath
+        bytes = [int64]$file.Length
+        sha256 = $fileHash
+    }
+}
 
 $publishedDesktopExecutable = Join-Path $packageDirectory 'CodexThemeStudio.Desktop.exe'
 $renamedDesktopExecutable = Join-Path $packageDirectory 'CodexThemeManager.exe'
@@ -255,6 +377,38 @@ foreach ($name in $injectorFiles) {
         (Join-Path $projectRoot "runtime\injector\$name") `
         (Join-Path $injectorRoot $name)
 }
+
+$runtimeAgentFiles = @(
+    Get-ChildItem -LiteralPath $nodeRoot, $injectorRoot -Recurse -File)
+foreach ($file in $runtimeAgentFiles) {
+    $relativePath = Get-RelativePublishPath `
+        -Root $packageDirectory `
+        -Path $file.FullName
+    $agentManifestFiles += [pscustomobject][ordered]@{
+        source = $relativePath
+        destination = $relativePath
+        bytes = [int64]$file.Length
+        sha256 = Get-Sha256Lower $file.FullName
+    }
+}
+
+$duplicateAgentDestinations = @(
+    $agentManifestFiles |
+        Group-Object destination |
+        Where-Object Count -gt 1)
+if ($duplicateAgentDestinations.Count -gt 0) {
+    throw "Agent bundle manifest contains duplicate destinations: $(
+        ($duplicateAgentDestinations.Name -join ', '))"
+}
+
+$agentBundleManifest = [ordered]@{
+    schemaVersion = 1
+    files = @($agentManifestFiles | Sort-Object destination)
+}
+[IO.File]::WriteAllText(
+    (Join-Path $agentPackageRoot 'agent-bundle-manifest.json'),
+    ($agentBundleManifest | ConvertTo-Json -Depth 5),
+    [Text.UTF8Encoding]::new($false))
 
 Copy-RequiredFile `
     (Join-Path $projectRoot 'README.md') `
@@ -350,11 +504,66 @@ $buildInfo = @"
     $buildInfo,
     [Text.UTF8Encoding]::new($false))
 
+Assert-NoPrivateThemeAssets -PackageRoot $packageDirectory
+
 New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
 Compress-Archive -LiteralPath $packageDirectory -DestinationPath $zipPath -CompressionLevel Optimal
 
 $packageFiles = @(Get-ChildItem -LiteralPath $packageDirectory -Recurse -File)
-$packageBytes = ($packageFiles | Measure-Object -Property Length -Sum).Sum
+$packageBytes = [int64](
+    ($packageFiles | Measure-Object -Property Length -Sum).Sum)
+$zipBytes = (Get-Item -LiteralPath $zipPath).Length
+if ($zipBytes -gt $maximumZipBytes) {
+    throw "Release ZIP exceeds the hard size limit of $maximumZipBytes bytes. Actual: $zipBytes"
+}
+if ($zipBytes -gt $targetZipBytes) {
+    Write-Warning "Release ZIP exceeds the preferred target of $targetZipBytes bytes. Actual: $zipBytes"
+}
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [IO.Compression.ZipFile]::OpenRead($zipPath)
+try {
+    $compressedAreas = @{
+        desktopAndSupport = [int64]0
+        agentUnique = [int64]0
+        node = [int64]0
+        injector = [int64]0
+    }
+    foreach ($entry in $zip.Entries) {
+        $relative = $entry.FullName.Replace('\', '/')
+        $prefix = "$packageName/"
+        if ($relative.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+            $relative = $relative.Substring($prefix.Length)
+        }
+
+        if ($relative.StartsWith('agent/', [StringComparison]::OrdinalIgnoreCase)) {
+            $compressedAreas.agentUnique += [int64]$entry.CompressedLength
+        }
+        elseif ($relative.StartsWith(
+            'runtime/node/',
+            [StringComparison]::OrdinalIgnoreCase)) {
+            $compressedAreas.node += [int64]$entry.CompressedLength
+        }
+        elseif ($relative.StartsWith(
+            'runtime/injector/',
+            [StringComparison]::OrdinalIgnoreCase)) {
+            $compressedAreas.injector += [int64]$entry.CompressedLength
+        }
+        else {
+            $compressedAreas.desktopAndSupport += [int64]$entry.CompressedLength
+        }
+    }
+}
+finally {
+    $zip.Dispose()
+}
+
+$nodeBytes = (
+    Get-ChildItem -LiteralPath $nodeRoot -Recurse -File |
+        Measure-Object -Property Length -Sum).Sum
+$injectorBytes = (
+    Get-ChildItem -LiteralPath $injectorRoot -Recurse -File |
+        Measure-Object -Property Length -Sum).Sum
 $zipHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
 $mainHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $mainExecutable).Hash.ToLowerInvariant()
 $agentHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $agentExecutable).Hash.ToLowerInvariant()
@@ -369,7 +578,7 @@ $checksums = @(
     [Text.UTF8Encoding]::new($false))
 
 $metadata = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     product = 'Codex Theme Studio'
     version = $Version
     packageName = $packageName
@@ -377,10 +586,23 @@ $metadata = [ordered]@{
     nodeVersion = "v$nodeVersion"
     fileCount = $packageFiles.Count
     uncompressedBytes = $packageBytes
-    zipBytes = (Get-Item -LiteralPath $zipPath).Length
+    zipBytes = $zipBytes
+    preferredZipBytes = $targetZipBytes
+    maximumZipBytes = $maximumZipBytes
     zipSha256 = $zipHash
     mainExecutableSha256 = $mainHash
     agentExecutableSha256 = $agentHash
+    components = [ordered]@{
+        desktopAndSupportCompressedBytes = $compressedAreas.desktopAndSupport
+        agentUniqueBytes = $agentUniqueBytes
+        agentUniqueCompressedBytes = $compressedAreas.agentUnique
+        sharedAgentRuntimeBytes = $sharedAgentRuntimeBytes
+        sharedAgentRuntimeStoredBytes = 0
+        nodeBytes = [int64]$nodeBytes
+        nodeCompressedBytes = $compressedAreas.node
+        injectorBytes = [int64]$injectorBytes
+        injectorCompressedBytes = $compressedAreas.injector
+    }
     signed = $false
 }
 [IO.File]::WriteAllText(
@@ -397,6 +619,8 @@ Write-Host "Portable package: $(Join-Path $finalReleaseRoot $packageName)"
 Write-Host "ZIP: $(Join-Path $finalReleaseRoot "$packageName.zip")"
 Write-Host "Files: $($packageFiles.Count)"
 Write-Host "Uncompressed bytes: $packageBytes"
+Write-Host "ZIP bytes: $zipBytes"
+Write-Host "Shared Agent runtime bytes removed: $sharedAgentRuntimeBytes"
 Write-Host "ZIP SHA-256: $zipHash"
 }
 finally {

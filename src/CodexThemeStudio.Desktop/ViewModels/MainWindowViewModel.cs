@@ -59,6 +59,10 @@ public enum CodexDetectionPhase
 
 public sealed class MainWindowViewModel : ObservableObject, IDisposable
 {
+    private const string GitHubRepositoryUrl = "https://github.com/Aenvo/Codex-Theme-Studio";
+    private static readonly TimeSpan PresencePollInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan PresencePollDuration = TimeSpan.FromSeconds(20);
+
     private readonly IThemeRepository repository;
     private readonly ICodexThemeRuntime runtime;
     private readonly IPersistenceService persistence;
@@ -72,10 +76,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly IDiagnosticQueryService? diagnosticQuery;
     private readonly IDiagnosticBundleService? diagnosticBundle;
     private readonly Action<string>? copyText;
+    private readonly Action<string> openExternalUrl;
     private readonly string appVersion;
     private readonly Guid diagnosticSessionId;
     private readonly ExternalThemeCatalogService? externalThemeCatalog;
+    private readonly ICodexDiscoveryService? codexDiscovery;
     private readonly CancellationTokenSource lifetime = new();
+    private readonly SemaphoreSlim presenceCheckLock = new(1, 1);
+    private readonly object presenceMonitorSync = new();
     private readonly List<ThemeCardViewModel> allThemes = [];
     private readonly List<ThemeCardViewModel> deletedThemes = [];
     private readonly ObservableCollection<ThemeCardViewModel> visibleThemes = [];
@@ -120,12 +128,19 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string diagnosticLatestRecoveryText = "最近恢复：无";
     private string diagnosticLogStatusText = "日志状态：尚未检查";
     private string? codexExecutableSha256;
+    private int? observedCodexProcessId;
+    private DateTimeOffset? observedCodexProcessStartedAtUtc;
     private string activeDiagnosticOperation = "desktop.background";
     private Guid? activeDiagnosticCorrelationId;
     private bool activeDiagnosticOperationFailed;
     private CodexDetectionPhase codexDetectionPhase = CodexDetectionPhase.Confirming;
     private bool hasLiveCodexIdentity;
     private Task backgroundInitialization = Task.CompletedTask;
+    private Task presenceMonitorTask = Task.CompletedTask;
+    private CancellationTokenSource? presenceMonitorCancellation;
+    private bool isWindowActive;
+    private bool isInitialized;
+    private bool isBackgroundInitializationComplete;
     private int statusRefreshGeneration;
     private int isDisposed;
 
@@ -147,7 +162,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         Action<string>? copyText = null,
         string appVersion = "unknown",
         Guid? diagnosticSessionId = null,
-        ExternalThemeCatalogService? externalThemeCatalog = null)
+        ExternalThemeCatalogService? externalThemeCatalog = null,
+        Action<string>? openExternalUrl = null,
+        ICodexDiscoveryService? codexDiscovery = null)
     {
         this.repository = repository;
         this.runtime = runtime;
@@ -163,9 +180,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         this.diagnosticQuery = diagnosticQuery;
         this.diagnosticBundle = diagnosticBundle;
         this.copyText = copyText;
+        this.openExternalUrl = openExternalUrl ?? OpenExternalUrl;
         this.appVersion = appVersion;
         this.diagnosticSessionId = diagnosticSessionId ?? Guid.NewGuid();
         this.externalThemeCatalog = externalThemeCatalog;
+        this.codexDiscovery = codexDiscovery;
         Editor = editor;
 
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsBusy);
@@ -180,13 +199,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             CanToggleFavorite);
         ApplyTemporaryCommand = new AsyncRelayCommand(
             ApplyTemporaryAsync,
-            CanApplyActiveSelection);
+            CanUseActiveSelection);
         SetPersistentCommand = new AsyncRelayCommand(
             SetPersistentAsync,
-            CanSetPersistent);
+            CanUseActiveSelection);
         RestoreCommand = new AsyncRelayCommand(
             RestoreAsync,
-            () => !IsBusy && runtimeStatus is not null && hasLiveCodexIdentity);
+            () => !IsBusy);
         NavigateCommand = new RelayCommand(Navigate);
         ImportCommand = new AsyncRelayCommand(ImportAsync, () => !IsBusy && packageService is not null);
         EditCommand = new AsyncRelayCommand(
@@ -212,6 +231,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             MigrateStorageAsync,
             () => !IsBusy && isStorageAvailable);
         OpenDataRootCommand = new RelayCommand(_ => OpenDataRoot(), _ => Directory.Exists(DataRoot));
+        OpenGitHubRepositoryCommand = new RelayCommand(_ => OpenGitHubRepository());
         SetLibraryLayoutCommand = new RelayCommand(SetLibraryLayout);
         SelectCodexExecutableCommand = new AsyncRelayCommand(
             SelectCodexExecutableAsync,
@@ -613,6 +633,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public RelayCommand OpenDataRootCommand { get; }
 
+    public RelayCommand OpenGitHubRepositoryCommand { get; }
+
     public RelayCommand SetLibraryLayoutCommand { get; }
 
     public AsyncRelayCommand RefreshDiagnosticsCommand { get; }
@@ -641,9 +663,33 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             "desktop.theme_load",
             correlationId);
         backgroundInitialization = CompleteBackgroundInitializationAsync(lifetime.Token);
+        isInitialized = true;
     }
 
     internal Task WaitForBackgroundInitializationAsync() => backgroundInitialization;
+
+    internal Task WaitForPresenceMonitorAsync()
+    {
+        lock (presenceMonitorSync)
+        {
+            return presenceMonitorTask;
+        }
+    }
+
+    public void OnWindowActivated()
+    {
+        isWindowActive = true;
+        if (isInitialized)
+        {
+            StartPresenceMonitor();
+        }
+    }
+
+    public void OnWindowDeactivated()
+    {
+        isWindowActive = false;
+        CancelPresenceMonitor();
+    }
 
     public void Dispose()
     {
@@ -653,7 +699,160 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         lifetime.Cancel();
+        CancelPresenceMonitor();
         lifetime.Dispose();
+    }
+
+    private void StartPresenceMonitor()
+    {
+        if (codexDiscovery is null ||
+            !isWindowActive ||
+            !isBackgroundInitializationComplete ||
+            Volatile.Read(ref isDisposed) != 0)
+        {
+            return;
+        }
+
+        lock (presenceMonitorSync)
+        {
+            if (presenceMonitorCancellation is
+                {
+                    IsCancellationRequested: false,
+                })
+            {
+                return;
+            }
+
+            var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                lifetime.Token);
+            presenceMonitorCancellation = cancellation;
+            presenceMonitorTask = MonitorCodexPresenceAsync(cancellation);
+        }
+    }
+
+    private void CancelPresenceMonitor()
+    {
+        CancellationTokenSource? cancellation;
+        lock (presenceMonitorSync)
+        {
+            cancellation = presenceMonitorCancellation;
+        }
+
+        cancellation?.Cancel();
+    }
+
+    private async Task MonitorCodexPresenceAsync(
+        CancellationTokenSource cancellation)
+    {
+        var cancellationToken = cancellation.Token;
+        var deadline = DateTimeOffset.UtcNow + PresencePollDuration;
+        try
+        {
+            while (isWindowActive &&
+                   DateTimeOffset.UtcNow <= deadline &&
+                   !cancellationToken.IsCancellationRequested)
+            {
+                if (!IsBusy)
+                {
+                    var result = await CheckCodexPresenceAsync(cancellationToken);
+                    if (result == PresenceCheckResult.Complete)
+                    {
+                        return;
+                    }
+                }
+
+                await Task.Delay(PresencePollInterval, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            lock (presenceMonitorSync)
+            {
+                if (ReferenceEquals(presenceMonitorCancellation, cancellation))
+                {
+                    presenceMonitorCancellation = null;
+                }
+            }
+
+            cancellation.Dispose();
+        }
+    }
+
+    private async Task<PresenceCheckResult> CheckCodexPresenceAsync(
+        CancellationToken cancellationToken)
+    {
+        if (codexDiscovery is null ||
+            !await presenceCheckLock.WaitAsync(0, cancellationToken))
+        {
+            return PresenceCheckResult.Continue;
+        }
+
+        try
+        {
+            var discovery = await codexDiscovery.DiscoverAsync(cancellationToken);
+            if (!discovery.IsSuccess)
+            {
+                if (discovery.Error!.Code != OperationErrorCode.CodexNotFound ||
+                    runtimeStatus?.State != ThemeRuntimeState.NotInstalled)
+                {
+                    await RefreshRuntimeStatusAsync(
+                        CodexStatusRefreshMode.PreferCache,
+                        cancellationToken);
+                }
+
+                return PresenceCheckResult.Continue;
+            }
+
+            var processes = discovery.Value!.Processes;
+            if (processes.Count == 0)
+            {
+                observedCodexProcessId = null;
+                observedCodexProcessStartedAtUtc = null;
+                if (runtimeStatus?.State != ThemeRuntimeState.NotRunning ||
+                    hasLiveCodexIdentity)
+                {
+                    await RefreshRuntimeStatusAsync(
+                        CodexStatusRefreshMode.PreferCache,
+                        cancellationToken);
+                }
+
+                return PresenceCheckResult.Continue;
+            }
+
+            var processChanged =
+                processes.Count != 1 ||
+                !hasLiveCodexIdentity ||
+                runtimeStatus?.CodexProcessId != processes[0].ProcessId ||
+                observedCodexProcessId != processes[0].ProcessId ||
+                observedCodexProcessStartedAtUtc != processes[0].StartedAtUtc;
+            if (processChanged)
+            {
+                await RefreshRuntimeStatusAsync(
+                    CodexStatusRefreshMode.PreferCache,
+                    cancellationToken);
+                await SynchronizeExternalThemeAsync(cancellationToken);
+            }
+
+            if (processes.Count == 1)
+            {
+                observedCodexProcessId = processes[0].ProcessId;
+                observedCodexProcessStartedAtUtc = processes[0].StartedAtUtc;
+            }
+            else
+            {
+                observedCodexProcessId = null;
+                observedCodexProcessStartedAtUtc = null;
+            }
+
+            return PresenceCheckResult.Complete;
+        }
+        finally
+        {
+            presenceCheckLock.Release();
+        }
     }
 
     private void SetLibraryLayout(object? parameter)
@@ -724,10 +923,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             "desktop.codex_refresh",
             correlationId);
         CodexStatusPhase = CodexDetectionPhase.Confirming;
-        if (CodexStatusText.StartsWith("上次", StringComparison.Ordinal))
-        {
-            CodexStatusDetail += " 正在确认…";
-        }
+        CodexStatusText = "请稍作等待，程序加载中";
 
         try
         {
@@ -760,6 +956,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     "后台 Codex 状态刷新失败。",
                     exception.GetType().Name));
         }
+        finally
+        {
+            isBackgroundInitializationComplete = true;
+            if (isWindowActive)
+            {
+                StartPresenceMonitor();
+            }
+        }
     }
 
     private async Task SynchronizeExternalThemeAsync(
@@ -791,28 +995,19 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             correlationId);
     }
 
-    private async Task CreateAsync()
+    private Task CreateAsync()
     {
-        var name = await dialogs.RequestTextAsync(
-            "新建主题",
-            "为新主题输入名称。下一步可选择背景并调整预览参数。",
-            "我的新主题",
-            lifetime.Token);
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return;
-        }
-
         if (Editor is null)
         {
             Notify("主题编辑服务当前不可用。", "Error");
-            return;
+            return Task.CompletedTask;
         }
 
-        Editor.Begin(CreateStarterTheme(Guid.NewGuid(), name), newTheme: true);
+        Editor.Begin(CreateStarterTheme(Guid.NewGuid(), "未命名主题"), newTheme: true);
         CurrentPage = LibraryPage.Editor;
         Notify("草稿已创建；保存前不会替换正式主题或运行主题。", "Info");
         NotifyCommands();
+        return Task.CompletedTask;
     }
 
     private async Task EditAsync()
@@ -948,14 +1143,19 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var confirmed = await dialogs.ConfirmAsync(
             "取消主题编辑",
             "未保存的草稿参数将被放弃。正式主题和当前运行主题不会改变。",
-            "选择“确定”放弃草稿。",
             lifetime.Token);
         if (!confirmed)
         {
             return;
         }
 
-        Editor.Cancel();
+        var cleanup = await Editor.CancelAsync(lifetime.Token);
+        if (!cleanup.IsSuccess)
+        {
+            NotifyError(cleanup.Error!);
+            return;
+        }
+
         CurrentPage = LibraryPage.All;
         Notify("已取消编辑；正式主题和运行主题未改变。", "Info");
         NotifyCommands();
@@ -1044,7 +1244,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var confirmed = await dialogs.ConfirmAsync(
             "迁移数据位置",
             $"应用将复制并校验数据后再切换定位文件。旧目录会保留为恢复副本：\n{DataRoot}\n\n目标：\n{destination}",
-            "选择“确定”开始迁移；迁移期间请勿关闭应用。",
             lifetime.Token);
         if (!confirmed)
         {
@@ -1085,6 +1284,27 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             FileName = "explorer.exe",
             ArgumentList = { DataRoot },
             UseShellExecute = false,
+        });
+    }
+
+    private void OpenGitHubRepository()
+    {
+        try
+        {
+            openExternalUrl(GitHubRepositoryUrl);
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Notify("无法打开 GitHub 仓库页面。", "Error");
+        }
+    }
+
+    private static void OpenExternalUrl(string url)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = url,
+            UseShellExecute = true,
         });
     }
 
@@ -1210,7 +1430,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var confirmed = await dialogs.ConfirmAsync(
             "导出诊断包",
             "诊断包只包含脱敏事件、运行环境、Issue 摘要和 SHA-256 清单；不包含主题、图片、数据库、配置、绝对路径或原始异常消息。",
-            "确认导出",
             lifetime.Token);
         if (!confirmed)
         {
@@ -1341,7 +1560,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var confirmed = await dialogs.ConfirmAsync(
             "移入应用回收站",
             $"“{selected.DisplayName}”将从资料库隐藏，但主题文件会保留以便恢复。",
-            "选择“确定”继续。",
             lifetime.Token);
         if (!confirmed)
         {
@@ -1403,7 +1621,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var confirmed = await dialogs.ConfirmAsync(
             "永久删除主题",
             $"“{selected.DisplayName}”将从 Theme Studio 永久移除，无法在应用内还原。主题目录会发送到 Windows 回收站，作为最后的系统级恢复措施。",
-            "选择“确定”永久删除。",
             lifetime.Token);
         if (!confirmed)
         {
@@ -1441,7 +1658,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var confirmed = await dialogs.ConfirmAsync(
             "清空回收站",
             $"将从 Theme Studio 永久移除回收站中的 {count} 个主题，且无法在应用内还原。各主题目录会发送到 Windows 回收站。",
-            "选择“确定”清空回收站。",
             lifetime.Token);
         if (!confirmed)
         {
@@ -1504,6 +1720,25 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (!hasLiveCodexIdentity)
+        {
+            var message = runtimeStatus?.State switch
+            {
+                ThemeRuntimeState.NotRunning =>
+                    "请先启动 Codex；检测到运行后即可临时应用。",
+                ThemeRuntimeState.NotInstalled =>
+                    "未检测到已安装的 Codex；请先安装或在设置中选择可信的 Codex 可执行文件。",
+                _ => runtimeStatus?.UserMessage ??
+                    "Codex 当前尚未完成实时身份确认，请启动 Codex 后重试。",
+            };
+            Notify(message, runtimeStatus?.State is
+                ThemeRuntimeState.NotRunning or ThemeRuntimeState.NotInstalled
+                    ? "Info"
+                    : "Warning");
+            StartPresenceMonitor();
+            return;
+        }
+
         await RunOperationAsync(
             "正在临时应用主题…",
             async cancellationToken =>
@@ -1562,6 +1797,16 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (!IsPersistenceEligible)
+        {
+            var message = runtimeStatus?.State == ThemeRuntimeState.NotInstalled
+                ? "未检测到可用的 Codex，暂时不能设置持久主题。"
+                : "当前 Codex 指纹尚未取得持久化资格。请先启动 Codex 并成功执行一次临时应用；程序会完成应用、清理和重新应用闭环。";
+            Notify(message, "Warning");
+            StartPresenceMonitor();
+            return;
+        }
+
         await RunOperationAsync(
             IsPersistenceEnabled ? "正在切换持久主题…" : "正在启用持久化…",
             async cancellationToken =>
@@ -1609,6 +1854,23 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var externalPersistenceEnabled =
             externalStatus?.RequiresAction == true ||
             externalTheme?.IsPersistenceConfigured == true;
+        var hasRestorableRuntimeState =
+            runtimeStatus?.ThemeId is not null ||
+            runtimeStatus?.SelectedThemeId is not null ||
+            externalTheme?.IsAppliedToCurrentProcess == true ||
+            (hasLiveCodexIdentity &&
+             runtimeStatus?.State is
+                 ThemeRuntimeState.Partial or
+                 ThemeRuntimeState.Mismatch or
+                 ThemeRuntimeState.InspectorResidual);
+        if (!managedPersistenceEnabled &&
+            !externalPersistenceEnabled &&
+            !hasRestorableRuntimeState)
+        {
+            Notify("当前已是官方外观，无需还原。", "Info");
+            return;
+        }
+
         if (managedPersistenceEnabled || externalPersistenceEnabled)
         {
             var providers = new List<string>();
@@ -1627,7 +1889,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 $"将停用 {string.Join("、", providers.Distinct(StringComparer.Ordinal))} 持久化，" +
                 "移除对应的当前用户启动项、停止 Agent，并还原当前 Codex。" +
                 "\n\n主题、图片和缓存不会删除。",
-                "停用并还原",
                 lifetime.Token);
             if (!confirmed)
             {
@@ -1846,6 +2107,28 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         OpenDataRootCommand.NotifyCanExecuteChanged();
         MigrateStorageCommand.NotifyCanExecuteChanged();
 
+        await RefreshRuntimeStatusCoreAsync(
+            refreshMode,
+            refreshGeneration,
+            cancellationToken);
+    }
+
+    private async Task RefreshRuntimeStatusAsync(
+        CodexStatusRefreshMode refreshMode,
+        CancellationToken cancellationToken)
+    {
+        var refreshGeneration = Interlocked.Increment(ref statusRefreshGeneration);
+        await RefreshRuntimeStatusCoreAsync(
+            refreshMode,
+            refreshGeneration,
+            cancellationToken);
+    }
+
+    private async Task RefreshRuntimeStatusCoreAsync(
+        CodexStatusRefreshMode refreshMode,
+        int refreshGeneration,
+        CancellationToken cancellationToken)
+    {
         var persistenceResult = await persistence.GetStatusAsync(cancellationToken);
         IsPersistenceEnabled =
             persistenceResult.IsSuccess && persistenceResult.Value!.IsPersistenceEnabled;
@@ -1856,6 +2139,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             refreshMode == CodexStatusRefreshMode.PreferCache
                 ? persistenceResult
                 : await runtime.GetStatusAsync(refreshMode, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         if (refreshGeneration != Volatile.Read(ref statusRefreshGeneration))
         {
             return;
@@ -1946,7 +2230,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var confirmed = await dialogs.ConfirmAsync(
             "确认 Codex 来源",
             "手动选择的可执行文件来源不会作为官方身份背书。程序只会在能力探测、注入和清理验证全部通过后使用它。是否继续？",
-            "确认并检测",
             lifetime.Token);
         if (!confirmed)
         {
@@ -2193,6 +2476,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             activeDiagnosticOperationFailed = false;
             OperationText = string.Empty;
             IsBusy = false;
+            if (isWindowActive)
+            {
+                StartPresenceMonitor();
+            }
         }
     }
 
@@ -2327,12 +2614,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         SelectedTheme is not null &&
         !IsBusy;
 
-    private bool CanSetPersistent() =>
-        CanApplyActiveSelection() && IsPersistenceEligible;
-
-    private bool CanApplyActiveSelection() =>
-        CanUseActiveSelection() && hasLiveCodexIdentity;
-
     private bool CanToggleFavorite(ThemeCardViewModel theme) =>
         CurrentPage != LibraryPage.Trash &&
         Themes.Contains(theme) &&
@@ -2381,12 +2662,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             name,
             ThemeVariant.Auto,
             new ThemePalette(
-                "#080D18",
-                "#0F172A",
+                "#111111",
+                "#1C1C1CE6",
                 "#3B82F6",
-                "#F8FAFC",
-                "#94A3B8",
-                "#243244"),
+                "#F5F5F5",
+                "#A3A3A3",
+                "#30303080"),
             new ThemeArt(
                 "background.png",
                 0.5,
@@ -2398,7 +2679,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 ThemeTaskMode.Ambient,
                 0.22,
                 0.62,
-                0));
+                0,
+                10));
 
     private static async Task<string> CalculateStorageUsageAsync(
         string root,
@@ -2443,5 +2725,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         return $"{value:F1} {units[unit]}";
+    }
+
+    private enum PresenceCheckResult
+    {
+        Continue,
+        Complete,
     }
 }

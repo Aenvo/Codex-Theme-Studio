@@ -28,6 +28,8 @@ export function createInput(taskMode = "ambient") {
         taskOpacity: 0.32,
         taskOverlay: 0.68,
         blur: 4,
+        panelBlur: 12,
+        cropScale: 1,
       },
     },
     image: {

@@ -29,6 +29,11 @@
         <PathGeometry Figures="M21,3 L21,8 L16,8" />
     </GeometryGroup>
 
+    <GeometryGroup x:Key="LucideRotateCcwGeometry">
+        <PathGeometry Figures="M3,12 A9,9 0 1 0 6,5.3 L3,8" />
+        <PathGeometry Figures="M3,3 L3,8 L8,8" />
+    </GeometryGroup>
+
     <GeometryGroup x:Key="LucideTrash2Geometry">
         <PathGeometry Figures="M3,6 L21,6" />
         <PathGeometry Figures="M8,6 L8,4 A2,2 0 0 1 10,2 L14,2 A2,2 0 0 1 16,4 L16,6" />
@@ -49,7 +54,17 @@
         <EllipseGeometry Center="12,12" RadiusX="3" RadiusY="3" />
     </GeometryGroup>
 
+    <GeometryGroup x:Key="LucideGithubGeometry">
+        <PathGeometry Figures="M15,22 L15,20 A4.8,4.8 0 0 0 14,16.5 C17.28,16.5 20.72,14.9 20.72,9.25 A5.7,5.7 0 0 0 19.22,5.2 C19.6,4.18 19.56,3.06 19.12,2.07 C19.12,2.07 17.88,1.67 15.05,3.57 A14.38,14.38 0 0 0 7.65,3.57 C4.82,1.67 3.58,2.07 3.58,2.07 C3.14,3.06 3.1,4.18 3.48,5.2 A5.7,5.7 0 0 0 2,9.25 C2,14.89 5.44,16.5 8.72,16.5 A4.8,4.8 0 0 0 7.72,20 L7.72,22" />
+        <PathGeometry Figures="M8.72,18 C4.21,20 3.72,16 1.72,16" />
+    </GeometryGroup>
+
     <PathGeometry x:Key="LucidePlusGeometry" Figures="M5,12 L19,12 M12,5 L12,19" />
+
+    <GeometryGroup x:Key="LucideUploadGeometry">
+        <PathGeometry Figures="M12,16 L12,3 M7,8 L12,3 L17,8" />
+        <PathGeometry Figures="M5,21 L19,21 A2,2 0 0 0 21,19 L21,17 M3,17 L3,19 A2,2 0 0 0 5,21" />
+    </GeometryGroup>
 
     <GeometryGroup x:Key="LucideImageOffGeometry">
         <PathGeometry Figures="M2,2 L22,22 M10.41,10.41 A2,2 0 1 1 7.58,7.58 M13.5,13.5 L6,21 M18,12 L21,15" />

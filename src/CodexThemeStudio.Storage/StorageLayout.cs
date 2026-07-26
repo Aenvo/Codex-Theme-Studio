@@ -14,6 +14,7 @@ public static class StorageLayout
     public const string ThumbnailCacheDirectory = "cache/thumbnails";
     public const string DatabaseFileName = "themes.db";
     public const string ThemeFileName = "theme.json";
+    public const string SystemRecycleRecoveryMarkerFileName = ".codex-theme-studio-recycle-marker";
 
     public static IReadOnlyList<string> RequiredDirectories { get; } =
     [

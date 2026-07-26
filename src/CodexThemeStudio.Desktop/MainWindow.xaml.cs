@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using System.Windows.Threading;
 using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Desktop.ViewModels;
 
@@ -14,6 +15,11 @@ namespace CodexThemeStudio.Desktop;
 
 public partial class MainWindow : Window
 {
+    private const double TaskPreviewInputMaximumWidth = 760;
+    private const double TaskPreviewEnvironmentMinimumWidth = 960;
+    private const double TaskPreviewEnvironmentWidth = 260;
+    private const double TaskPreviewWorkspaceMaximumWidth = 720;
+
     private int dialogBackdropDepth;
 
     public MainWindow()
@@ -25,26 +31,44 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         SourceInitialized += (_, _) => EnableDarkTitleBar();
+        Activated += (_, _) =>
+            (DataContext as MainWindowViewModel)?.OnWindowActivated();
+        Deactivated += (_, _) =>
+            (DataContext as MainWindowViewModel)?.OnWindowDeactivated();
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewMouseLeftButtonDown += OnPreviewMouseLeftButtonDown;
-        Loaded += (_, _) => UpdatePreviewImageLayout();
-        PreviewArtSurface.SizeChanged += (_, _) => UpdatePreviewImageLayout();
+        Loaded += (_, _) =>
+        {
+            UpdatePreviewImageLayout();
+            UpdateTaskPreviewLayout();
+            UpdateTaskPreviewResponsiveLayout();
+        };
+        PreviewArtSurface.SizeChanged += (_, _) =>
+        {
+            UpdatePreviewImageLayout();
+            UpdateTaskPreviewResponsiveLayout();
+        };
+        PreviewImageViewport.SizeChanged += (_, _) => UpdatePreviewImageLayout();
+        TaskPreviewContentHost.SizeChanged += (_, _) => UpdateTaskPreviewLayout();
         DataContextChanged += (_, args) =>
         {
             if (args.OldValue is MainWindowViewModel oldViewModel &&
                 oldViewModel.Editor is not null)
             {
                 oldViewModel.Editor.PropertyChanged -= OnEditorPropertyChanged;
+                oldViewModel.PropertyChanged -= OnViewModelPropertyChanged;
             }
 
             if (args.NewValue is MainWindowViewModel newViewModel &&
                 newViewModel.Editor is not null)
             {
                 newViewModel.Editor.PropertyChanged += OnEditorPropertyChanged;
+                newViewModel.PropertyChanged += OnViewModelPropertyChanged;
             }
         };
         DataContext = viewModel;
-        Closed += (_, _) => viewModel?.Dispose();
+        Closed += (_, _) =>
+            (DataContext as MainWindowViewModel)?.Dispose();
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -136,16 +160,50 @@ public partial class MainWindow : Window
     {
         if (e.PropertyName is nameof(ThemeEditorViewModel.FocusX) or
             nameof(ThemeEditorViewModel.FocusY) or
+            nameof(ThemeEditorViewModel.CropScale) or
             nameof(ThemeEditorViewModel.ArtSize))
         {
             UpdatePreviewImageLayout();
         }
     }
 
+    private void OnViewModelPropertyChanged(
+        object? sender,
+        System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(MainWindowViewModel.CurrentPage) ||
+            sender is not MainWindowViewModel
+            {
+                CurrentPage: LibraryPage.Editor,
+                Editor: { IsNew: true },
+            })
+        {
+            return;
+        }
+
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.Loaded,
+            new Action(EditorScrollViewer.ScrollToTop));
+    }
+
     private void OnPreviewImageTargetUpdated(
         object sender,
-        DataTransferEventArgs e) =>
-        UpdatePreviewImageLayout();
+        DataTransferEventArgs e)
+    {
+        // The previous image can have an explicit size from the preview layout.
+        // Clear it before WPF measures the newly assigned source; otherwise a wide
+        // or tall image may retain the upload thumbnail's old dimensions.
+        PreviewBackgroundImage.Width = double.NaN;
+        PreviewBackgroundImage.Height = double.NaN;
+        PreviewBackgroundImage.RenderTransform = Transform.Identity;
+
+        // TargetUpdated may occur before the preview surface has been measured.
+        // Re-run after that layout pass so the cover/contain calculation uses the
+        // real preview dimensions instead of leaving the image at its natural size.
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.Render,
+            new Action(UpdatePreviewImageLayout));
+    }
 
     private void UpdatePreviewImageLayout()
     {
@@ -153,17 +211,21 @@ public partial class MainWindow : Window
             PreviewBackgroundImage.Source is not { } imageSource ||
             imageSource.Width <= 0 ||
             imageSource.Height <= 0 ||
-            PreviewArtSurface.ActualWidth <= 0 ||
-            PreviewArtSurface.ActualHeight <= 0)
+            PreviewImageViewport.ActualWidth <= 0 ||
+            PreviewImageViewport.ActualHeight <= 0)
         {
             return;
         }
 
-        var widthScale = PreviewArtSurface.ActualWidth / imageSource.Width;
-        var heightScale = PreviewArtSurface.ActualHeight / imageSource.Height;
+        var widthScale = PreviewImageViewport.ActualWidth / imageSource.Width;
+        var heightScale = PreviewImageViewport.ActualHeight / imageSource.Height;
         var scale = editor.ArtSize == ThemeArtSize.Contain
             ? Math.Min(widthScale, heightScale)
             : Math.Max(widthScale, heightScale);
+        if (editor.IsCropMode)
+        {
+            scale *= editor.CropScale;
+        }
         var renderedWidth = imageSource.Width * scale;
         var renderedHeight = imageSource.Height * scale;
         var focusX = editor.IsCropMode ? editor.FocusX : 0.5;
@@ -172,8 +234,41 @@ public partial class MainWindow : Window
         PreviewBackgroundImage.Width = renderedWidth;
         PreviewBackgroundImage.Height = renderedHeight;
         PreviewBackgroundImage.RenderTransform = new TranslateTransform(
-            (PreviewArtSurface.ActualWidth - renderedWidth) * focusX,
-            (PreviewArtSurface.ActualHeight - renderedHeight) * focusY);
+            (PreviewImageViewport.ActualWidth - renderedWidth) * focusX,
+            (PreviewImageViewport.ActualHeight - renderedHeight) * focusY);
+    }
+
+    private void UpdateTaskPreviewLayout()
+    {
+        var availableWidth = TaskPreviewContentHost.ActualWidth;
+        if (availableWidth <= 0)
+        {
+            return;
+        }
+
+        TaskPreviewWorkspace.Width = Math.Min(
+            availableWidth,
+            TaskPreviewWorkspaceMaximumWidth);
+        TaskPreviewInput.Width = Math.Min(
+            availableWidth,
+            TaskPreviewInputMaximumWidth);
+    }
+
+    private void UpdateTaskPreviewResponsiveLayout()
+    {
+        if (PreviewArtSurface.ActualWidth <= 0)
+        {
+            return;
+        }
+
+        var showEnvironment =
+            PreviewArtSurface.ActualWidth >= TaskPreviewEnvironmentMinimumWidth;
+        TaskPreviewEnvironmentColumn.Width = new GridLength(
+            showEnvironment ? TaskPreviewEnvironmentWidth : 0);
+        TaskPreviewEnvironmentPanel.Visibility = showEnvironment
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        UpdateTaskPreviewLayout();
     }
 
     private void OnEditorImageDragOver(object sender, DragEventArgs e)

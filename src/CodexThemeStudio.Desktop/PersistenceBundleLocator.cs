@@ -11,7 +11,7 @@ internal static partial class PersistenceBundleLocator
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(applicationDirectory);
 
-        var applicationRoot = Path.GetFullPath(applicationDirectory);
+        var applicationRoot = NormalizeDirectoryPath(applicationDirectory);
         if (IsCompleteBundle(applicationRoot))
         {
             return applicationRoot;
@@ -39,7 +39,7 @@ internal static partial class PersistenceBundleLocator
                 applicationVersion);
             var candidate = Path.Combine(
                 releaseRoot,
-                $"CodexThemeManager-{applicationVersion}-win-x64-portable");
+                $"Codex-Theme-Studio-{applicationVersion}-win-x64-portable");
             if (IsPathWithin(candidate, releaseRoot) &&
                 IsCompleteBundle(candidate))
             {
@@ -56,7 +56,7 @@ internal static partial class PersistenceBundleLocator
     {
         try
         {
-            var root = Path.GetFullPath(candidate);
+            var root = NormalizeDirectoryPath(candidate);
             if (!Directory.Exists(root) || IsReparsePoint(root))
             {
                 return false;
@@ -74,10 +74,15 @@ internal static partial class PersistenceBundleLocator
                 "runtime",
                 "injector",
                 "index.mjs");
+            var manifest = Path.Combine(
+                root,
+                "agent",
+                "agent-bundle-manifest.json");
 
             return IsRegularFileWithinRoot(agent, root) &&
                    IsRegularFileWithinRoot(node, root) &&
-                   IsRegularFileWithinRoot(injector, root);
+                   IsRegularFileWithinRoot(injector, root) &&
+                   IsRegularFileWithinRoot(manifest, root);
         }
         catch (Exception exception) when (
             exception is ArgumentException or
@@ -91,6 +96,7 @@ internal static partial class PersistenceBundleLocator
 
     private static bool IsRegularFileWithinRoot(string path, string root)
     {
+        root = NormalizeDirectoryPath(root);
         if (!File.Exists(path) ||
             !IsPathWithin(path, root) ||
             IsReparsePoint(path))
@@ -118,11 +124,13 @@ internal static partial class PersistenceBundleLocator
     private static bool IsReparsePoint(string path) =>
         (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
 
+    private static string NormalizeDirectoryPath(string path) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
     private static bool IsPathWithin(string path, string root)
     {
         var fullPath = Path.GetFullPath(path);
-        var fullRoot = Path.GetFullPath(root)
-            .TrimEnd(Path.DirectorySeparatorChar) +
+        var fullRoot = NormalizeDirectoryPath(root) +
             Path.DirectorySeparatorChar;
         return fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase);
     }

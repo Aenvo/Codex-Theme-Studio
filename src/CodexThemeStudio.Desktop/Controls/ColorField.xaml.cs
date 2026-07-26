@@ -1,14 +1,21 @@
 using System.Collections;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using CodexThemeStudio.Desktop.Services;
 using CodexThemeStudio.ThemeCore;
 
 namespace CodexThemeStudio.Desktop.Controls;
 
 public partial class ColorField : UserControl
 {
+    private static readonly Regex CssRgbaPattern = new(
+        "^\\s*rgba\\(\\s*(?<r>\\d{1,3})\\s*,\\s*(?<g>\\d{1,3})\\s*,\\s*(?<b>\\d{1,3})\\s*,\\s*(?<a>(?:0|1)(?:\\.\\d+)?|\\.\\d+)\\s*\\)\\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
     public static readonly DependencyProperty LabelProperty = DependencyProperty.Register(
         nameof(Label), typeof(string), typeof(ColorField), new PropertyMetadata(string.Empty));
 
@@ -22,14 +29,23 @@ public partial class ColorField : UserControl
     public static readonly DependencyProperty PaletteProperty = DependencyProperty.Register(
         nameof(Palette), typeof(IEnumerable), typeof(ColorField), new PropertyMetadata(null));
 
-    private string originalValue = "#000000";
+    public static readonly DependencyProperty ColorHistoryProperty = DependencyProperty.Register(
+        nameof(ColorHistory), typeof(IEnumerable), typeof(ColorField), new PropertyMetadata(null));
+
+    public static readonly DependencyProperty ColorHistoryServiceProperty = DependencyProperty.Register(
+        nameof(ColorHistoryService), typeof(IColorHistoryService), typeof(ColorField), new PropertyMetadata(null));
+
+    public static readonly DependencyProperty IsPickerOpenProperty = DependencyProperty.Register(
+        nameof(IsPickerOpen), typeof(bool), typeof(ColorField),
+        new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
+
     private double hue;
     private double saturation;
     private double brightness;
     private byte alpha = byte.MaxValue;
     private bool synchronizing;
-    private bool committed;
     private bool draggingSaturationValue;
+    private bool isEditing;
 
     public ColorField()
     {
@@ -55,6 +71,24 @@ public partial class ColorField : UserControl
         set => SetValue(PaletteProperty, value);
     }
 
+    public IEnumerable? ColorHistory
+    {
+        get => (IEnumerable?)GetValue(ColorHistoryProperty);
+        set => SetValue(ColorHistoryProperty, value);
+    }
+
+    public IColorHistoryService? ColorHistoryService
+    {
+        get => (IColorHistoryService?)GetValue(ColorHistoryServiceProperty);
+        set => SetValue(ColorHistoryServiceProperty, value);
+    }
+
+    public bool IsPickerOpen
+    {
+        get => (bool)GetValue(IsPickerOpenProperty);
+        set => SetValue(IsPickerOpenProperty, value);
+    }
+
     private static void OnValueChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
     {
         if (sender is ColorField field && !field.synchronizing && args.NewValue is string value)
@@ -65,38 +99,39 @@ public partial class ColorField : UserControl
 
     private void OnOpenClick(object sender, RoutedEventArgs e)
     {
-        originalValue = ThemeColor.TryNormalize(Value, out var normalized) ? normalized : "#000000";
-        committed = false;
-        RefreshFromValue(originalValue);
+        if (!ThemeColor.TryNormalize(Value, out var normalized))
+        {
+            normalized = "#000000";
+        }
+
+        RefreshFromValue(normalized);
         PickerPopup.IsOpen = true;
     }
 
     private void OnPopupOpened(object? sender, EventArgs e)
     {
-        ThemePalette.ItemsSource = Palette ?? DefaultPalette;
-        HexInput.Focus();
-        HexInput.SelectAll();
+        isEditing = true;
+        SetCurrentValue(IsPickerOpenProperty, true);
+        FocusActiveInput();
         UpdateMarker();
     }
 
     private void OnPopupClosed(object? sender, EventArgs e)
     {
-        if (!committed)
-        {
-            SetWorkingValue(originalValue);
-        }
+        isEditing = false;
+        SetCurrentValue(IsPickerOpenProperty, false);
     }
 
     private void OnPopupPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape)
+        if (e.Key is Key.Escape or Key.Enter)
         {
-            Cancel();
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Enter)
-        {
-            Apply();
+            if (e.Key == Key.Enter)
+            {
+                CommitPendingOpacityInput();
+            }
+
+            PickerPopup.IsOpen = false;
             e.Handled = true;
         }
     }
@@ -122,40 +157,133 @@ public partial class ColorField : UserControl
         {
             draggingSaturationValue = false;
             SaturationValueSurface.ReleaseMouseCapture();
+            RecordCurrentColor();
         }
     }
 
     private void OnHueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (synchronizing)
+        if (!synchronizing)
         {
-            return;
+            hue = e.NewValue;
+            UpdateFromHsv();
         }
+    }
 
-        hue = e.NewValue;
-        UpdateFromHsv();
+    private void OnSaturationChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!synchronizing)
+        {
+            saturation = e.NewValue;
+            UpdateFromHsv();
+        }
     }
 
     private void OnAlphaChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (synchronizing)
+        if (!synchronizing)
+        {
+            alpha = (byte)Math.Round(
+                e.NewValue / 100d * byte.MaxValue,
+                MidpointRounding.AwayFromZero);
+            UpdateFromHsv();
+        }
+    }
+
+    private void OnChannelMouseUp(object sender, MouseButtonEventArgs e) => RecordCurrentColor();
+
+    private void OnFormatSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded)
         {
             return;
         }
 
-        alpha = (byte)Math.Round(e.NewValue, MidpointRounding.AwayFromZero);
-        UpdateFromHsv();
+        var format = SelectedFormat;
+        HexInputs.Visibility = format == ColorFormat.Hex ? Visibility.Visible : Visibility.Collapsed;
+        RgbInputs.Visibility = format == ColorFormat.Rgb ? Visibility.Visible : Visibility.Collapsed;
+        CssInput.Visibility = format == ColorFormat.Css ? Visibility.Visible : Visibility.Collapsed;
+        RefreshFromValue(Value);
+        FocusActiveInput();
     }
 
     private void OnHexTextChanged(object sender, TextChangedEventArgs e)
     {
-        if (synchronizing || !ThemeColor.TryNormalize(HexInput.Text, out var normalized))
+        if (!synchronizing && TryParseHexWithOpacity(HexInput.Text, HexOpacityInput.Text, out var normalized))
+        {
+            SetWorkingValue(normalized);
+            RefreshFromValue(normalized);
+        }
+    }
+
+    private void OnHexOpacityTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!synchronizing && !HexOpacityInput.IsKeyboardFocusWithin)
+        {
+            CommitHexOpacityInput();
+        }
+    }
+
+    private void OnRgbTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (ReferenceEquals(sender, AlphaPercentInput) && AlphaPercentInput.IsKeyboardFocusWithin)
         {
             return;
         }
 
-        SetWorkingValue(normalized);
-        RefreshFromValue(normalized, updateHex: false);
+        if (synchronizing ||
+            !byte.TryParse(RedInput.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var red) ||
+            !byte.TryParse(GreenInput.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var green) ||
+            !byte.TryParse(BlueInput.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var blue) ||
+            !double.TryParse(AlphaPercentInput.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var opacity))
+        {
+            return;
+        }
+
+        SetWorkingValue(ThemeColor.Format(new RgbaColor(
+            red,
+            green,
+            blue,
+            (byte)Math.Round(Math.Clamp(opacity, 0, 100) / 100 * 255, MidpointRounding.AwayFromZero))));
+        RefreshFromValue(Value, refreshInputs: false);
+    }
+
+    private void OnCssTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!synchronizing && TryParseCss(CssInput.Text, out var color))
+        {
+            SetWorkingValue(ThemeColor.Format(color));
+            RefreshFromValue(Value, refreshInputs: false);
+        }
+    }
+
+    private void OnValueInputGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) =>
+        ((TextBox)sender).SelectAll();
+
+    private void OnValueInputPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is TextBox textBox && !textBox.IsKeyboardFocusWithin)
+        {
+            textBox.Focus();
+            textBox.SelectAll();
+            e.Handled = true;
+        }
+    }
+
+    private void OnValueInputLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (ReferenceEquals(sender, HexOpacityInput))
+        {
+            CommitHexOpacityInput();
+        }
+        else if (ReferenceEquals(sender, AlphaPercentInput))
+        {
+            CommitRgbOpacityInput();
+        }
+        else
+        {
+            RefreshFromValue(Value);
+        }
     }
 
     private void OnSwatchClick(object sender, RoutedEventArgs e)
@@ -167,30 +295,7 @@ public partial class ColorField : UserControl
         }
     }
 
-    private void OnApplyClick(object sender, RoutedEventArgs e) => Apply();
-
-    private void OnCancelClick(object sender, RoutedEventArgs e) => Cancel();
-
-    private void Apply()
-    {
-        if (!ThemeColor.TryNormalize(Value, out var normalized))
-        {
-            return;
-        }
-
-        committed = true;
-        SetWorkingValue(normalized);
-        PickerPopup.IsOpen = false;
-    }
-
-    private void Cancel()
-    {
-        committed = true;
-        SetWorkingValue(originalValue);
-        PickerPopup.IsOpen = false;
-    }
-
-    private void RefreshFromValue(string value, bool updateHex = true)
+    private void RefreshFromValue(string value, bool refreshInputs = true)
     {
         if (!ThemeColor.TryParse(value, out var color))
         {
@@ -204,25 +309,9 @@ public partial class ColorField : UserControl
             ToHsv(color, out hue, out saturation, out brightness);
             alpha = color.A;
             HueSlider.Value = hue;
-            AlphaSlider.Value = alpha;
-            HueGradientStop.Color = FromHsv(hue, 1, 1, byte.MaxValue);
-            var brush = new SolidColorBrush(Color.FromArgb(color.A, color.R, color.G, color.B));
-            ColorChip.Background = brush;
-            CurrentPreview.Background = brush;
-            if (ThemeColor.TryParse(originalValue, out var original))
-            {
-                OriginalPreview.Background = new SolidColorBrush(
-                    Color.FromArgb(original.A, original.R, original.G, original.B));
-            }
-            var normalized = ThemeColor.Format(color);
-            ValueText.Text = normalized;
-            AlphaText.Text = $"{color.A / 255d:P0}";
-            AlphaPopupText.Text = $"{color.A / 255d:P0}";
-            if (updateHex)
-            {
-                HexInput.Text = normalized;
-            }
-            UpdateMarker();
+            SaturationSlider.Value = saturation;
+            AlphaSlider.Value = AlphaToPercentage(alpha);
+            RefreshColorPresentation(color, refreshInputs);
         }
         finally
         {
@@ -233,11 +322,24 @@ public partial class ColorField : UserControl
     private void UpdateFromHsv()
     {
         var color = FromHsv(hue, saturation, brightness, alpha);
-        SetWorkingValue(ThemeColor.Format(new RgbaColor(color.R, color.G, color.B, color.A)));
-        RefreshFromValue(Value);
+        var rgba = new RgbaColor(color.R, color.G, color.B, alpha);
+        SetWorkingValue(ThemeColor.Format(rgba), refreshFromValue: false);
+
+        synchronizing = true;
+        try
+        {
+            HueSlider.Value = hue;
+            SaturationSlider.Value = saturation;
+            AlphaSlider.Value = AlphaToPercentage(alpha);
+            RefreshColorPresentation(rgba, refreshInputs: true);
+        }
+        finally
+        {
+            synchronizing = false;
+        }
     }
 
-    private void SetWorkingValue(string value)
+    private void SetWorkingValue(string value, bool refreshFromValue = true)
     {
         synchronizing = true;
         try
@@ -247,6 +349,41 @@ public partial class ColorField : UserControl
         finally
         {
             synchronizing = false;
+        }
+
+        if (refreshFromValue)
+        {
+            RefreshFromValue(value);
+        }
+    }
+
+    private void RefreshColorPresentation(RgbaColor color, bool refreshInputs)
+    {
+        HueGradientStop.Color = FromHsv(hue, 1, 1, byte.MaxValue);
+        SaturationStartGradientStop.Color = FromHsv(hue, 0, brightness, byte.MaxValue);
+        SaturationEndGradientStop.Color = FromHsv(hue, 1, brightness, byte.MaxValue);
+        ColorChip.Background = new SolidColorBrush(Color.FromArgb(color.A, color.R, color.G, color.B));
+        ValueText.Text = ThemeColor.Format(color);
+        AlphaText.Text = $"{color.A / 255d:P0}";
+        if (refreshInputs)
+        {
+            HexInput.Text = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+            HexOpacityInput.Text = AlphaToPercentage(color.A).ToString("0", CultureInfo.InvariantCulture);
+            RedInput.Text = color.R.ToString(CultureInfo.InvariantCulture);
+            GreenInput.Text = color.G.ToString(CultureInfo.InvariantCulture);
+            BlueInput.Text = color.B.ToString(CultureInfo.InvariantCulture);
+            AlphaPercentInput.Text = AlphaToPercentage(color.A).ToString("0", CultureInfo.InvariantCulture);
+            CssInput.Text = $"rgba({color.R}, {color.G}, {color.B}, {(color.A / 255d).ToString("0.###", CultureInfo.InvariantCulture)})";
+        }
+
+        UpdateMarker();
+    }
+
+    private void RecordCurrentColor()
+    {
+        if (isEditing && ThemeColor.TryNormalize(Value, out var normalized))
+        {
+            ColorHistoryService?.Record(normalized);
         }
     }
 
@@ -259,6 +396,107 @@ public partial class ColorField : UserControl
 
         Canvas.SetLeft(SelectionMarker, (saturation * SaturationValueSurface.ActualWidth) - 8);
         Canvas.SetTop(SelectionMarker, ((1 - brightness) * SaturationValueSurface.ActualHeight) - 8);
+    }
+
+    private ColorFormat SelectedFormat => FormatSelector.SelectedIndex switch
+    {
+        1 => ColorFormat.Rgb,
+        2 => ColorFormat.Css,
+        _ => ColorFormat.Hex,
+    };
+
+    private void FocusActiveInput()
+    {
+        TextBox input = SelectedFormat switch
+        {
+            ColorFormat.Rgb => RedInput,
+            ColorFormat.Css => CssInput,
+            _ => HexInput,
+        };
+        input.Focus();
+        input.SelectAll();
+    }
+
+    private static double AlphaToPercentage(byte value) =>
+        Math.Round(value / (double)byte.MaxValue * 100, MidpointRounding.AwayFromZero);
+
+    private void CommitPendingOpacityInput()
+    {
+        if (HexOpacityInput.IsKeyboardFocusWithin)
+        {
+            CommitHexOpacityInput();
+        }
+        else if (AlphaPercentInput.IsKeyboardFocusWithin)
+        {
+            CommitRgbOpacityInput();
+        }
+    }
+
+    private void CommitHexOpacityInput()
+    {
+        if (TryParseHexWithOpacity(HexInput.Text, HexOpacityInput.Text, out var normalized))
+        {
+            SetWorkingValue(normalized);
+            RefreshFromValue(normalized);
+            return;
+        }
+
+        RefreshFromValue(Value);
+    }
+
+    private void CommitRgbOpacityInput()
+    {
+        if (byte.TryParse(RedInput.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var red) &&
+            byte.TryParse(GreenInput.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var green) &&
+            byte.TryParse(BlueInput.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var blue) &&
+            double.TryParse(AlphaPercentInput.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var opacity))
+        {
+            SetWorkingValue(ThemeColor.Format(new RgbaColor(
+                red,
+                green,
+                blue,
+                (byte)Math.Round(Math.Clamp(opacity, 0, 100) / 100 * 255, MidpointRounding.AwayFromZero))));
+        }
+
+        RefreshFromValue(Value);
+    }
+
+    private static bool TryParseCss(string value, out RgbaColor color)
+    {
+        color = default;
+        var match = CssRgbaPattern.Match(value);
+        if (!match.Success ||
+            !byte.TryParse(match.Groups["r"].Value, out var red) ||
+            !byte.TryParse(match.Groups["g"].Value, out var green) ||
+            !byte.TryParse(match.Groups["b"].Value, out var blue) ||
+            !double.TryParse(match.Groups["a"].Value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var opacity) ||
+            opacity is < 0 or > 1)
+        {
+            return false;
+        }
+
+        color = new RgbaColor(red, green, blue,
+            (byte)Math.Round(Math.Clamp(opacity, 0, 1) * 255, MidpointRounding.AwayFromZero));
+        return true;
+    }
+
+    private static bool TryParseHexWithOpacity(string hex, string opacityText, out string normalized)
+    {
+        normalized = string.Empty;
+        if (!double.TryParse(opacityText, NumberStyles.Number, CultureInfo.InvariantCulture, out var opacity))
+        {
+            return false;
+        }
+
+        opacity = Math.Clamp(opacity, 0, 100);
+
+        var trimmed = hex.Trim();
+        if (trimmed.Length == 7 && ThemeColor.TryNormalize($"{trimmed}{(byte)Math.Round(opacity / 100 * 255, MidpointRounding.AwayFromZero):X2}", out normalized))
+        {
+            return true;
+        }
+
+        return ThemeColor.TryNormalize(trimmed, out normalized);
     }
 
     private static void ToHsv(RgbaColor color, out double h, out double s, out double v)
@@ -278,6 +516,7 @@ public partial class ColorField : UserControl
         {
             h += 360;
         }
+
         s = max == 0 ? 0 : delta / max;
         v = max;
     }
@@ -303,9 +542,11 @@ public partial class ColorField : UserControl
             (byte)Math.Round((blue + m) * 255));
     }
 
-    private static readonly string[] DefaultPalette =
-    [
-        "#080D18", "#0F172A", "#111827", "#243244", "#3B82F6", "#60A5FA",
-        "#F8FAFC", "#94A3B8", "#34D399", "#FBBF24", "#F87171", "#B98AE933",
-    ];
+    private enum ColorFormat
+    {
+        Hex,
+        Rgb,
+        Css,
+    }
+
 }

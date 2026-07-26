@@ -10,12 +10,17 @@ namespace CodexThemeStudio.Desktop;
 
 public sealed class AppServices
 {
-    private AppServices(MainWindowViewModel mainWindowViewModel)
+    private AppServices(
+        MainWindowViewModel mainWindowViewModel,
+        IColorHistoryService colorHistory)
     {
         MainWindowViewModel = mainWindowViewModel;
+        ColorHistory = colorHistory;
     }
 
     public MainWindowViewModel MainWindowViewModel { get; }
+
+    public IColorHistoryService ColorHistory { get; }
 
     public static async Task<AppServices> CreateAsync(
         CancellationToken cancellationToken,
@@ -44,6 +49,8 @@ public sealed class AppServices
         }
 
         var dataRoot = location.Value.DataRoot;
+        IColorHistoryService colorHistory = new ColorHistoryService(dataRoot);
+        await colorHistory.InitializeAsync(cancellationToken);
         var database = new SqliteDatabaseInitializer(dataRoot);
         var initialized = await database.InitializeAsync(cancellationToken);
         if (!initialized.IsSuccess)
@@ -128,7 +135,8 @@ public sealed class AppServices
                 repository,
                 imagePipeline,
                 assetStore,
-                ResolveDataPath),
+                ResolveDataPath,
+                colorHistory),
             externalTheme: null,
             externalPersistence,
             targetSelection,
@@ -138,8 +146,9 @@ public sealed class AppServices
             static text => Clipboard.SetText(text),
             appVersion,
             diagnosticSessionId,
-            externalThemeCatalog);
-        return new AppServices(viewModel);
+            externalThemeCatalog,
+            codexDiscovery: injector);
+        return new AppServices(viewModel, colorHistory);
     }
 
     private static InjectorCommandClient CreateInjectorClient(

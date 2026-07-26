@@ -11,7 +11,6 @@ public interface IUserDialogService
     Task<bool> ConfirmAsync(
         string title,
         string message,
-        string confirmText,
         CancellationToken cancellationToken);
 
     Task<string?> PickOpenFileAsync(

@@ -5,7 +5,7 @@
 - 正式产品名是 **Codex Theme Studio**；发布入口 `CodexThemeManager.exe` 是兼容文件名，不代表另一个产品。
 - 本项目是非 OpenAI 官方的 Windows 本地桌面应用，不得使用暗示官方背书的名称、图标或发布文案。
 - 除另有说明外，第一方源码采用 Apache License 2.0；第三方组件和素材继续适用各自许可证。该许可证不授予 OpenAI、Codex 或其他第三方商标使用权。
-- 当前维护基线为 `1.1.7`：Windows 10/11 x64、.NET 8 WPF、SQLite、固定 Node.js Runtime、self-contained 便携目录和 ZIP。
+- 当前维护基线为 `1.2.0`：Windows 10/11 x64、.NET 8 WPF、SQLite、固定 Node.js Runtime、self-contained 便携目录和 ZIP。
 - 本文件适用于仓库根目录及全部子目录。更深目录的 `AGENTS.override.md` 或 `AGENTS.md` 可增加局部约束。
 
 ## 2. 真相源与修改前检查
@@ -53,7 +53,7 @@ src/
 .\package.ps1
 ```
 
-`build.ps1` 必须完成 locked restore、build、tests、format、Agent self-test、Injector self-test 和 Node tests。`package.ps1` 不覆盖同版本目录，Desktop 与 Agent self-contained 输出必须隔离，Agent 保持位于 `agent/`。
+`build.ps1` 必须完成 locked restore、build、tests、format、Agent self-test、Injector self-test 和 Node tests。`package.ps1` 不覆盖同版本目录；Desktop 与 Agent 必须先生成隔离的 self-contained 暂存输出，最终便携包可按 `agent-bundle-manifest.json` 只存一份内容相同的运行时文件，Agent 独有文件保持位于 `agent/`。稳定安装时必须校验 manifest 并重建完整、自包含的 Agent 版本目录。
 
 ## 5. 数据与图片安全边界
 
@@ -66,6 +66,8 @@ src/
 - 图片必须完整解码并重新编码为受管副本，去除 EXIF、GPS 和不必要元数据；列表使用独立缩略图。
 - 内容寻址的预览缓存可能被并发操作共享；失败回滚不得删除其他操作可能已复用的缓存。
 - 不自动删除孤立文件、旧迁移目录或用户数据；先报告并提供可恢复处理。
+- 当用户明确授权清理时，可移除已完成可达性核验的纯孤立主题资源：目录必须位于可信 DataRoot 的 `themes/<UUID>/` 下、不含 `theme.json`、不被主题索引（包括应用回收站记录）引用，且不得是符号链接或 Junction。清理必须使用已验证的 Windows 回收站机制；完整但未索引的主题目录只报告或提供单独恢复入口，不自动删除。
+- 编辑器可直接永久删除当前编辑会话生成且已确认不再引用的受管背景资源，不发送到 Windows 回收站：仅限取消的新草稿、保存后被替换的旧背景和保存失败的新副本资源；删除前必须验证可信 DataRoot、精确主题 UUID、普通文件/目录、无重解析点、`theme.json` 当前引用以及目录为空条件。该例外不适用于共享预览/缩略图缓存、数据库索引主题、应用回收站主题、未知孤立目录或完整但未索引主题。
 
 ## 6. Codex 注入与持久化安全
 
@@ -97,14 +99,14 @@ src/
 - 发布包不得包含 PDB、测试夹具、截图、日志、数据库、主题包、私人素材、凭证或开发机绝对路径。
 - 发布包根目录必须包含第一方 `LICENSE`，并包含 README、用户指南、Build Info、`THIRD-PARTY-NOTICES.md`、`LICENSES/` 下对应的第三方许可证、SHA256SUMS 和 release manifest。
 - 仅重命名发布后的 Desktop apphost 为 `CodexThemeManager.exe`；不要改变内部程序集名。
-- 未签名必须如实披露。不得自动签名、上传、创建 GitHub Release、启用自动更新或公开分发。
+- 未签名必须如实披露。`workflow_dispatch` 可以上传私有 Actions 验证产物；与项目版本精确匹配、由维护者显式创建并推送的 tag 可以触发 Draft Release。不得自动签名、自动创建或推送 tag、自动发布 Release、自动公开仓库、启用自动更新或绕过人工发布门禁。
 
-## 9. 本地机器交接、清理、Git 与文档
+## 9. 本地生成物、清理、Git 与文档
 
 - `bin/`、`obj/`、`artifacts/work` 和已验证可再生成的缓存属于生成物，不进入 Git。
-- 本地机器交接以包含 `.git` 的完整项目副本为准；接收方不得因没有 GitHub remote 而重新初始化仓库、覆盖本地历史或丢弃交接时的已修改及未跟踪文件。
-- 交接包应包含源码、测试、项目文档、许可证、固定 Node 缓存，以及保留策略要求的发布 ZIP、`SHA256SUMS.txt` 和 `release-manifest.json`；不得包含 `bin/`、`obj/`、`artifacts/work`、`artifacts/validation`、已解压发布目录、用户数据、凭证或项目外备份。
-- 接收方先校验交接 ZIP 与清单的 SHA-256，再读取 `AGENTS.md`、风险登记表和构建文档，检查 `git status`、分支与 HEAD，最后运行完整 `.\build.ps1 -Configuration Release`。交接清单记录的是打包时快照，不替代当前仓库真相源。
+- GitHub 仓库及其 Git 历史是源码真相源；开发环境迁移应通过 clone/fetch 完成，不得用本机快照覆盖历史或丢弃现有修改与未跟踪文件。
+- 本地发布 ZIP、校验文件、固定 Node 缓存和历史验收归档不是源码真相源，不进入公开仓库。根目录本机交接快照不得提交。
+- 新环境先检查 `git status`、分支与 HEAD，核对固定工具链配置，再运行完整 `.\build.ps1 -Configuration Release`。
 - 批量移除、覆盖、迁移、Git 丢弃或其他可能损失状态的操作必须先确认精确范围和恢复点，并使用已验证的可恢复机制。
 - 不执行 `git reset --hard`、破坏性 `git clean`、永久删除、清空回收站或未经授权的提交、推送、PR、Release。
 - README 面向用户；ADR 记录架构决策；风险登记表记录当前风险；历史任务文档保留证据边界。

@@ -19,7 +19,7 @@ Codex Theme Studio 是独立实现的非 OpenAI 官方产品。发布包不包�
 | SourceGear.sqlite3（SQLite 原生二进制） | 3.50.4.5 | SQLite blessing / public-domain dedication，见随包文本 |
 | SkiaSharp | 4.150.1 | MIT |
 | SkiaSharp.NativeAssets.Win32 | 4.150.1 | MIT；另含 Skia 第三方 Notices |
-| Lucide Icons（12 个内置 WPF 矢量图标） | 2026-07-23 固定快照 | ISC；部分 Feather 衍生图标适用 MIT |
+| Lucide Icons（15 个内置 WPF 矢量图标） | 2026-07-23 固定快照 | ISC；部分 Feather 衍生图标适用 MIT |
 
 实际发布包的 `LICENSES/` 目录包含：
 

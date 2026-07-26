@@ -1,0 +1,12 @@
+title = "Codex Theme Studio gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Known Lucide WPF resource key; not a credential."
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^src/CodexThemeStudio\.Desktop/Themes/Icons\.xaml$''']
+regexTarget = "line"
+regexes = ['''x:Key="LucideTrash2Geometry"''']

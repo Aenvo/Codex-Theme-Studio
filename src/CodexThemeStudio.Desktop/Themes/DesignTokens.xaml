@@ -14,6 +14,8 @@
     <Color x:Key="PrimaryPressedColor">#1E40AF</Color>
     <Color x:Key="PrimaryForegroundColor">#FFFFFF</Color>
     <Color x:Key="RingColor">#60A5FA</Color>
+    <Color x:Key="SelectionSurfaceColor">#1E3A5F</Color>
+    <Color x:Key="LoadingColor">#287EFF</Color>
     <Color x:Key="SuccessColor">#34D399</Color>
     <Color x:Key="WarningColor">#FBBF24</Color>
     <Color x:Key="DestructiveColor">#F87171</Color>
@@ -40,6 +42,8 @@
     <SolidColorBrush x:Key="PrimaryPressedBrush" Color="{StaticResource PrimaryPressedColor}" />
     <SolidColorBrush x:Key="PrimaryForegroundBrush" Color="{StaticResource PrimaryForegroundColor}" />
     <SolidColorBrush x:Key="RingBrush" Color="{StaticResource RingColor}" />
+    <SolidColorBrush x:Key="SelectionSurfaceBrush" Color="{StaticResource SelectionSurfaceColor}" />
+    <SolidColorBrush x:Key="LoadingBrush" Color="{StaticResource LoadingColor}" />
     <SolidColorBrush x:Key="AccentSoftBrush" Color="#232323" />
     <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
     <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />

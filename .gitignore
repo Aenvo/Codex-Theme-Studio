@@ -12,3 +12,30 @@ artifacts/
 # The pinned Node runtime is a release input, not a source dependency.
 runtime/node/
 
+# Local source handoff snapshots are not public repository content.
+/HANDOFF.md
+/HANDOFF-MANIFEST.json
+/Codex-Theme-Studio-Handoff-*
+
+# Local environment, credentials, signing material, and diagnostics.
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.snk
+*.pem
+*.key
+*.log
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+
+# Editor and operating-system metadata.
+.vscode/
+Thumbs.db
+.DS_Store

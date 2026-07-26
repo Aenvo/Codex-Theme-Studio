@@ -20,7 +20,6 @@ public sealed class AppDialogWindowTests
             var dialog = AppDialogWindow.CreateConfirmation(
                 "移入应用回收站",
                 "“示例主题”将从资料库隐藏，但主题文件会保留以便恢复。",
-                "选择“确定”继续。",
                 owner: null);
 
             Assert.Equal(WindowStyle.None, dialog.WindowStyle);

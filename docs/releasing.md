@@ -7,7 +7,7 @@
 - Node.js Windows x64 `v24.18.0`。
 - Node 压缩包 SHA-256：
   `0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821`。
-- 当前维护 Release 版本号：`1.1.7`。
+- 当前维护 Release 版本号：`1.2.0`。
 
 Node Runtime 只从 `https://nodejs.org/download/release/v24.18.0/` 获取。脚本会在解压前校验固定 SHA-256，并在打包前执行 `node.exe --version`。
 
@@ -25,11 +25,14 @@ Node Runtime 只从 `https://nodejs.org/download/release/v24.18.0/` 获取。脚
 
 1. `build.ps1` 的 Release 构建、测试、格式、自检和 Injector 测试。
 2. 下载并校验固定 Node Runtime（已存在且哈希正确时复用缓存）。
-3. 发布 Desktop 与 Agent 的 `win-x64` self-contained 目录。
-4. 合并相同运行时文件，冲突文件一律失败。
+3. 分别发布 Desktop 与 Agent 的 `win-x64` self-contained 暂存目录。
+4. 按相对路径、大小和 SHA-256 去除内容完全相同的 Agent 运行时文件，并生成
+   `agent/agent-bundle-manifest.json`；冲突文件保留在 `agent/`。
 5. 只复制生产 Injector 文件，不包含测试、fixture、日志、数据库或用户数据。
 6. 附带第一方 Apache-2.0 `LICENSE`、README、用户指南、自制应用图标、Lucide WPF 矢量资源、第三方 Notices 和对应许可证。
-7. 生成 ZIP、`SHA256SUMS.txt` 和 `release-manifest.json`。
+7. 仅保留简体中文卫星资源和根目录中性英文资源。
+8. 生成 ZIP、`SHA256SUMS.txt` 和 `release-manifest.json`；ZIP 超过
+   100,000,000 字节时警告，超过 120,000,000 字节时失败。
 
 脚本不会覆盖已有的同版本发布目录。需要重建同一版本时，应先由维护者将旧产物移到可恢复的归档位置，或使用新的版本号；不要用破坏性清理命令。
 
@@ -38,29 +41,29 @@ Node Runtime 只从 `https://nodejs.org/download/release/v24.18.0/` 获取。脚
 ## 产物
 
 ```text
-artifacts/release/1.1.7/
-├─ CodexThemeManager-1.1.7-win-x64-portable/
-├─ CodexThemeManager-1.1.7-win-x64-portable.zip
+artifacts/release/1.2.0/
+├─ Codex-Theme-Studio-1.2.0-win-x64-portable/
+├─ Codex-Theme-Studio-1.2.0-win-x64-portable.zip
 ├─ SHA256SUMS.txt
 └─ release-manifest.json
 ```
 
-便携目录中的主程序是 `CodexThemeManager.exe`，产品元数据名称为 `Codex Theme Studio`。持久化组件位于 `agent/CodexThemeStudio.Agent.exe`，独立子目录用于隔离 WPF Desktop 与非 WPF Agent 的 self-contained 运行时；稳定安装后仍使用已冻结的 Agent 文件名、进程与启动项契约，不代表第二个产品。
+便携目录中的主程序是 `CodexThemeManager.exe`，产品元数据名称为 `Codex Theme Studio`。持久化组件的独有文件位于 `agent/`，共享运行时位于包根；`agent-bundle-manifest.json` 描述如何重建完整稳定 Agent。稳定安装后仍使用已冻结的 Agent 文件名、进程与启动项契约，不代表第二个产品。
 
 ## 归档状态
 
-- `1.0.1`、`1.1.0` 至 `1.1.7` 在 `docs/testing/` 中保留对应本地验收记录。
-- `1.1.8`、`1.1.9` 和 `1.1.10` 仅保留 ZIP、`SHA256SUMS.txt` 与 `release-manifest.json`，没有对应本地验收记录，属于未验收归档。
-- 当前源码维护基线仍为 `1.1.7`。归档版本号高于源码配置不代表源码基线已升级，也不构成签名、病毒扫描、干净环境或真实运行验收。
+- 历史验收文档继续保留；本机发布归档只保留 `1.1.7` 回滚包和当前 `1.2.0`。
+- `1.1.8`、`1.1.9` 和 `1.1.10` 从未取得对应本地验收记录，已按可恢复方式移出项目目录。
+- 当前源码维护基线为 `1.2.0`。发布包必须通过本版本门禁；旧本机交接快照已移除，不再作为仓库真相源。
 
 ## 发布前检查
 
 ```powershell
-Get-Content .\artifacts\release\1.1.7\SHA256SUMS.txt
+Get-Content .\artifacts\release\1.2.0\SHA256SUMS.txt
 Get-AuthenticodeSignature `
-  .\artifacts\release\1.1.7\CodexThemeManager-1.1.7-win-x64-portable\CodexThemeManager.exe
+  .\artifacts\release\1.2.0\Codex-Theme-Studio-1.2.0-win-x64-portable\CodexThemeManager.exe
 Get-AuthenticodeSignature `
-  .\artifacts\release\1.1.7\CodexThemeManager-1.1.7-win-x64-portable\agent\CodexThemeStudio.Agent.exe
+  .\artifacts\release\1.2.0\Codex-Theme-Studio-1.2.0-win-x64-portable\agent\CodexThemeStudio.Agent.exe
 ```
 
 该版本预期为 `NotSigned`，必须在用户文档中如实披露。
@@ -73,10 +76,43 @@ Get-AuthenticodeSignature `
 
 ```powershell
 Start-MpScan -ScanType CustomScan -ScanPath `
-  .\artifacts\release\1.1.7\CodexThemeManager-1.1.7-win-x64-portable.zip
+  .\artifacts\release\1.2.0\Codex-Theme-Studio-1.2.0-win-x64-portable.zip
 ```
 
 出现检测时停止分发并审查原因，不建议用户关闭安全软件或盲目加白。
+
+## GitHub 私有预演与 Draft Release
+
+普通 `main` push、Pull Request 和手动运行 CI 只执行完整
+`.\build.ps1 -Configuration Release`，不会创建 tag、打包 Release 资产或创建
+Release。同一分支的新 CI 会取消尚未完成的旧运行。
+
+版本提交审核完成后按以下顺序执行，每一步都是独立人工检查点：
+
+1. 推送 `main`，确认 CI 通过且仓库没有新增 tag。
+2. 手动运行 `Windows release` workflow。`workflow_dispatch` 只生成保留
+   14 天的私有 Actions Artifact，不创建 Release。
+3. 下载 Artifact，复核 ZIP、`SHA256SUMS.txt`、`release-manifest.json`、
+   120 MB 上限和 `NotSigned` 状态。
+4. 完成有效 Defender 扫描和干净 Windows 验收后，人工创建并推送与
+   `Directory.Build.props` 精确匹配的带注释 tag：
+
+```powershell
+git tag -a v1.2.0 -m 'init：建立初始github版本'
+git push origin v1.2.0
+```
+
+精确 tag 触发的 workflow 会创建标题为 `Codex Theme Studio v1.2.0` 的 Draft
+Release，并上传便携 ZIP、`SHA256SUMS.txt` 和 `release-manifest.json`。GitHub
+自动附带的 Source code ZIP/TAR 不是可运行产品。workflow 不会自动创建 tag，
+也不会把 Draft 公开发布。
+
+首次 GitHub 版本的提交信息、带注释 tag 说明和 Draft Release Notes 均包含：
+`init：建立初始github版本`。
+
+仓库公开后应立即启用 GitHub Private Vulnerability Reporting、Secret Scanning
+和 Push Protection。确认 Draft 的 tag、提交、三项产品资产、两个源码归档、
+哈希、未签名披露和干净机证据均正确后，才由维护者人工发布 Draft。
 
 ## 最终场景
 

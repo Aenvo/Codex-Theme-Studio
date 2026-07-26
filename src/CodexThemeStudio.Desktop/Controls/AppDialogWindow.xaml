@@ -78,11 +78,6 @@
                                FontSize="14"
                                LineHeight="22"
                                TextWrapping="Wrap" />
-                    <TextBlock x:Name="SupportingText"
-                               Margin="0,12,0,0"
-                               Foreground="{DynamicResource MutedForegroundBrush}"
-                               LineHeight="20"
-                               TextWrapping="Wrap" />
                     <TextBox x:Name="InputTextBox"
                              Margin="0,16,0,0"
                              MaxLength="120"

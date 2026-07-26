@@ -113,6 +113,8 @@ export function rendererBootstrap(request) {
     "--cts-focus-x",
     "--cts-focus-y",
     "--cts-blur",
+    "--cts-panel-blur",
+    "--cts-panel-opacity",
   ];
   const staticCss = `
 html.codex-theme-studio-active {
@@ -177,12 +179,14 @@ html.codex-theme-studio-active[data-codex-theme-studio-page="task-off"] main.mai
   background-position: var(--cts-focus-x) var(--cts-focus-y);
   background-repeat: no-repeat;
   filter: blur(var(--cts-blur));
-  transform: scale(1.015);
+  transform: scale(calc(var(--cts-image-scale) * 1.015));
   transform-origin: var(--cts-focus-x) var(--cts-focus-y);
 }
 html.codex-theme-studio-active aside {
-  background-color: color-mix(in srgb, var(--cts-panel) 88%, transparent) !important;
+  background-color: color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent) !important;
   border-color: var(--cts-border) !important;
+  -webkit-backdrop-filter: blur(var(--cts-panel-blur)) !important;
+  backdrop-filter: blur(var(--cts-panel-blur)) !important;
 }
 html.codex-theme-studio-active aside.app-shell-left-panel nav {
   background: transparent !important;
@@ -192,10 +196,10 @@ html.codex-theme-studio-active nav[class*="navigation"] {
   box-shadow: none !important;
 }
 html.codex-theme-studio-active .composer-surface-chrome {
-  background-color: var(--cts-panel) !important;
+  background-color: color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent) !important;
   box-shadow: 0 0 0 1px var(--cts-border) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+  -webkit-backdrop-filter: blur(var(--cts-panel-blur)) !important;
+  backdrop-filter: blur(var(--cts-panel-blur)) !important;
 }
 html.codex-theme-studio-active .sticky.bottom-0
   [class*="bg-gradient-to-t"][class*="from-token-main-surface-primary"] {
@@ -206,7 +210,9 @@ html.codex-theme-studio-active .sticky.bottom-0
   background-color: transparent !important;
 }
 html.codex-theme-studio-active [class*="elevation-prominent"] {
-  background-color: var(--cts-panel) !important;
+  background-color: color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent) !important;
+  -webkit-backdrop-filter: blur(var(--cts-panel-blur)) !important;
+  backdrop-filter: blur(var(--cts-panel-blur)) !important;
   box-shadow:
     0 0 0 1px var(--cts-border),
     0 18px 50px rgba(0, 0, 0, 0.42) !important;
@@ -299,7 +305,10 @@ html.codex-theme-studio-active ::selection {
   setVariable(root, "--cts-border", payload.palette.border);
   setVariable(root, "--cts-focus-x", `${payload.art.focusXPercent}%`);
   setVariable(root, "--cts-focus-y", `${payload.art.focusYPercent}%`);
+  setVariable(root, "--cts-image-scale", String(payload.art.cropScale));
   setVariable(root, "--cts-blur", `${payload.art.blur}px`);
+  setVariable(root, "--cts-panel-blur", `${payload.art.panelBlur}px`);
+  setVariable(root, "--cts-panel-opacity", `${100 - (payload.art.panelBlur * 0.28)}%`);
 
   document.head.append(style);
   document.body.prepend(layer);

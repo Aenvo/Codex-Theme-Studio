@@ -114,8 +114,8 @@ public sealed class MainWindowViewModelTests
         fixture.ViewModel.SelectedTheme = fixture.ViewModel.Themes[0];
 
         Assert.Equal(CodexDetectionPhase.Confirming, fixture.ViewModel.CodexStatusPhase);
-        Assert.StartsWith("上次", fixture.ViewModel.CodexStatusText);
-        Assert.False(fixture.ViewModel.ApplyTemporaryCommand.CanExecute(null));
+        Assert.Equal("请稍作等待，程序加载中", fixture.ViewModel.CodexStatusText);
+        Assert.True(fixture.ViewModel.ApplyTemporaryCommand.CanExecute(null));
 
         fixture.Runtime.StatusGate.SetResult();
         await fixture.ViewModel.WaitForBackgroundInitializationAsync();
@@ -150,6 +150,18 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(
             SettingsSection.About,
             fixture.ViewModel.SelectedSettingsSection);
+    }
+
+    [Fact]
+    public void OpenGitHubRepository_UsesConfiguredRepositoryUrl()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+
+        fixture.ViewModel.OpenGitHubRepositoryCommand.Execute(null);
+
+        Assert.Equal(
+            "https://github.com/Aenvo/Codex-Theme-Studio",
+            fixture.OpenedExternalUrl);
     }
 
     [Fact]
@@ -339,6 +351,153 @@ public sealed class MainWindowViewModelTests
             "已临时应用",
             fixture.ViewModel.NotificationMessage,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task OfflineActionsRemainClickableAndExplainUnavailableWork()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        fixture.Runtime.Status = Status(
+            ThemeRuntimeState.NotRunning,
+            themeId: null,
+            persistenceEnabled: false) with
+        {
+            IsPersistenceEligible = false,
+            UserMessage = "Codex 未运行；请先启动 Codex。",
+        };
+        await fixture.ViewModel.InitializeAsync();
+        await fixture.ViewModel.WaitForBackgroundInitializationAsync();
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+
+        Assert.True(fixture.ViewModel.ApplyTemporaryCommand.CanExecute(null));
+        Assert.True(fixture.ViewModel.SetPersistentCommand.CanExecute(null));
+        Assert.True(fixture.ViewModel.RestoreCommand.CanExecute(null));
+
+        fixture.ViewModel.ApplyTemporaryCommand.Execute(null);
+        Assert.Contains("请先启动 Codex", fixture.ViewModel.NotificationMessage);
+        Assert.False(fixture.Runtime.ApplyEntered.Task.IsCompleted);
+
+        fixture.ViewModel.SetPersistentCommand.Execute(null);
+        Assert.Contains("尚未取得持久化资格", fixture.ViewModel.NotificationMessage);
+        Assert.Equal(0, fixture.Persistence.EnableCalls);
+
+        fixture.ViewModel.RestoreCommand.Execute(null);
+        await WaitUntilAsync(() => fixture.ViewModel.NotificationMessage.Contains(
+            "当前已是官方外观",
+            StringComparison.Ordinal));
+        Assert.Equal(0, fixture.Runtime.RestoreCalls);
+    }
+
+    [Fact]
+    public async Task OfflineQualifiedThemeEnablesPersistenceWithoutRuntimeProcess()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        fixture.Runtime.Status = Status(
+            ThemeRuntimeState.NotRunning,
+            themeId: null,
+            persistenceEnabled: false) with
+        {
+            IsPersistenceEligible = true,
+        };
+        await fixture.ViewModel.InitializeAsync();
+        await fixture.ViewModel.WaitForBackgroundInitializationAsync();
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+
+        fixture.ViewModel.SetPersistentCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.Equal(1, fixture.Persistence.EnableCalls);
+        Assert.True(fixture.ViewModel.IsPersistenceEnabled);
+    }
+
+    [Fact]
+    public async Task WindowActivationDetectsCodexStartedAfterThemeStudio()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 1,
+            enablePresenceDiscovery: true);
+        fixture.Runtime.Status = Status(
+            ThemeRuntimeState.NotRunning,
+            themeId: null,
+            persistenceEnabled: false);
+        fixture.Discovery.Processes = [];
+        await fixture.ViewModel.InitializeAsync();
+        await fixture.ViewModel.WaitForBackgroundInitializationAsync();
+
+        fixture.Runtime.Status = Status(
+            ThemeRuntimeState.Ready,
+            themeId: null,
+            persistenceEnabled: false);
+        fixture.Discovery.Processes =
+        [
+            new CodexProcessInfo(
+                1234,
+                DateTimeOffset.Parse("2026-07-26T08:00:00Z"),
+                FakeCodexDiscoveryService.ExecutablePath,
+                null),
+        ];
+        fixture.ViewModel.OnWindowActivated();
+        await fixture.ViewModel.WaitForPresenceMonitorAsync();
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+        fixture.ViewModel.ApplyTemporaryCommand.Execute(null);
+        await fixture.Runtime.ApplyEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(fixture.Runtime.GetStatusCalls >= 2);
+        Assert.True(fixture.Discovery.DiscoverCalls >= 1);
+    }
+
+    [Fact]
+    public async Task StartupActivationWaitsForBackgroundRefreshBeforePresenceMonitor()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 1,
+            enablePresenceDiscovery: true);
+        fixture.Runtime.StatusGate =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Discovery.Processes =
+        [
+            new CodexProcessInfo(
+                1234,
+                DateTimeOffset.Parse("2026-07-26T08:00:00Z"),
+                FakeCodexDiscoveryService.ExecutablePath,
+                null),
+        ];
+
+        fixture.ViewModel.OnWindowActivated();
+        await fixture.ViewModel.InitializeAsync();
+        await WaitUntilAsync(() => fixture.Runtime.GetStatusCalls == 1);
+
+        Assert.Equal(0, fixture.Discovery.DiscoverCalls);
+
+        fixture.Runtime.StatusGate.SetResult();
+        await fixture.ViewModel.WaitForBackgroundInitializationAsync();
+        await fixture.ViewModel.WaitForPresenceMonitorAsync();
+
+        Assert.Equal(1, fixture.Discovery.DiscoverCalls);
+        Assert.Equal(2, fixture.Runtime.GetStatusCalls);
+    }
+
+    [Fact]
+    public async Task WindowDeactivationCancelsPresenceRetry()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 1,
+            enablePresenceDiscovery: true);
+        fixture.Runtime.Status = Status(
+            ThemeRuntimeState.NotRunning,
+            themeId: null,
+            persistenceEnabled: false);
+        fixture.Discovery.Processes = [];
+        await fixture.ViewModel.InitializeAsync();
+        await fixture.ViewModel.WaitForBackgroundInitializationAsync();
+
+        fixture.ViewModel.OnWindowActivated();
+        await WaitUntilAsync(() => fixture.Discovery.DiscoverCalls > 0);
+        fixture.ViewModel.OnWindowDeactivated();
+        await fixture.ViewModel.WaitForPresenceMonitorAsync()
+            .WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.True(fixture.Discovery.DiscoverCalls >= 1);
     }
 
     [Fact]
@@ -652,6 +811,20 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task CreateTheme_CreatesUnnamedDraftWithoutPrompt()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+
+        fixture.ViewModel.CreateCommand.Execute(null);
+        await WaitUntilAsync(() => fixture.ViewModel.CurrentPage == LibraryPage.Editor);
+
+        Assert.True(fixture.Editor.HasDraft);
+        Assert.True(fixture.Editor.IsNew);
+        Assert.Equal("未命名主题", fixture.Editor.Name);
+        Assert.Equal(0, fixture.Dialogs.RequestTextCalls);
+    }
+
+    [Fact]
     public async Task Editor_CancelSaveAndSaveCopy_HaveDistinctDraftSemantics()
     {
         using var fixture = new ViewModelFixture(themeCount: 1);
@@ -706,6 +879,42 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public void Editor_BeginResetsToHomePreviewAndNeutralDefaults()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        var theme = fixture.Repository.Themes[fixture.Repository.Summaries[0].ThemeId];
+        fixture.Editor.Begin(theme, newTheme: false);
+        fixture.Editor.IsTaskPreview = true;
+
+        fixture.Editor.Begin(theme, newTheme: true);
+        fixture.Editor.ResetDefaults();
+
+        Assert.False(fixture.Editor.IsTaskPreview);
+        Assert.Equal("#111111", fixture.Editor.BackgroundColor);
+        Assert.Equal("#1C1C1CE6", fixture.Editor.PanelColor);
+        Assert.Equal("#3B82F6", fixture.Editor.AccentColor);
+        Assert.Equal("#F5F5F5", fixture.Editor.TextColor);
+        Assert.Equal("#A3A3A3", fixture.Editor.MutedColor);
+        Assert.Equal("#30303080", fixture.Editor.BorderColor);
+        Assert.Equal(10, fixture.Editor.PanelBlur);
+    }
+
+    [Fact]
+    public void Editor_PanelBlur_IsClampedAndUpdatesGlassPreviewOpacity()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        var theme = fixture.Repository.Themes[fixture.Repository.Summaries[0].ThemeId];
+        fixture.Editor.Begin(theme, newTheme: false);
+
+        fixture.Editor.PanelBlur = 32;
+
+        Assert.Equal(32, fixture.Editor.PanelBlur);
+        Assert.Equal(0.225, fixture.Editor.PanelGlassOpacity, precision: 3);
+        fixture.Editor.PanelBlur = 100;
+        Assert.Equal(64, fixture.Editor.PanelBlur);
+    }
+
+    [Fact]
     public void Editor_FocusControls_AreEnabledOnlyForCropMode()
     {
         using var fixture = new ViewModelFixture(themeCount: 1);
@@ -717,10 +926,16 @@ public sealed class MainWindowViewModelTests
         fixture.Editor.ArtSize = ThemeArtSize.Crop;
         fixture.Editor.FocusX = 0.2;
         fixture.Editor.FocusY = 0.8;
+        fixture.Editor.CropScale = 1.6;
 
         Assert.True(fixture.Editor.IsCropMode);
         Assert.Equal(0.2, fixture.Editor.FocusX);
         Assert.Equal(0.8, fixture.Editor.FocusY);
+        Assert.Equal(1.6, fixture.Editor.CropScale);
+
+        fixture.Editor.CropScale = 4;
+
+        Assert.Equal(3, fixture.Editor.CropScale);
     }
 
     [Fact]
@@ -774,7 +989,8 @@ internal sealed class ViewModelFixture : IDisposable
     public ViewModelFixture(
         int themeCount,
         bool externalThemeActive = false,
-        bool managedPersistenceEnabled = false)
+        bool managedPersistenceEnabled = false,
+        bool enablePresenceDiscovery = false)
     {
         Repository = new FakeThemeRepository(themeCount);
         Runtime = new FakeRuntimeService();
@@ -783,6 +999,7 @@ internal sealed class ViewModelFixture : IDisposable
             externalThemeActive);
         Dialogs = new FakeDialogs();
         Diagnostics = new FakeDiagnosticService();
+        Discovery = new FakeCodexDiscoveryService();
         Editor = new ThemeEditorViewModel(
             Repository,
             new FakeImagePipeline(),
@@ -845,7 +1062,9 @@ internal sealed class ViewModelFixture : IDisposable
             diagnosticBundle: Diagnostics,
             copyText: text => CopiedText = text,
             appVersion: "1.1.7",
-            diagnosticSessionId: Guid.Parse("11111111-1111-1111-1111-111111111111"));
+            diagnosticSessionId: Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            openExternalUrl: url => OpenedExternalUrl = url,
+            codexDiscovery: enablePresenceDiscovery ? Discovery : null);
     }
 
     public FakeThemeRepository Repository { get; }
@@ -860,7 +1079,11 @@ internal sealed class ViewModelFixture : IDisposable
 
     public FakeDiagnosticService Diagnostics { get; }
 
+    public FakeCodexDiscoveryService Discovery { get; }
+
     public string? CopiedText { get; private set; }
+
+    public string? OpenedExternalUrl { get; private set; }
 
     public ThemeEditorViewModel Editor { get; }
 
@@ -1183,6 +1406,33 @@ internal sealed class FakeRuntimeService : ICodexThemeRuntime
                 CachedCompatibility));
 }
 
+internal sealed class FakeCodexDiscoveryService : ICodexDiscoveryService
+{
+    public const string ExecutablePath =
+        @"C:\Program Files\WindowsApps\OpenAI.Codex\ChatGPT.exe";
+
+    public IReadOnlyList<CodexProcessInfo> Processes { get; set; } = [];
+
+    public int DiscoverCalls { get; private set; }
+
+    public Task<OperationResult<CodexDiscoverySnapshot>> DiscoverAsync(
+        CancellationToken cancellationToken)
+    {
+        DiscoverCalls++;
+        return Task.FromResult(
+            OperationResult<CodexDiscoverySnapshot>.Success(
+                new CodexDiscoverySnapshot(
+                    new CodexInstallationInfo(
+                        "OpenAI.Codex_2p2nqsd0c76g0",
+                        "OpenAI.Codex_26.721.3404.0_x64__2p2nqsd0c76g0",
+                        "26.721.3404.0",
+                        ExecutablePath,
+                        ExecutableSha256: new string('a', 64)),
+                    Processes,
+                    DateTimeOffset.UtcNow)));
+    }
+}
+
 internal sealed class FakePersistenceService : IPersistenceService
 {
     public int EnableCalls { get; private set; }
@@ -1331,22 +1581,26 @@ internal sealed class FakeDialogs : IUserDialogService
 {
     public bool ConfirmResult { get; set; } = true;
 
-    public List<(string Title, string Message, string ConfirmText)> Confirmations { get; } = [];
+    public List<(string Title, string Message)> Confirmations { get; } = [];
+
+    public int RequestTextCalls { get; private set; }
 
     public Task<string?> RequestTextAsync(
         string title,
         string prompt,
         string initialValue,
-        CancellationToken cancellationToken) =>
-        Task.FromResult<string?>(initialValue);
+        CancellationToken cancellationToken)
+    {
+        RequestTextCalls++;
+        return Task.FromResult<string?>(initialValue);
+    }
 
     public Task<bool> ConfirmAsync(
         string title,
         string message,
-        string confirmText,
         CancellationToken cancellationToken)
     {
-        Confirmations.Add((title, message, confirmText));
+        Confirmations.Add((title, message));
         return Task.FromResult(ConfirmResult);
     }
 

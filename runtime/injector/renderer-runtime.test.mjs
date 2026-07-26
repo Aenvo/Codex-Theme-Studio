@@ -39,7 +39,10 @@ test("applies once to a complete main window and preserves pointer interaction",
     /\.composer-surface-chrome\s*\{[^}]*box-shadow:\s*0 0 0 1px var\(--cts-border\) !important;/s);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
-    /\.composer-surface-chrome\s*\{[^}]*backdrop-filter:\s*none !important;/s);
+    /\.composer-surface-chrome\s*\{[^}]*backdrop-filter:\s*blur\(var\(--cts-panel-blur\)\) !important;/s);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /aside\s*\{[^}]*backdrop-filter:\s*blur\(var\(--cts-panel-blur\)\) !important;/s);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
     /:where\(button, a\):focus-visible\s*\{[^}]*outline:\s*2px solid var\(--cts-accent\) !important;/s);
@@ -71,6 +74,9 @@ test("applies once to a complete main window and preserves pointer interaction",
   assert.equal(
     environment.document.mainSurface.style.getPropertyPriority("background"),
     "important");
+  assert.equal(
+    environment.document.documentElement.style.getPropertyValue("--cts-panel-blur"),
+    "12px");
   const layer = environment.findById("codex-theme-studio-layer");
   assert.equal(layer.children[0].style.opacity, "0.82");
   assert.equal(
@@ -238,6 +244,9 @@ test("cleanup removes styles, classes, hooks, and the current Blob URL", () => {
       "codex-theme-studio-active"),
     false);
   assert.equal(environment.window.__CODEX_THEME_STUDIO_RENDERER_V1__, undefined);
+  assert.equal(
+    environment.document.documentElement.style.getPropertyValue("--cts-panel-blur"),
+    "");
   assert.equal(
     environment.document.mainSurface.style.getPropertyValue("background"),
     "");

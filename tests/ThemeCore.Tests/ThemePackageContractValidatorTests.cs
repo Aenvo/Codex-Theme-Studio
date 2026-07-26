@@ -167,6 +167,8 @@ public class ThemePackageContractValidatorTests
             {
                 FocusX = 1.1,
                 Blur = 65,
+                PanelBlur = 65,
+                CropScale = 3.1,
             },
         };
 
@@ -174,7 +176,7 @@ public class ThemePackageContractValidatorTests
 
         Assert.Contains(issues, issue => issue.Code == "theme.color.invalid");
         Assert.Equal(
-            2,
+            4,
             issues.Count(issue => issue.Code == "theme.number.out_of_range"));
     }
 

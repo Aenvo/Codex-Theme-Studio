@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
@@ -147,6 +148,7 @@ public sealed class MainWindowScreenshotTests
                 780,
                 96,
                 Environment.GetEnvironmentVariable("CTS_EDITOR_SCREENSHOT_PATH"));
+            RenderWindow(fixture.ViewModel, 2560, 1440, 96, screenshotPath: null);
             fixture.ViewModel.NavigateCommand.Execute("Settings");
             RenderWindow(
                 fixture.ViewModel,
@@ -390,14 +392,40 @@ public sealed class MainWindowScreenshotTests
             Assert.DoesNotContain("浅色", editorButtons);
             Assert.DoesNotContain("深色", editorButtons);
             var editor = Assert.IsType<ThemeEditorViewModel>(viewModel.Editor);
+            var editorScrollViewer = Assert.Single(
+                FindVisualChildren<ScrollViewer>(root),
+                scrollViewer => AutomationProperties.GetName(scrollViewer) == "编辑面板滚动区域");
+            Assert.Equal(editor.IsColorPickerOpen, EditorScrollLockBehavior.GetIsLocked(editorScrollViewer));
+            Assert.Equal(ScrollBarVisibility.Disabled, editorScrollViewer.HorizontalScrollBarVisibility);
+            var editorContentPresenter = Assert.Single(
+                FindVisualChildren<ScrollContentPresenter>(editorScrollViewer),
+                presenter => ReferenceEquals(
+                    presenter.TemplatedParent,
+                    editorScrollViewer));
+            Assert.InRange(
+                Math.Abs(editorContentPresenter.ActualWidth - editorScrollViewer.ActualWidth),
+                0,
+                1);
+            var editorScrollBar = Assert.Single(
+                FindVisualChildren<ScrollBar>(editorScrollViewer),
+                scrollBar =>
+                    scrollBar.Orientation == Orientation.Vertical &&
+                    ReferenceEquals(
+                        scrollBar.TemplatedParent,
+                        editorScrollViewer));
+            Assert.Equal(3, editorScrollBar.Width);
+            Assert.Equal(3, editorScrollBar.MinWidth);
+            Assert.Equal(3, editorScrollBar.MaxWidth);
+            Assert.Equal(0, editorScrollBar.Opacity);
+            Assert.Equal(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF), ((SolidColorBrush)editorScrollBar.Background).Color);
             Assert.DoesNotContain("安全区", editorText);
             var cropFocusSliders = FindVisualChildren<Slider>(root)
                 .Where(slider =>
                     (AutomationProperties.GetName(slider) is
-                        "裁切焦点 X" or "裁切焦点 Y") &&
+                        "裁切水平位置" or "裁切垂直位置" or "裁切图片放缩") &&
                     IsLayoutVisible(slider, root))
                 .ToArray();
-            Assert.Equal(editor.IsCropMode ? 2 : 0, cropFocusSliders.Length);
+            Assert.Equal(editor.IsCropMode ? 3 : 0, cropFocusSliders.Length);
             if (editor.IsCropMode)
             {
                 var previewImage = Assert.Single(
@@ -430,13 +458,49 @@ public sealed class MainWindowScreenshotTests
                 button => AutomationProperties.GetName(button) == "返回主题资料库");
             Assert.Same(viewModel.CancelDraftCommand, returnToLibrary.Command);
             Assert.Equal("返回主题资料库", returnToLibrary.ToolTip);
-            var previewStatus = Assert.Single(
-                FindVisualChildren<Border>(root),
-                border => AutomationProperties.GetName(border) == "模拟预览状态");
-            Assert.InRange(editorBreadcrumb.ActualHeight, 14, 32);
             Assert.Equal(
-                "模拟预览不会连接或读取 Codex 页面。",
-                previewStatus.ToolTip);
+                DependencyProperty.UnsetValue,
+                returnToLibrary.ReadLocalValue(Control.ForegroundProperty));
+            Assert.InRange(editorBreadcrumb.ActualHeight, 14, 32);
+            Assert.DoesNotContain("模拟预览", editorText);
+            Assert.DoesNotContain(
+                FindVisualChildren<Button>(root),
+                button => button.Content as string == "选择图片…");
+            Assert.Single(
+                FindVisualChildren<Button>(root),
+                button => AutomationProperties.GetName(button) == "上传背景图片");
+            var imageUploadOverlay = Assert.Single(
+                FindVisualChildren<Border>(root),
+                border => AutomationProperties.GetName(border) == "背景图片上传遮罩");
+            Assert.Equal(Visibility.Collapsed, imageUploadOverlay.Visibility);
+            var homePreviewButton = Assert.Single(
+                FindVisualChildren<Button>(root),
+                button => button.Content as string == "首页预览");
+            var taskPreviewButton = Assert.Single(
+                FindVisualChildren<Button>(root),
+                button => button.Content as string == "任务页预览");
+            var accentBrush = Assert.IsType<SolidColorBrush>(
+                Application.Current.Resources["AccentBrush"]);
+            var borderBrush = Assert.IsType<SolidColorBrush>(
+                Application.Current.Resources["BorderBrush"]);
+            Assert.Equal(
+                editor.IsTaskPreview ? borderBrush.Color : accentBrush.Color,
+                Assert.IsType<SolidColorBrush>(homePreviewButton.BorderBrush).Color);
+            Assert.Equal(new Thickness(2), homePreviewButton.BorderThickness);
+            Assert.Equal(new Thickness(2), taskPreviewButton.BorderThickness);
+            var homePreviewPosition = homePreviewButton.TranslatePoint(new Point(), root);
+            var homePreviewSize = homePreviewButton.RenderSize;
+            var taskPreviewPosition = taskPreviewButton.TranslatePoint(new Point(), root);
+            var taskPreviewSize = taskPreviewButton.RenderSize;
+            var initialTaskPreview = editor.IsTaskPreview;
+            editor.IsTaskPreview = !initialTaskPreview;
+            root.UpdateLayout();
+            Assert.Equal(homePreviewPosition, homePreviewButton.TranslatePoint(new Point(), root));
+            Assert.Equal(homePreviewSize, homePreviewButton.RenderSize);
+            Assert.Equal(taskPreviewPosition, taskPreviewButton.TranslatePoint(new Point(), root));
+            Assert.Equal(taskPreviewSize, taskPreviewButton.RenderSize);
+            editor.IsTaskPreview = initialTaskPreview;
+            root.UpdateLayout();
             var previewOptions = FindVisualChildren<CheckBox>(root)
                 .Select(checkBox => checkBox.Content as string)
                 .Where(content => content is not null)
@@ -449,16 +513,31 @@ public sealed class MainWindowScreenshotTests
             var previewSidebar = Assert.Single(
                 FindVisualChildren<Border>(root),
                 border => AutomationProperties.GetName(border) == "模拟预览侧栏");
-            var previewScrollViewer = Assert.Single(
-                FindVisualChildren<ScrollViewer>(root),
-                scrollViewer => AutomationProperties.GetName(scrollViewer) == "模拟预览滚动区域");
+            var previewRegion = Assert.Single(
+                FindVisualChildren<Grid>(root),
+                grid => AutomationProperties.GetName(grid) == "模拟预览区域");
+            var previewToolbar = Assert.Single(
+                FindVisualChildren<DockPanel>(root),
+                panel => AutomationProperties.GetName(panel) == "模拟预览工具栏");
             Assert.True(double.IsNaN(preview.Width));
+            Assert.True(double.IsNaN(preview.Height));
             Assert.Equal(HorizontalAlignment.Stretch, preview.HorizontalAlignment);
-            Assert.Equal(ScrollBarVisibility.Disabled, previewScrollViewer.HorizontalScrollBarVisibility);
+            Assert.Equal(VerticalAlignment.Stretch, preview.VerticalAlignment);
             Assert.InRange(
-                Math.Abs(preview.ActualWidth - previewScrollViewer.ViewportWidth),
+                Math.Abs(preview.ActualWidth - previewRegion.ActualWidth),
                 0,
                 1);
+            Assert.InRange(
+                Math.Abs(preview.ActualHeight - (
+                    previewRegion.ActualHeight -
+                    previewToolbar.ActualHeight -
+                    previewToolbar.Margin.Top -
+                    previewToolbar.Margin.Bottom)),
+                0,
+                1);
+            Assert.DoesNotContain(
+                FindVisualChildren<ScrollViewer>(root),
+                scrollViewer => AutomationProperties.GetName(scrollViewer) == "模拟预览滚动区域");
             Assert.True(preview.ActualWidth > 600);
             Assert.Equal(Visibility.Visible, previewSidebar.Visibility);
             var homePreview = Assert.Single(
@@ -473,6 +552,42 @@ public sealed class MainWindowScreenshotTests
             Assert.Equal(
                 editor.IsTaskPreview ? Visibility.Visible : Visibility.Collapsed,
                 taskPreview.Visibility);
+            if (editor.IsTaskPreview)
+            {
+                var previewCanvas = Assert.Single(
+                    FindVisualChildren<Grid>(preview),
+                    grid => AutomationProperties.GetName(grid) == "模拟预览画布");
+                var taskContentHost = Assert.Single(
+                    FindVisualChildren<Grid>(taskPreview),
+                    grid => AutomationProperties.GetName(grid) == "Codex 任务模拟主内容区");
+                var taskWorkspace = Assert.Single(
+                    FindVisualChildren<StackPanel>(taskPreview),
+                    panel => AutomationProperties.GetName(panel) == "Codex 任务模拟工作区");
+                Assert.Equal(HorizontalAlignment.Center, taskWorkspace.HorizontalAlignment);
+                Assert.InRange(
+                    Math.Abs(taskWorkspace.ActualWidth - Math.Min(taskContentHost.ActualWidth, 720)),
+                    0,
+                    1);
+                var taskInput = Assert.Single(
+                    FindVisualChildren<Border>(taskPreview),
+                    border => AutomationProperties.GetName(border) == "Codex 任务页模拟输入框");
+                Assert.InRange(
+                    Math.Abs(taskInput.ActualWidth - Math.Min(taskContentHost.ActualWidth, 760)),
+                    0,
+                    1);
+                var taskEnvironment = Assert.Single(
+                    FindVisualChildren<Border>(taskPreview),
+                    border => AutomationProperties.GetName(border) == "Codex 任务模拟环境面板");
+                var isEnvironmentVisible = previewCanvas.ActualWidth >= 960;
+                Assert.Equal(
+                    isEnvironmentVisible ? Visibility.Visible : Visibility.Collapsed,
+                    taskEnvironment.Visibility);
+                Assert.InRange(
+                    Math.Abs(taskPreview.ColumnDefinitions[1].ActualWidth -
+                        (isEnvironmentVisible ? 260 : 0)),
+                    0,
+                    1);
+            }
             Assert.Contains("本地预览", editorText);
             Assert.Contains(
                 editorText,
@@ -482,13 +597,17 @@ public sealed class MainWindowScreenshotTests
             Assert.Contains(
                 editorText,
                 text => text?.StartsWith("任务内容区遮罩深度：", StringComparison.Ordinal) == true);
-            Assert.Contains(
+            Assert.DoesNotContain(
                 "仅调整任务内容区的深色遮罩，不影响侧栏和顶部栏；隐藏背景模式下不可调。",
+                editorText);
+            Assert.DoesNotContain(
+                "点击色块打开色板；支持 Hex、RGB 与 CSS rgba()。",
                 editorText);
             var taskOverlaySlider = Assert.Single(
                 FindVisualChildren<Slider>(root),
                 slider => AutomationProperties.GetName(slider) == "任务内容区遮罩深度");
             Assert.True(taskOverlaySlider.IsEnabled);
+            Assert.True(SliderJumpBehavior.GetIsEnabled(taskOverlaySlider));
             Assert.Equal(editor.TaskOverlay, taskOverlaySlider.Value);
             var taskOverlayPreview = Assert.Single(
                 FindVisualChildren<Border>(root),
@@ -516,11 +635,22 @@ public sealed class MainWindowScreenshotTests
                     Assert.Equal(104, item.MinWidth);
                     Assert.Equal(36, item.MinHeight);
                     Assert.True(item.Focusable);
+                    Assert.Equal(Cursors.Hand, item.Cursor);
                 });
             var selected = Assert.Single(tabItems, item => item.IsSelected);
             Assert.Equal(
                 viewModel.SelectedSettingsSection,
                 Assert.IsType<SettingsSection>(selected.Tag));
+            var selectedTabChrome = Assert.IsType<Border>(
+                selected.Template.FindName("TabChrome", selected));
+            var selectedTabBackground = Assert.IsType<SolidColorBrush>(
+                Application.Current.Resources["InputBrush"]);
+            Assert.Equal(
+                selectedTabBackground.Color,
+                Assert.IsType<SolidColorBrush>(selectedTabChrome.Background).Color);
+            Assert.Equal(
+                Assert.IsType<SolidColorBrush>(Application.Current.Resources["ForegroundBrush"]).Color,
+                Assert.IsType<SolidColorBrush>(selected.Foreground).Color);
 
             if (viewModel.SelectedSettingsSection == SettingsSection.Diagnostics)
             {
@@ -535,6 +665,19 @@ public sealed class MainWindowScreenshotTests
                 Assert.Contains(
                     FindVisualChildren<TextBlock>(root),
                     textBlock => textBlock.Text == "最近事件");
+            }
+            else if (viewModel.SelectedSettingsSection == SettingsSection.About)
+            {
+                var gitHubButton = Assert.Single(
+                    FindVisualChildren<Button>(root),
+                    button => AutomationProperties.GetName(button) == "打开 GitHub 仓库");
+                Assert.Same(viewModel.OpenGitHubRepositoryCommand, gitHubButton.Command);
+                Assert.Contains(
+                    FindVisualChildren<TextBlock>(gitHubButton),
+                    textBlock => textBlock.Text == "GitHub");
+                Assert.Contains(
+                    FindVisualChildren<ContentControl>(gitHubButton),
+                    contentControl => contentControl.Content is GeometryGroup);
             }
         }
 

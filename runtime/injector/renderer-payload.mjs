@@ -46,6 +46,8 @@ const artKeys = [
   "taskOpacity",
   "taskOverlay",
   "blur",
+  "panelBlur",
+  "cropScale",
 ];
 
 export function prepareRendererPayload(input) {
@@ -95,6 +97,8 @@ export function prepareRendererPayload(input) {
   assertRange(theme.art.taskOpacity, 0, 1, "invalid_task_opacity");
   assertRange(theme.art.taskOverlay, 0, 1, "invalid_task_overlay");
   assertRange(theme.art.blur, 0, 64, "invalid_blur");
+  assertRange(theme.art.panelBlur, 0, 64, "invalid_panel_blur");
+  assertRange(theme.art.cropScale, 1, 3, "invalid_crop_scale");
   if (!allowedSafeAreas.has(theme.art.safeArea)) {
     throw validationError("invalid_safe_area");
   }
@@ -139,6 +143,8 @@ export function prepareRendererPayload(input) {
       taskOpacity: theme.art.taskOpacity,
       taskOverlay: theme.art.taskOverlay,
       blur: theme.art.blur,
+      panelBlur: theme.art.panelBlur,
+      cropScale: usesCropFocus ? theme.art.cropScale : 1,
     },
   };
 }

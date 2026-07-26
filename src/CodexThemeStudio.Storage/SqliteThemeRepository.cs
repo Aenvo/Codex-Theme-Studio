@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
 using CodexThemeStudio.Contracts.Interfaces;
 using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Contracts.Results;
@@ -50,6 +51,9 @@ public sealed class SqliteThemeRepository : IThemeRepository
             {
                 await using var connection =
                     await connectionFactory.OpenAsync(cancellationToken);
+                await ReconcileRecoveredThemeDirectoriesAsync(
+                    connection,
+                    cancellationToken);
                 var rows = new List<ThemeRow>();
 
                 await using (var command = connection.CreateCommand())
@@ -779,6 +783,22 @@ public sealed class SqliteThemeRepository : IThemeRepository
                     return OperationResult.Failure(resolvedDirectory.Error!);
                 }
 
+                var marker = pathResolver.Resolve(
+                    $"{expectedDirectory}/{StorageLayout.SystemRecycleRecoveryMarkerFileName}");
+                if (!marker.IsSuccess)
+                {
+                    return OperationResult.Failure(marker.Error!);
+                }
+
+                var markerWrite = await AtomicFileWriter.WriteAsync(
+                    marker.Value!,
+                    Encoding.UTF8.GetBytes(themeId.ToString("D")),
+                    cancellationToken);
+                if (!markerWrite.IsSuccess)
+                {
+                    return markerWrite;
+                }
+
                 await using (var delete = connection.CreateCommand())
                 {
                     delete.Transaction = transaction;
@@ -885,6 +905,97 @@ public sealed class SqliteThemeRepository : IThemeRepository
             "$lastApplyResult",
             (int)ThemeApplyResult.NeverApplied);
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task ReconcileRecoveredThemeDirectoriesAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var themesDirectory = pathResolver.Resolve(StorageLayout.ThemesDirectory);
+        if (!themesDirectory.IsSuccess || !Directory.Exists(themesDirectory.Value))
+        {
+            return;
+        }
+
+        foreach (var directory in Directory.EnumerateDirectories(
+                     themesDirectory.Value!,
+                     "*",
+                     SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0 ||
+                !Guid.TryParseExact(Path.GetFileName(directory), "D", out var themeId))
+            {
+                continue;
+            }
+
+            var relativeDirectory = StorageLayout.GetThemeDirectory(themeId);
+            var resolvedDirectory = pathResolver.Resolve(relativeDirectory);
+            if (!resolvedDirectory.IsSuccess ||
+                !string.Equals(
+                    Path.GetFullPath(directory),
+                    Path.GetFullPath(resolvedDirectory.Value!),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var documentPath = pathResolver.Resolve(
+                StorageLayout.GetThemeDocument(themeId));
+            if (!documentPath.IsSuccess || !File.Exists(documentPath.Value))
+            {
+                continue;
+            }
+
+            var markerPath = pathResolver.Resolve(
+                $"{relativeDirectory}/{StorageLayout.SystemRecycleRecoveryMarkerFileName}");
+            if (!markerPath.IsSuccess || !File.Exists(markerPath.Value) ||
+                new FileInfo(markerPath.Value!).Length != 36 ||
+                !string.Equals(
+                    await File.ReadAllTextAsync(markerPath.Value!, cancellationToken),
+                    themeId.ToString("D"),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var document = await ReadThemeFileAsync(
+                documentPath.Value!,
+                cancellationToken);
+            if (document.Status is not ThemeDocumentReadStatus.Success ||
+                document.Theme!.Id != themeId)
+            {
+                continue;
+            }
+
+            await using var transaction =
+                (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+            var existing = await ReadThemeRowAsync(
+                connection,
+                themeId,
+                cancellationToken,
+                transaction,
+                includeDeleted: true);
+            if (existing is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                continue;
+            }
+
+            var bytes = await File.ReadAllBytesAsync(documentPath.Value!, cancellationToken);
+            var now = timeProvider.GetUtcNow();
+            await InsertThemeAsync(
+                connection,
+                transaction,
+                document.Theme,
+                new ThemeCreateOptions(),
+                relativeDirectory,
+                thumbnailRelativePath: null,
+                Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+                now,
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
     }
 
     private Task<OperationResult> UpdateSingleAsync(

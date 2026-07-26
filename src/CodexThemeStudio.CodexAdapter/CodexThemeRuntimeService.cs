@@ -200,7 +200,8 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                     CreateStatus(
                         ThemeRuntimeState.NotInstalled,
                         "未检测到当前用户安装的官方 Microsoft Store Codex。",
-                        selectedThemeId: session.Value!.ThemeId));
+                        selectedThemeId: session.Value!.ThemeId,
+                        isPersistenceEligible: false));
             }
 
             return OperationResult<ThemeRuntimeStatus>.Failure(discovery.Error!);
@@ -223,6 +224,11 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
         }
 
         var processes = discovery.Value.Processes;
+        var persistenceQualification = await qualificationStore.IsQualifiedAsync(
+            installation.ExecutableSha256,
+            cancellationToken);
+        var isPersistenceQualified =
+            persistenceQualification.IsSuccess && persistenceQualification.Value;
         if (processes.Count == 0)
         {
             return OperationResult<ThemeRuntimeStatus>.Success(
@@ -233,7 +239,8 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                     codexVersion: installation.Version,
                     identityAssessment: installation.IdentityAssessment,
                     installationSource: installation.Source,
-                    executableSha256: installation.ExecutableSha256));
+                    executableSha256: installation.ExecutableSha256,
+                    isPersistenceEligible: isPersistenceQualified));
         }
 
         if (processes.Count != 1)
@@ -250,9 +257,6 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
         }
 
         var process = processes[0];
-        var persistenceQualification = await qualificationStore.IsQualifiedAsync(
-            installation.ExecutableSha256,
-            cancellationToken);
         var cached = refreshMode == CodexStatusRefreshMode.PreferCache
             ? await qualificationStore.FindCompatibleAsync(installation, cancellationToken)
             : OperationResult<CodexCompatibilityQualificationStore.QualificationRecord?>
@@ -277,10 +281,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                     executableSha256: installation.ExecutableSha256,
                     compatibilityProbedAtUtc: cachedRecord.ProbedAtUtc,
                     compatibilityDiagnosticCode: "compatibility.cache_hit",
-                    isPersistenceEligible:
-                        cachedRecord.CompatibilityLevel == CodexCompatibilityLevel.Verified ||
-                        (persistenceQualification.IsSuccess &&
-                         persistenceQualification.Value)));
+                    isPersistenceEligible: isPersistenceQualified));
         }
 
         var inspectionMode = cachedRecord is null
@@ -334,8 +335,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                     isPersistenceEligible: false));
         }
 
-        var persistenceEligible = compatibility == CodexCompatibilityLevel.Verified ||
-            (persistenceQualification.IsSuccess && persistenceQualification.Value);
+        var persistenceEligible = isPersistenceQualified;
         var probedAt = cachedRecord?.ProbedAtUtc ?? timeProvider.GetUtcNow();
         if (cachedRecord is null &&
             probeValue is { CanaryApplied: true, CanaryCleaned: true })
@@ -473,12 +473,10 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
             var qualification = await qualificationStore.IsQualifiedAsync(
                 context.Value.Installation.ExecutableSha256,
                 timeoutSource.Token);
-            var persistenceEligible = context.Value.CompatibilityLevel ==
-                CodexCompatibilityLevel.Verified ||
-                (qualification.IsSuccess && qualification.Value);
+            var persistenceEligible =
+                qualification.IsSuccess && qualification.Value;
             var completedCompatibilityCycle = false;
-            if (context.Value.CompatibilityLevel == CodexCompatibilityLevel.CompatibleByProbe &&
-                !persistenceEligible)
+            if (!persistenceEligible)
             {
                 var cleanup = await rendererClient.CleanupAsync(process, timeoutSource.Token);
                 if (!cleanup.IsSuccess || cleanup.Value!.Active || cleanup.Value.Failures != 0)

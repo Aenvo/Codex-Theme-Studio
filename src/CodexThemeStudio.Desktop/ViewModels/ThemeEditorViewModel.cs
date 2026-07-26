@@ -3,6 +3,7 @@ using CodexThemeStudio.Contracts.Interfaces;
 using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Contracts.Results;
 using CodexThemeStudio.Desktop.Infrastructure;
+using CodexThemeStudio.Desktop.Services;
 using CodexThemeStudio.Storage;
 using CodexThemeStudio.ThemeCore;
 
@@ -11,35 +12,39 @@ namespace CodexThemeStudio.Desktop.ViewModels;
 public sealed class ThemeEditorViewModel : ObservableObject
 {
     private static readonly ThemePalette DefaultPalette = new(
-        "#080D18",
-        "#0F172A",
+        "#111111",
+        "#1C1C1CE6",
         "#3B82F6",
-        "#F8FAFC",
-        "#94A3B8",
-        "#243244");
+        "#F5F5F5",
+        "#A3A3A3",
+        "#30303080");
 
     private readonly IThemeRepository repository;
     private readonly IImagePipeline imagePipeline;
     private readonly IThemeAssetStore assetStore;
     private readonly Func<string, string?> resolveDataPath;
+    private readonly IColorHistoryService colorHistory;
     private ThemeDraft? draft;
     private bool isNew;
     private string? previewImagePath;
     private string? thumbnailRelativePath;
     private bool isTaskPreview;
-    private string contrastMessage = "设置颜色后将检查文字对比度。";
-    private bool hasContrastWarning;
+    private bool isColorPickerOpen;
+    private readonly HashSet<string> generatedAssetFileNames = new(StringComparer.OrdinalIgnoreCase);
+    private string? originalArtFileName;
 
     public ThemeEditorViewModel(
         IThemeRepository repository,
         IImagePipeline imagePipeline,
         IThemeAssetStore assetStore,
-        Func<string, string?> resolveDataPath)
+        Func<string, string?> resolveDataPath,
+        IColorHistoryService? colorHistory = null)
     {
         this.repository = repository;
         this.imagePipeline = imagePipeline;
         this.assetStore = assetStore;
         this.resolveDataPath = resolveDataPath;
+        this.colorHistory = colorHistory ?? NullColorHistoryService.Instance;
         ResetDefaultsCommand = new RelayCommand(_ => ResetDefaults());
         ShowHomePreviewCommand = new RelayCommand(_ => IsTaskPreview = false);
         ShowTaskPreviewCommand = new RelayCommand(_ => IsTaskPreview = true);
@@ -48,6 +53,16 @@ public sealed class ThemeEditorViewModel : ObservableObject
     public IReadOnlyList<ThemeArtSize> ArtSizes { get; } = Enum.GetValues<ThemeArtSize>();
 
     public IReadOnlyList<ThemeTaskMode> TaskModes { get; } = Enum.GetValues<ThemeTaskMode>();
+
+    public IColorHistoryService ColorHistoryService => colorHistory;
+
+    public IEnumerable<string> ColorHistory => colorHistory.Colors;
+
+    public bool IsColorPickerOpen
+    {
+        get => isColorPickerOpen;
+        set => SetProperty(ref isColorPickerOpen, value);
+    }
 
     public RelayCommand ResetDefaultsCommand { get; }
 
@@ -151,6 +166,17 @@ public sealed class ThemeEditorViewModel : ObservableObject
 
     public bool IsCropMode => ArtSize == ThemeArtSize.Crop;
 
+    public double CropScale
+    {
+        get => draft?.Art.CropScale ?? 1;
+        set => SetArt(draft is null
+            ? null
+            : draft.Art with
+            {
+                CropScale = Math.Clamp(value, 1, ThemePackageContractValidator.MaximumCropScale),
+            });
+    }
+
     public double HomeOpacity
     {
         get => draft?.Art.HomeOpacity ?? 0.72;
@@ -186,6 +212,14 @@ public sealed class ThemeEditorViewModel : ObservableObject
         get => draft?.Art.Blur ?? 0;
         set => SetArt(draft is null ? null : draft.Art with { Blur = Math.Clamp(value, 0, 64) });
     }
+
+    public double PanelBlur
+    {
+        get => draft?.Art.PanelBlur ?? 0;
+        set => SetArt(draft is null ? null : draft.Art with { PanelBlur = Math.Clamp(value, 0, 64) });
+    }
+
+    public double PanelGlassOpacity => PanelBlur / ThemePackageContractValidator.MaximumBlur * 0.45;
 
     public string? PreviewImagePath
     {
@@ -234,28 +268,18 @@ public sealed class ThemeEditorViewModel : ObservableObject
 
     public bool IsTaskOverlayEnabled => TaskMode != ThemeTaskMode.Hidden;
 
-    public string ContrastMessage
-    {
-        get => contrastMessage;
-        private set => SetProperty(ref contrastMessage, value);
-    }
-
-    public bool HasContrastWarning
-    {
-        get => hasContrastWarning;
-        private set => SetProperty(ref hasContrastWarning, value);
-    }
-
     public void Begin(ThemePackage theme, bool newTheme, string? thumbnailPath = null)
     {
         draft = new ThemeDraft(theme);
         isNew = newTheme;
+        originalArtFileName = theme.Art.File;
+        generatedAssetFileNames.Clear();
+        IsTaskPreview = false;
         thumbnailRelativePath = null;
         PreviewImagePath = thumbnailPath ??
             resolveDataPath(
                 $"{StorageLayout.GetThemeDirectory(theme.Id)}/{theme.Art.File}");
         NotifyAll();
-        UpdateContrast();
     }
 
     public async Task<OperationResult> SelectImageAsync(
@@ -298,6 +322,10 @@ public sealed class ThemeEditorViewModel : ObservableObject
                 _ => ThemeTaskMode.Ambient,
             },
         };
+        if (!processed.Value.RuntimeBackground.WasReused)
+        {
+            generatedAssetFileNames.Add(processed.Value.ThemeArtFileName);
+        }
         thumbnailRelativePath = processed.Value.CardThumbnail.RelativePath;
         PreviewImagePath = resolveDataPath(processed.Value.EditorPreview.RelativePath);
         NotifyArt();
@@ -351,21 +379,53 @@ public sealed class ThemeEditorViewModel : ObservableObject
             };
         }
 
-        var contrast = ThemeContrast.Assess(theme.Palette, theme.Variant);
-        if (!contrast.IsSuccess)
-        {
-            return OperationResult<ThemePackage>.Failure(contrast.Error!);
-        }
-
         var saved = await repository.SaveAsync(
             theme,
             new ThemeCreateOptions(
                 Tags: isNew ? ["自制"] : null,
                 ThumbnailRelativePath: thumbnailRelativePath),
             cancellationToken);
-        return saved.IsSuccess
-            ? OperationResult<ThemePackage>.Success(theme)
-            : OperationResult<ThemePackage>.Failure(saved.Error!);
+        if (!saved.IsSuccess)
+        {
+            if (saveCopy)
+            {
+                await assetStore.DeleteGeneratedAssetsAsync(
+                    theme.Id,
+                    [theme.Art.File],
+                    deleteEmptyThemeDirectory: true,
+                    cancellationToken);
+            }
+
+            return OperationResult<ThemePackage>.Failure(saved.Error!);
+        }
+
+        if (!saveCopy)
+        {
+            var obsolete = generatedAssetFileNames
+                .Where(fileName => !string.Equals(fileName, theme.Art.File, StringComparison.OrdinalIgnoreCase))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (!string.Equals(originalArtFileName, theme.Art.File, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(originalArtFileName))
+            {
+                obsolete.Add(originalArtFileName);
+            }
+
+            if (obsolete.Count > 0)
+            {
+                var cleanup = await assetStore.DeleteGeneratedAssetsAsync(
+                    theme.Id,
+                    obsolete,
+                    deleteEmptyThemeDirectory: false,
+                    cancellationToken);
+                if (!cleanup.IsSuccess)
+                {
+                    return OperationResult<ThemePackage>.Failure(cleanup.Error!);
+                }
+            }
+        }
+
+        generatedAssetFileNames.Clear();
+        return OperationResult<ThemePackage>.Success(theme);
     }
 
     public void ResetDefaults()
@@ -389,9 +449,30 @@ public sealed class ThemeEditorViewModel : ObservableObject
             TaskOpacity = 0.22,
             TaskOverlay = 0.62,
             Blur = 0,
+            PanelBlur = 10,
+            CropScale = 1,
         };
         NotifyAll();
-        UpdateContrast();
+    }
+
+    public async Task<OperationResult> CancelAsync(CancellationToken cancellationToken)
+    {
+        var currentDraft = draft;
+        if (currentDraft is not null)
+        {
+            var cleanup = await assetStore.DeleteGeneratedAssetsAsync(
+                currentDraft.Id,
+                generatedAssetFileNames,
+                deleteEmptyThemeDirectory: isNew,
+                cancellationToken);
+            if (!cleanup.IsSuccess)
+            {
+                return cleanup;
+            }
+        }
+
+        Cancel();
+        return OperationResult.Success();
     }
 
     public void Cancel()
@@ -399,6 +480,8 @@ public sealed class ThemeEditorViewModel : ObservableObject
         draft = null;
         PreviewImagePath = null;
         thumbnailRelativePath = null;
+        originalArtFileName = null;
+        generatedAssetFileNames.Clear();
         OnPropertyChanged(nameof(HasDraft));
     }
 
@@ -411,7 +494,6 @@ public sealed class ThemeEditorViewModel : ObservableObject
 
         draft.Palette = value;
         NotifyPalette();
-        UpdateContrast();
     }
 
     private void SetArt(ThemeArt? value)
@@ -423,20 +505,6 @@ public sealed class ThemeEditorViewModel : ObservableObject
 
         draft.Art = value;
         NotifyArt();
-    }
-
-    private void UpdateContrast()
-    {
-        if (draft is null)
-        {
-            return;
-        }
-
-        var result = ThemeContrast.Assess(draft.Palette, draft.Variant);
-        HasContrastWarning = !result.IsSuccess || result.Value!.HasWarning;
-        ContrastMessage = result.IsSuccess
-            ? $"{result.Value!.UserMessage} 正文 {result.Value.TextRatio:F1}:1 · 辅助文字 {result.Value.MutedTextRatio:F1}:1"
-            : result.Error!.UserMessage;
     }
 
     private void NotifyAll()
@@ -466,12 +534,15 @@ public sealed class ThemeEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(FocusY));
         OnPropertyChanged(nameof(ArtSize));
         OnPropertyChanged(nameof(IsCropMode));
+        OnPropertyChanged(nameof(CropScale));
         OnPropertyChanged(nameof(HomeOpacity));
         OnPropertyChanged(nameof(HomeOverlay));
         OnPropertyChanged(nameof(TaskMode));
         OnPropertyChanged(nameof(TaskOpacity));
         OnPropertyChanged(nameof(TaskOverlay));
         OnPropertyChanged(nameof(Blur));
+        OnPropertyChanged(nameof(PanelBlur));
+        OnPropertyChanged(nameof(PanelGlassOpacity));
         OnPropertyChanged(nameof(PreviewOpacity));
         OnPropertyChanged(nameof(PreviewOverlay));
         OnPropertyChanged(nameof(TaskContentOverlay));

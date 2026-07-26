@@ -8,6 +8,7 @@ public static class ThemePackageContractValidator
     public const int CurrentSchemaVersion = 1;
     public const int MaximumNameLength = 120;
     public const double MaximumBlur = 64;
+    public const double MaximumCropScale = 3;
 
     public static IReadOnlyList<ValidationIssue> Validate(ThemePackage package)
     {
@@ -161,6 +162,8 @@ public static class ThemePackageContractValidator
         ValidateRange(art.TaskOpacity, 0, 1, "art.taskOpacity", issues);
         ValidateRange(art.TaskOverlay, 0, 1, "art.taskOverlay", issues);
         ValidateRange(art.Blur, 0, MaximumBlur, "art.blur", issues);
+        ValidateRange(art.PanelBlur, 0, MaximumBlur, "art.panelBlur", issues);
+        ValidateRange(art.CropScale, 1, MaximumCropScale, "art.cropScale", issues);
 
         ValidateEnum(art.SafeArea, "theme.art.safe_area.invalid", "art.safeArea", issues);
         ValidateEnum(art.Size, "theme.art.size.invalid", "art.size", issues);

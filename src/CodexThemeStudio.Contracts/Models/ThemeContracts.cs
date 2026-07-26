@@ -65,7 +65,9 @@ public sealed record ThemeArt(
     ThemeTaskMode TaskMode,
     double TaskOpacity,
     double TaskOverlay,
-    double Blur);
+    double Blur,
+    double PanelBlur = 0,
+    double CropScale = 1);
 
 public sealed record ThemePackage(
     int SchemaVersion,

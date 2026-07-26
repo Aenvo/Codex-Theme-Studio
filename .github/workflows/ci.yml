@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          global-json-file: global.json
+
+      - name: Read pinned Node version
+        id: runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $baseline = Get-Content -Raw .\eng\runtime-baseline.json |
+            ConvertFrom-Json
+          if ($baseline.nodeVersion -ne '24.18.0') {
+            throw "Unexpected pinned Node version: $($baseline.nodeVersion)"
+          }
+          "node_version=$($baseline.nodeVersion)" >> $env:GITHUB_OUTPUT
+
+      - name: Install pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ steps.runtime.outputs.node_version }}
+
+      - name: Build and test
+        shell: powershell
+        run: .\build.ps1 -Configuration Release

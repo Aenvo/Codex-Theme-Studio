@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text.Json;
 using CodexThemeStudio.Contracts.Interfaces;
 using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Contracts.Results;
@@ -27,21 +30,10 @@ public sealed class PersistenceManagementTests
         var stable = Path.Combine(parent, "稳定 Agent");
         try
         {
-            Directory.CreateDirectory(Path.Combine(source, "agent"));
-            Directory.CreateDirectory(Path.Combine(source, "runtime", "node"));
-            Directory.CreateDirectory(Path.Combine(source, "runtime", "injector"));
-            await File.WriteAllTextAsync(
-                Path.Combine(source, "agent", "CodexThemeStudio.Agent.exe"),
-                "agent");
+            await CreateAgentBundleAsync(source);
             await File.WriteAllTextAsync(
                 Path.Combine(source, "CodexThemeStudio.Desktop.dll"),
                 "desktop-only");
-            await File.WriteAllTextAsync(
-                Path.Combine(source, "runtime", "node", "node.exe"),
-                "node");
-            await File.WriteAllTextAsync(
-                Path.Combine(source, "runtime", "injector", "index.mjs"),
-                "injector");
 
             var result = await new ManagedAgentInstaller().InstallAsync(
                 source,
@@ -60,9 +52,256 @@ public sealed class PersistenceManagementTests
                 result.Value.VersionDirectory,
                 "CodexThemeStudio.Desktop.dll")));
             Assert.Equal(64, result.Value.ContentFingerprint.Length);
+
+            Directory.Delete(source, recursive: true);
+            Assert.True(File.Exists(result.Value.AgentExecutablePath));
+            Assert.True(File.Exists(result.Value.NodeExecutablePath));
+            Assert.True(File.Exists(result.Value.InjectorScriptPath));
         }
         finally
         {
+            Directory.Delete(parent, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Installer_RejectsUnknownManifestSchema()
+    {
+        var parent = CreateTemporaryDirectory();
+        try
+        {
+            var source = Path.Combine(parent, "source");
+            await CreateAgentBundleAsync(source, schemaVersion: 2);
+
+            var result = await new ManagedAgentInstaller().InstallAsync(
+                source,
+                Path.Combine(parent, "stable"),
+                CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal(
+                "persistence.install.manifest_invalid",
+                result.Error!.DiagnosticCode);
+        }
+        finally
+        {
+            Directory.Delete(parent, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Installer_RejectsPathEscapeAndDuplicateDestination()
+    {
+        var parent = CreateTemporaryDirectory();
+        try
+        {
+            var source = Path.Combine(parent, "source");
+            var entries = await CreateAgentBundleAsync(source);
+            entries.Add(entries[0] with { Source = "../outside.exe" });
+            await WriteAgentManifestAsync(source, 1, entries);
+
+            var escaped = await new ManagedAgentInstaller().InstallAsync(
+                source,
+                Path.Combine(parent, "stable-escape"),
+                CancellationToken.None);
+
+            Assert.False(escaped.IsSuccess);
+            Assert.Equal(
+                "persistence.install.manifest_invalid",
+                escaped.Error!.DiagnosticCode);
+
+            entries = await CreateAgentBundleAsync(source);
+            entries.Add(entries[0] with { Source = entries[1].Source });
+            await WriteAgentManifestAsync(source, 1, entries);
+
+            var duplicate = await new ManagedAgentInstaller().InstallAsync(
+                source,
+                Path.Combine(parent, "stable-duplicate"),
+                CancellationToken.None);
+
+            Assert.False(duplicate.IsSuccess);
+            Assert.Equal(
+                "persistence.install.manifest_invalid",
+                duplicate.Error!.DiagnosticCode);
+        }
+        finally
+        {
+            Directory.Delete(parent, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Installer_RejectsHashMismatchAndCorruptExistingVersion()
+    {
+        var parent = CreateTemporaryDirectory();
+        try
+        {
+            var source = Path.Combine(parent, "source");
+            await CreateAgentBundleAsync(source);
+            var agentSource = Path.Combine(
+                source,
+                "agent",
+                "CodexThemeStudio.Agent.exe");
+            await File.AppendAllTextAsync(agentSource, "tampered");
+
+            var mismatch = await new ManagedAgentInstaller().InstallAsync(
+                source,
+                Path.Combine(parent, "stable-mismatch"),
+                CancellationToken.None);
+
+            Assert.False(mismatch.IsSuccess);
+            Assert.Equal(
+                "persistence.install.bundle_mismatch",
+                mismatch.Error!.DiagnosticCode);
+
+            await CreateAgentBundleAsync(source);
+            var stable = Path.Combine(parent, "stable");
+            var first = await new ManagedAgentInstaller().InstallAsync(
+                source,
+                stable,
+                CancellationToken.None);
+            Assert.True(first.IsSuccess);
+
+            await File.AppendAllTextAsync(
+                first.Value!.AgentExecutablePath,
+                "corrupt");
+            var second = await new ManagedAgentInstaller().InstallAsync(
+                source,
+                stable,
+                CancellationToken.None);
+
+            Assert.False(second.IsSuccess);
+            Assert.Equal(
+                "persistence.install.destination_invalid",
+                second.Error!.DiagnosticCode);
+        }
+        finally
+        {
+            Directory.Delete(parent, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Installer_ReusesValidContentFingerprint()
+    {
+        var parent = CreateTemporaryDirectory();
+        try
+        {
+            var source = Path.Combine(parent, "source");
+            var stable = Path.Combine(parent, "stable");
+            await CreateAgentBundleAsync(source);
+
+            var first = await new ManagedAgentInstaller().InstallAsync(
+                source,
+                stable,
+                CancellationToken.None);
+            var second = await new ManagedAgentInstaller().InstallAsync(
+                source,
+                stable,
+                CancellationToken.None);
+
+            Assert.True(first.IsSuccess);
+            Assert.True(second.IsSuccess);
+            Assert.Equal(
+                first.Value!.ContentFingerprint,
+                second.Value!.ContentFingerprint);
+            Assert.Equal(
+                first.Value.VersionDirectory,
+                second.Value.VersionDirectory);
+            Assert.Single(Directory.GetDirectories(
+                Path.Combine(stable, "versions")));
+        }
+        finally
+        {
+            Directory.Delete(parent, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Installer_CancellationDoesNotLeaveStagingDirectory()
+    {
+        var parent = CreateTemporaryDirectory();
+        try
+        {
+            var source = Path.Combine(parent, "source");
+            var stable = Path.Combine(parent, "stable");
+            await CreateAgentBundleAsync(source);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            var result = await new ManagedAgentInstaller().InstallAsync(
+                source,
+                stable,
+                cancellation.Token);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal(
+                "persistence.install.cancelled",
+                result.Error!.DiagnosticCode);
+            Assert.False(Directory.Exists(Path.Combine(stable, "versions")));
+        }
+        finally
+        {
+            Directory.Delete(parent, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Installer_RejectsReparsePointSourceAndStableRoot()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var parent = CreateTemporaryDirectory();
+        try
+        {
+            var source = Path.Combine(parent, "source");
+            var junction = Path.Combine(parent, "source-junction");
+            await CreateAgentBundleAsync(source);
+            await CreateDirectoryJunctionAsync(junction, source);
+
+            var result = await new ManagedAgentInstaller().InstallAsync(
+                junction,
+                Path.Combine(parent, "stable"),
+                CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal(
+                "persistence.install.bundle_incomplete",
+                result.Error!.DiagnosticCode);
+
+            var stableTarget = Path.Combine(parent, "stable-target");
+            var stableJunction = Path.Combine(parent, "stable-junction");
+            Directory.CreateDirectory(stableTarget);
+            await CreateDirectoryJunctionAsync(stableJunction, stableTarget);
+
+            var stableResult = await new ManagedAgentInstaller().InstallAsync(
+                source,
+                stableJunction,
+                CancellationToken.None);
+
+            Assert.False(stableResult.IsSuccess);
+            Assert.Equal(
+                "persistence.install.path_invalid",
+                stableResult.Error!.DiagnosticCode);
+        }
+        finally
+        {
+            foreach (var junctionName in new[]
+                     {
+                         "source-junction",
+                         "stable-junction",
+                     })
+            {
+                var junction = Path.Combine(parent, junctionName);
+                if (Directory.Exists(junction))
+                {
+                    Directory.Delete(junction);
+                }
+            }
+
             Directory.Delete(parent, recursive: true);
         }
     }
@@ -87,6 +326,31 @@ public sealed class PersistenceManagementTests
         Assert.Equal(1, fixture.Controller.StartCount);
         Assert.Equal(fixture.Theme.Id, fixture.Repository.CurrentPersistent);
         Assert.Equal(fixture.Theme.Id, fixture.Snapshot.Active!.ThemeId);
+    }
+
+    [Fact]
+    public async Task Switch_WhenCodexNotRunningStillChangesActiveSnapshot()
+    {
+        var fixture = new ServiceFixture();
+        Assert.True(
+            (await fixture.Service.EnableAsync(
+                fixture.Theme,
+                CancellationToken.None)).IsSuccess);
+        var next = CreateTheme(Guid.NewGuid());
+        fixture.Runtime.SwitchResult =
+            OperationResult<ThemeRuntimeStatus>.Failure(
+                OperationErrorCode.CodexNotFound,
+                "Codex 未运行。",
+                "runtime.codex_not_running");
+
+        var result = await fixture.Service.SwitchAsync(
+            next,
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(next.Id, fixture.Repository.CurrentPersistent);
+        Assert.Equal(next.Id, fixture.Snapshot.Active!.ThemeId);
+        Assert.Equal(2, fixture.Controller.StartCount);
     }
 
     [Fact]
@@ -160,6 +424,110 @@ public sealed class PersistenceManagementTests
         Directory.CreateDirectory(path);
         return path;
     }
+
+    private static async Task CreateDirectoryJunctionAsync(
+        string junction,
+        string target)
+    {
+        var commandInterpreter = Environment.GetEnvironmentVariable("ComSpec");
+        Assert.False(string.IsNullOrWhiteSpace(commandInterpreter));
+        var startInfo = new ProcessStartInfo(commandInterpreter!)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        startInfo.ArgumentList.Add("/d");
+        startInfo.ArgumentList.Add("/c");
+        startInfo.ArgumentList.Add("mklink");
+        startInfo.ArgumentList.Add("/J");
+        startInfo.ArgumentList.Add(junction);
+        startInfo.ArgumentList.Add(target);
+
+        using var process = Process.Start(startInfo);
+        Assert.NotNull(process);
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        Assert.True(
+            process.ExitCode == 0,
+            $"Could not create test junction: {await output} {await error}");
+    }
+
+    private static async Task<List<AgentManifestEntry>> CreateAgentBundleAsync(
+        string source,
+        int schemaVersion = 1)
+    {
+        var files = new Dictionary<string, string>
+        {
+            ["agent/CodexThemeStudio.Agent.exe"] = "agent",
+            ["shared-runtime.dll"] = "shared",
+            ["runtime/node/node.exe"] = "node",
+            ["runtime/injector/index.mjs"] = "injector",
+        };
+        foreach (var (relativePath, content) in files)
+        {
+            var path = Path.Combine(source, relativePath.Replace('/', '\\'));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllTextAsync(path, content);
+        }
+
+        var entries = new List<AgentManifestEntry>();
+        foreach (var relativePath in files.Keys)
+        {
+            var sourcePath = Path.Combine(source, relativePath.Replace('/', '\\'));
+            var destination = relativePath.StartsWith(
+                "agent/",
+                StringComparison.Ordinal)
+                ? relativePath["agent/".Length..]
+                : relativePath;
+            entries.Add(new AgentManifestEntry(
+                relativePath,
+                destination,
+                new FileInfo(sourcePath).Length,
+                await Sha256Async(sourcePath)));
+        }
+
+        await WriteAgentManifestAsync(source, schemaVersion, entries);
+        return entries;
+    }
+
+    private static async Task WriteAgentManifestAsync(
+        string source,
+        int schemaVersion,
+        IReadOnlyList<AgentManifestEntry> entries)
+    {
+        var path = Path.Combine(source, "agent", "agent-bundle-manifest.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(
+            path,
+            JsonSerializer.Serialize(new
+            {
+                schemaVersion,
+                files = entries.Select(entry => new
+                {
+                    source = entry.Source,
+                    destination = entry.Destination,
+                    bytes = entry.Bytes,
+                    sha256 = entry.Sha256,
+                }),
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+    }
+
+    private static async Task<string> Sha256Async(string path)
+    {
+        await using var stream = File.OpenRead(path);
+        return Convert.ToHexString(
+                await SHA256.HashDataAsync(stream))
+            .ToLowerInvariant();
+    }
+
+    private sealed record AgentManifestEntry(
+        string Source,
+        string Destination,
+        long Bytes,
+        string Sha256);
 
     private static ThemePackage CreateTheme(Guid id) =>
         new(

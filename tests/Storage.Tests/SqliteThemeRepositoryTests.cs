@@ -290,6 +290,38 @@ public class SqliteThemeRepositoryTests
     }
 
     [Fact]
+    public async Task List_ReRegistersThemeRestoredFromSystemRecycleBin()
+    {
+        await using var environment = await StorageTestEnvironment.CreateAsync();
+        var recycler = new RecordingThemeDirectoryRecycleService();
+        var repository = environment.CreateRepository(recycler);
+        var theme = StorageTestEnvironment.CreateTheme("Restored from system recycle bin");
+        Assert.True(
+            (await repository.SaveAsync(
+                theme,
+                new ThemeCreateOptions(),
+                CancellationToken.None)).IsSuccess);
+        Assert.True((await repository.DeleteAsync(theme.Id, CancellationToken.None)).IsSuccess);
+        Assert.True(
+            (await repository.PermanentlyDeleteAsync(
+                theme.Id,
+                CancellationToken.None)).IsSuccess);
+
+        var themeDirectory = Path.Combine(
+            environment.DataRoot,
+            StorageLayout.GetThemeDirectory(theme.Id));
+        Directory.Move(themeDirectory + ".system-recycle", themeDirectory);
+
+        var listed = await repository.ListAsync(CancellationToken.None);
+
+        Assert.True(listed.IsSuccess, listed.Error?.DiagnosticCode);
+        var restored = Assert.Single(listed.Value!);
+        Assert.Equal(theme.Id, restored.ThemeId);
+        Assert.Equal(theme.Name, restored.DisplayName);
+        Assert.Empty((await repository.ListDeletedAsync(CancellationToken.None)).Value!);
+    }
+
+    [Fact]
     public async Task RestoreDeleted_MissingThemeDirectoryFailsClosed()
     {
         await using var environment = await StorageTestEnvironment.CreateAsync();
