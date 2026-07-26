@@ -79,6 +79,10 @@ UI 贡献者应同时遵循 [design.md](./design.md) 中的设计 token、图标
 - [发布流程](./docs/releasing.md)：版本、tag、Draft Release 与人工发布门禁。
 - [安全政策](./SECURITY.md)：支持版本和漏洞报告方式。
 
+## 社区
+
+本项目已在 [LINUX DO](https://linux.do/) 社区分享，欢迎交流与反馈。
+
 ## 第三方组件
 
 界面图标基于 Lucide 集合并转换为随程序内置的原生 WPF Geometry；应用构建和运行不从在线图标服务加载资源。依赖版本、许可证与归属见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)，便携包附带对应 `LICENSES/` 文本。
