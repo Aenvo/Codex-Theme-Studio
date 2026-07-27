@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="../src/CodexThemeStudio.Contracts/CodexThemeStudio.Contracts.csproj" />
+    <Project Path="../src/CodexThemeStudio.ThemeCore/CodexThemeStudio.ThemeCore.csproj" />
+    <Project Path="../src/CodexThemeStudio.CodexRuntime/CodexThemeStudio.CodexRuntime.csproj" />
+    <Project Path="../src/CodexThemeStudio.CodexAdapter.MacOS/CodexThemeStudio.CodexAdapter.MacOS.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="../tests/CodexRuntime.Tests/CodexThemeStudio.CodexRuntime.Tests.csproj" />
+    <Project Path="../tests/CodexAdapter.MacOS.Tests/CodexThemeStudio.CodexAdapter.MacOS.Tests.csproj" />
+  </Folder>
+</Solution>

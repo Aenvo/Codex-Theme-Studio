@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifiers>osx-arm64</RuntimeIdentifiers>
+    <AssemblyName>CodexThemeStudio.CodexAdapter.MacOS</AssemblyName>
+    <RootNamespace>CodexThemeStudio.CodexAdapter.MacOS</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CodexThemeStudio.Contracts\CodexThemeStudio.Contracts.csproj" />
+    <ProjectReference Include="..\CodexThemeStudio.CodexRuntime\CodexThemeStudio.CodexRuntime.csproj" />
+  </ItemGroup>
+
+</Project>

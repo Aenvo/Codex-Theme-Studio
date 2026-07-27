@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>CodexThemeStudio.CodexRuntime</AssemblyName>
+    <RootNamespace>CodexThemeStudio.CodexRuntime</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CodexThemeStudio.Contracts\CodexThemeStudio.Contracts.csproj" />
+    <ProjectReference Include="..\CodexThemeStudio.ThemeCore\CodexThemeStudio.ThemeCore.csproj" />
+  </ItemGroup>
+
+</Project>
