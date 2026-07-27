@@ -26,10 +26,10 @@
 | R-18 | 自动化 Release 可能在签名、病毒扫描或干净环境验收前公开 | CI 仅有 `contents: read`；Release 构建阶段只读，只有人工推送精确 tag 后的独立 job 取得 `contents: write` 并创建 Draft。公开发布仍需人工完成 SHA-256、有效 Defender、NotSigned 披露和干净 Windows 验收 | Mitigated |
 | R-19 | 公开仓库可能意外暴露凭证、个人数据或尚未修复的漏洞 | `.gitignore` 拦截常见环境文件、密钥、日志和数据库；公开前扫描当前树与历史，安全问题转入 Private Vulnerability Reporting。仓库公开后仍需人工启用 Secret Scanning、Push Protection 和私密漏洞报告 | Open |
 | R-20 | 编辑器永久删除无引用受管背景时，错误的可达性判断可能造成不可恢复的数据损失 | 删除范围只来自当前编辑会话追踪；存储层再次校验可信 DataRoot、精确主题 UUID、普通文件/目录、无重解析点、`theme.json` 当前 `art.file` 引用和空目录条件。共享缓存、索引主题、应用回收站主题、未知孤立目录及完整未索引主题均排除；临时真实文件系统测试覆盖直接删除和保护分支 | Mitigated |
-| R-21 | 正式 macOS Helper 与已验证 spike 行为漂移，导致身份、端口或清理门禁缺失 | 正式代码不依赖 `spikes/`；ADR 记录证据 SHA，生产协议为独立版本化实现，并要求 fixture、集成和真机闭环逐层复验 | Open |
+| R-21 | 正式 macOS Helper 与已验证 spike 行为漂移，导致身份、端口或清理门禁缺失 | 正式代码不依赖 `spikes/`；ADR 记录证据 SHA，生产协议为独立版本化实现。第 7B.2B 验收入口强制经 Application → Coordinator → Adapter 调用链并由 fixture 验证命令顺序；真实端口和清理仍待真机闭环 | Open |
 | R-22 | macOS Swift Helper、固定 Node、runtime manifest 或 renderer script 被替换 | 7B.2A 在仓库外原子 staging 中实际建立 Node/脚本 → manifest → Swift Helper → .NET 的单向内容身份链；源码常量保持空并 fail-closed，只有严格 staging self-test 可报告身份已配置。产物仍未签名或公证，7B.2B 真机闭环及第 8 阶段 nested signing、Gatekeeper 验收前不得声明发布身份资格 | Open |
-| R-23 | Helper 崩溃、取消或超时后 Inspector 仍监听 9229 | Helper 独占信号、Node 和 Inspector 生命周期；发送信号后取消不得跳过 Cleanup 与 `_debugEnd()`，最终端口未知或残留均 fail-closed | Open |
-| R-24 | macOS Codex 更新后错误复用旧资格 | 资格只缓存安装组合指纹、协议和能力版本，不缓存 PID、Target 或活动主题；每次操作重新发现，指纹变化后暂停并要求新的 Apply/Cleanup/Reapply | Open |
+| R-23 | Helper 崩溃、取消或超时后 Inspector 仍监听 9229 | Helper 独占信号、Node 和 Inspector 生命周期；Application 验收流程为必要清理保留独立 25 秒 token，调用方取消不得跳过 Cleanup 与 `_debugEnd()`，最终端口未知或残留均 fail-closed。真机有效性仍待 7B.2B | Open |
+| R-24 | macOS Codex 更新后错误复用旧资格 | 资格只缓存安装组合指纹、协议和能力版本，不缓存 PID、Target 或活动主题；第 7B.2B 资格限定为单一 Harness 进程内存，每次操作重新发现并要求进程身份稳定。跨应用重启持久资格尚未实现 | Open |
 | R-25 | 背景图片本地预览被误解为已在 Codex 中生效 | macOS MVP 只投影调色板，UI 必须显示背景未应用；Blob 背景渲染和撤销前后可访问性继续标记 `To be confirmed` | Open |
 | R-26 | .NET 或 Node 在 Hardened Runtime 下需要过宽 entitlement | 第 8 阶段从 `allow-jit` 最小候选开始逐项验证；不预设 Apple Events、DYLD、disable-library-validation 或 unsigned executable memory | Open |
 | R-27 | macOS 根构建或 Contracts 变更破坏 Windows 1.2.0 | Windows WPF、Agent 和现有 Adapter 初期保持不变；跨平台 DTO 使用新增 v2 类型，所有共享变更要求 Windows完整构建和测试证据 | Open |

@@ -33,6 +33,11 @@ Windows x64 self-contained 便携包为正式维护基线。macOS 可行性分�
 
 - `CodexThemeStudio.CodexRuntime` 保存平台中立的资格、Apply、Cleanup 和状态机。
 - `CodexThemeStudio.CodexAdapter.MacOS` 只负责启动并验证 one-shot Swift Helper。
+- `CodexThemeStudio.Application.MacOS` 是 macOS 产品组合根；未来 Avalonia UI
+  与无 UI 验收入口均通过它创建 Adapter、Runtime 和进程内资格存储。
+- 第 7B.2B 使用独立 Acceptance Harness 驱动 Application 组合根；Harness
+  不直接引用 Helper、Node 或 CDP。RuntimeHost 继续只负责产物身份自检，
+  不承载产品业务命令。
 - Swift Helper 独占 Bundle/签名/进程/端口/SIGUSR1/Inspector 生命周期，并直接
   启动固定 Node Runtime。
 - Node 只负责受限 HTTP、WebSocket、CDP 和固定 renderer 表达式。
@@ -78,6 +83,13 @@ Windows x64 self-contained 便携包为正式维护基线。macOS 可行性分�
 - 7B.2A staging 尚未签名、公证，也不构成发布 App Bundle。使用该固定产物
   执行正式真机闭环是 7B.2B；nested signing、Hardened Runtime 和 Gatekeeper
   验收仍属于第 8 阶段。
+- 7B.2B 的验收请求只通过 stdin 接受短时明确授权和六色声明式主题。资格仅在
+  单次 Harness 进程内存中存在；首次资格、Restore、第二次临时 Apply 和最终
+  Restore 必须全部通过 Application 和 Coordinator。调用方取消不得中断一次
+  必要的独立最终 Cleanup。
+- assembly receipt schema v2 记录受管产品载荷的规范化清单和组合哈希。assembly
+  ID 同时绑定 manifest、Helper 及全部 staged DLL/deps/runtimeconfig；receipt
+  只是证据，编译进 Helper 和 .NET 的单向哈希仍是信任根。
 - 发布目标为 Developer ID、Hardened Runtime、公证和 stapled ZIP。
 - 首版不以 App Sandbox 或 Mac App Store 为目标，不绕过 Gatekeeper、SIP 或
   其他系统安全机制。
@@ -87,5 +99,7 @@ Windows x64 self-contained 便携包为正式维护基线。macOS 可行性分�
 - Windows 和 macOS UI 将独立维护，但共享 ThemeCore、Contracts 和 Storage。
 - macOS 增加 Swift、Node、.NET 三层协议及其供应链和签名成本。
 - Swift Helper 成为安全边界；其替换、版本漂移或结构化清理失败必须 fail-closed。
+- 验收 Harness 只证明正式无 UI 组合链；它不是最终 UI 的长期命令行 API，也不
+  建立跨应用或跨 Codex 重启的持久资格。
 - Intel、Universal Binary、背景图片、Agent、登录项、签名、公证和多版本
   Codex 兼容矩阵仍需独立阶段验证。

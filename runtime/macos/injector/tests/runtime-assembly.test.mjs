@@ -42,6 +42,8 @@ test("assembly entry is offline, locked, and contains no runtime bypass", () => 
     "utf8");
   assert.match(script, /--locked-mode/u);
   assert.match(script, /MacRuntimeIdentityGeneratedSource/u);
+  assert.match(script, /dotnet-harness-publish/u);
+  assert.match(script, /managed-runtime-identity\.mjs/u);
   assert.doesNotMatch(script, /\beval\b/u);
   assert.doesNotMatch(script, /\bcurl\b|\bwget\b/u);
   assert.doesNotMatch(script, /SIGUSR1|9229|\/json\/|ws:\/\/|\bkill\s*\(/u);

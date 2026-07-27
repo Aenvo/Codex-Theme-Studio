@@ -59,6 +59,19 @@ export DOTNET_ROOT="${DOTNET:h}"
   --no-restore
 
 "$DOTNET" restore \
+  ../tests/CodexThemeStudio.Application.MacOS.Tests/CodexThemeStudio.Application.MacOS.Tests.csproj \
+  --locked-mode
+"$DOTNET" build \
+  ../tests/CodexThemeStudio.Application.MacOS.Tests/CodexThemeStudio.Application.MacOS.Tests.csproj \
+  --configuration Release \
+  --no-restore
+"$DOTNET" test \
+  ../tests/CodexThemeStudio.Application.MacOS.Tests/CodexThemeStudio.Application.MacOS.Tests.csproj \
+  --configuration Release \
+  --no-build \
+  --no-restore
+
+"$DOTNET" restore \
   CodexThemeStudio.RuntimeHost/CodexThemeStudio.RuntimeHost.csproj \
   --locked-mode
 "$DOTNET" build \
@@ -70,6 +83,20 @@ export DOTNET_ROOT="${DOTNET:h}"
   source-self-test
 "$DOTNET" \
   CodexThemeStudio.RuntimeHost/bin/Release/net10.0/CodexThemeStudio.RuntimeHost.dll \
+  schema
+
+"$DOTNET" restore \
+  CodexThemeStudio.MacOS.AcceptanceHarness/CodexThemeStudio.MacOS.AcceptanceHarness.csproj \
+  --locked-mode
+"$DOTNET" build \
+  CodexThemeStudio.MacOS.AcceptanceHarness/CodexThemeStudio.MacOS.AcceptanceHarness.csproj \
+  --configuration Release \
+  --no-restore
+"$DOTNET" \
+  CodexThemeStudio.MacOS.AcceptanceHarness/bin/Release/net10.0/CodexThemeStudio.MacOS.AcceptanceHarness.dll \
+  source-self-test
+"$DOTNET" \
+  CodexThemeStudio.MacOS.AcceptanceHarness/bin/Release/net10.0/CodexThemeStudio.MacOS.AcceptanceHarness.dll \
   schema
 
 /usr/bin/xcrun swift package \
@@ -94,6 +121,7 @@ SWIFT_BIN=$(/usr/bin/xcrun swift build \
 "$SWIFT_BIN/codex-theme-studio-runtime-manifest" schema
 
 "$NODE" --test \
+  tests/managed-runtime-identity.test.mjs \
   ../runtime/macos/injector/tests/cdp-client.test.mjs \
   ../runtime/macos/injector/tests/runtime-assembly.test.mjs
 "$NODE" ../runtime/macos/injector/cdp-client.mjs self-test

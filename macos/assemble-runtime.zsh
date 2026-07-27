@@ -15,6 +15,8 @@ CDP_SOURCE="$REPOSITORY_ROOT/runtime/macos/injector/cdp-client.mjs"
 RENDERER_SOURCE="$REPOSITORY_ROOT/runtime/macos/injector/renderer-runtime.mjs"
 SCHEMA_SOURCE="$SCRIPT_DIRECTORY/runtime-manifest-v1.schema.json"
 HOST_PROJECT="$SCRIPT_DIRECTORY/CodexThemeStudio.RuntimeHost/CodexThemeStudio.RuntimeHost.csproj"
+HARNESS_PROJECT="$SCRIPT_DIRECTORY/CodexThemeStudio.MacOS.AcceptanceHarness/CodexThemeStudio.MacOS.AcceptanceHarness.csproj"
+IDENTITY_TOOL="$SCRIPT_DIRECTORY/managed-runtime-identity.mjs"
 MANIFEST_PRODUCT=codex-theme-studio-runtime-manifest
 HELPER_PRODUCT=codex-theme-studio-mac-helper
 
@@ -60,6 +62,7 @@ preflight() {
   require_regular_input "$CDP_SOURCE"
   require_regular_input "$RENDERER_SOURCE"
   require_regular_input "$SCHEMA_SOURCE"
+  require_regular_input "$IDENTITY_TOOL"
 
   local expected_node_hash expected_node_size actual_size node_identity
   expected_node_hash=$(/usr/bin/plutil -extract node.executableSha256 raw \
@@ -97,7 +100,7 @@ build_manifest_tool() {
   print -r -- "$bin/$MANIFEST_PRODUCT"
 }
 
-verify_staging() {
+verify_runtime_chain() {
   local staging="$1"
   local manifest_tool="$2"
   local contents="$staging/Contents"
@@ -117,13 +120,58 @@ verify_staging() {
   "$DOTNET" "$host" self-test 1>&2
 }
 
+verify_staging() {
+  local staging="$1"
+  local manifest_tool="$2"
+  local expected_assembly_id="$3"
+  local verify_harness="${4:-true}"
+  verify_runtime_chain "$staging" "$manifest_tool"
+  "$NODE" "$IDENTITY_TOOL" verify \
+    --runtime "$staging" \
+    --expected-assembly-id "$expected_assembly_id" 1>&2
+  [[ "$verify_harness" == "true" ]] || return 0
+  local harness_output
+  harness_output=$(
+    "$DOTNET" \
+      "$staging/Contents/MacOS/CodexThemeStudio.MacOS.AcceptanceHarness.dll" \
+      source-self-test
+  )
+  [[ "$(print -rn -- "$harness_output" |
+      /usr/bin/plutil -extract packagedRuntimeIdentityConfigured raw -o - -)" == \
+      "true" ]] ||
+    fail "The staged acceptance harness did not verify the packaged identity."
+}
+
+copy_managed_publish() {
+  local publish="$1"
+  local destination="$2"
+  local count=0 source target
+  for source in \
+      "$publish"/*.dll(N) \
+      "$publish"/*.deps.json(N) \
+      "$publish"/*.runtimeconfig.json(N); do
+    target="$destination/${source:t}"
+    if [[ -e "$target" ]]; then
+      [[ -f "$target" && ! -L "$target" ]] ||
+        fail "The managed staging target is invalid."
+      /usr/bin/cmp -s "$source" "$target" ||
+        fail "Published managed files disagree."
+    else
+      /usr/bin/ditto "$source" "$target"
+    fi
+    (( count += 1 ))
+  done
+  (( count > 0 )) || fail "The managed publish output was empty."
+}
+
 if [[ "${1:-}" == "verify" ]]; then
   [[ $# == 2 && "$2" == /* && -d "$2" && ! -L "$2" ]] ||
     fail "verify requires one absolute staging directory."
   preflight
   /bin/mkdir -p "$ASSEMBLY_ROOT/verifier-swift"
   MANIFEST_TOOL=$(build_manifest_tool "$ASSEMBLY_ROOT/verifier-swift")
-  verify_staging "$2" "$MANIFEST_TOOL"
+  EXPECTED_ASSEMBLY_ID=${2:h:t}
+  verify_staging "$2" "$MANIFEST_TOOL" "$EXPECTED_ASSEMBLY_ID"
   print -r -- \
     '{"completeChainMatch":true,"helperToDotNetMatch":true,"manifestToHelperMatch":true,"packagedRuntimeIdentityConfigured":true,"status":"ok"}'
   exit 0
@@ -255,7 +303,8 @@ internal static class GeneratedMacRuntimeIdentity
    ! -L "$DOTNET_IDENTITY" ]] ||
   fail "The generated .NET identity source is invalid."
 
-PUBLISH="$WORK_ROOT/dotnet-publish"
+HOST_PUBLISH="$WORK_ROOT/dotnet-host-publish"
+HARNESS_PUBLISH="$WORK_ROOT/dotnet-harness-publish"
 (
   cd "$SCRIPT_DIRECTORY"
   "$DOTNET" restore "$HOST_PROJECT" --locked-mode 1>&2
@@ -265,23 +314,35 @@ PUBLISH="$WORK_ROOT/dotnet-publish"
     --no-restore \
     -p:UseAppHost=false \
     -p:MacRuntimeIdentityGeneratedSource="$DOTNET_IDENTITY" \
-    --output "$PUBLISH" 1>&2
+    --output "$HOST_PUBLISH" 1>&2
+  "$DOTNET" restore "$HARNESS_PROJECT" --locked-mode 1>&2
+  "$DOTNET" publish "$HARNESS_PROJECT" \
+    --configuration Release \
+    --self-contained false \
+    --no-restore \
+    -p:UseAppHost=false \
+    -p:MacRuntimeIdentityGeneratedSource="$DOTNET_IDENTITY" \
+    --output "$HARNESS_PUBLISH" 1>&2
 )
-/usr/bin/ditto "$PUBLISH" "$CONTENTS/MacOS"
+copy_managed_publish "$HOST_PUBLISH" "$CONTENTS/MacOS"
+copy_managed_publish "$HARNESS_PUBLISH" "$CONTENTS/MacOS"
 [[ ! -e "$CONTENTS/MacOS/CodexThemeStudio.RuntimeHost" ]] ||
   fail "The offline Runtime Host unexpectedly produced an apphost executable."
+[[ ! -e "$CONTENTS/MacOS/CodexThemeStudio.MacOS.AcceptanceHarness" ]] ||
+  fail "The acceptance harness unexpectedly produced an apphost executable."
 
-HOST_HASH=$(hash_file "$CONTENTS/MacOS/CodexThemeStudio.RuntimeHost.dll")
-ASSEMBLY_ID_INPUT="$MANIFEST_HASH
-$HELPER_HASH
-$HOST_HASH
-"
-ASSEMBLY_ID=$(print -rn -- "$ASSEMBLY_ID_INPUT" |
-  /usr/bin/openssl dgst -sha256 | /usr/bin/sed 's/^.*= //')
+IDENTITY_JSON=$(
+  "$NODE" "$IDENTITY_TOOL" assembly-id \
+    --macos "$CONTENTS/MacOS" \
+    --manifest-sha256 "$MANIFEST_HASH" \
+    --helper-sha256 "$HELPER_HASH"
+)
+ASSEMBLY_ID=$(print -rn -- "$IDENTITY_JSON" |
+  /usr/bin/plutil -extract assemblyId raw -o - -)
 FINAL_ROOT="$ASSEMBLY_ROOT/staging/$ASSEMBLY_ID"
 FINAL="$FINAL_ROOT/CodexThemeStudio.runtime"
 if [[ -d "$FINAL" && ! -L "$FINAL" ]]; then
-  verify_staging "$FINAL" "$MANIFEST_TOOL"
+  verify_staging "$FINAL" "$MANIFEST_TOOL" "$ASSEMBLY_ID"
   print -r -- \
 "{\"assemblyId\":\"$ASSEMBLY_ID\",\"completeChainMatch\":true,\"helperToDotNetMatch\":true,\"manifestToHelperMatch\":true,\"packagedRuntimeIdentityConfigured\":true,\"reused\":true,\"stagingPath\":\"$FINAL\",\"status\":\"ok\"}"
   exit 0
@@ -289,17 +350,20 @@ fi
 [[ ! -e "$FINAL_ROOT" ]] ||
   fail "The content-addressed staging target is invalid."
 
-verify_staging "$INCOMPLETE" "$MANIFEST_TOOL"
+verify_runtime_chain "$INCOMPLETE" "$MANIFEST_TOOL"
 
 RECEIPT="$INCOMPLETE/assembly-receipt.json"
-print -r -- \
-"{\"assemblyId\":\"$ASSEMBLY_ID\",\"completeChainMatch\":true,\"helperToDotNetMatch\":true,\"manifestToHelperMatch\":true,\"packagedRuntimeIdentityConfigured\":true,\"runtimeVersion\":\"1\",\"schemaVersion\":1,\"toolVersion\":\"0.2.0\"}" \
-  > "$RECEIPT"
+"$NODE" "$IDENTITY_TOOL" write-receipt \
+  --runtime "$INCOMPLETE" \
+  --output "$RECEIPT" \
+  --manifest-sha256 "$MANIFEST_HASH" \
+  --helper-sha256 "$HELPER_HASH" 1>&2
 "$MANIFEST_TOOL" sync --root "$INCOMPLETE" 1>&2
+verify_staging "$INCOMPLETE" "$MANIFEST_TOOL" "$ASSEMBLY_ID" false
 /bin/mkdir "$FINAL_ROOT"
 /bin/mv "$INCOMPLETE" "$FINAL"
 INCOMPLETE=""
 
-verify_staging "$FINAL" "$MANIFEST_TOOL"
+verify_staging "$FINAL" "$MANIFEST_TOOL" "$ASSEMBLY_ID"
 print -r -- \
 "{\"assemblyId\":\"$ASSEMBLY_ID\",\"completeChainMatch\":true,\"helperToDotNetMatch\":true,\"manifestToHelperMatch\":true,\"packagedRuntimeIdentityConfigured\":true,\"stagingPath\":\"$FINAL\",\"status\":\"ok\"}"

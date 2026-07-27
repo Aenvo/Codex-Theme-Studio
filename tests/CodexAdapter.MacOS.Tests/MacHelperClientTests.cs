@@ -79,6 +79,11 @@ public sealed class MacHelperClientTests : IDisposable
     {
         Assert.False(MacPackagedRuntimeIdentity.IsConfigured);
         Assert.False(MacPackagedRuntimeIdentity.VerifyHelper(helperPath));
+        var strict = await MacPackagedRuntimeIdentity.VerifyStrictAsync(
+            helperPath,
+            CancellationToken.None);
+        Assert.False(strict.CompleteChainMatch);
+        Assert.Equal("helper.identity_mismatch", strict.ErrorCode);
         var client = new MacHelperClient(helperPath);
 
         var result = await client.ExecuteAsync(
