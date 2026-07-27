@@ -203,6 +203,8 @@ public final class HelperEngine {
                 snapshot: snapshot,
                 theme: nil)
             try waitForClosedPort()
+        } catch let failure as HelperFailure {
+            throw failure
         } catch {
             throw HelperFailure("renderer.cleanup_failed", stage: "cleanup")
         }

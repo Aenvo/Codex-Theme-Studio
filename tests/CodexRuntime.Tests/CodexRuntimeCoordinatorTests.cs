@@ -30,6 +30,51 @@ public sealed class CodexRuntimeCoordinatorTests
             bridge.Commands);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(9)]
+    [InlineData(11)]
+    public async Task ApplyRejectsUnexpectedManagedResourceCountAndDoesNotQualify(
+        int residualCount)
+    {
+        var bridge = new FakeBridge { ApplyResidualCount = residualCount };
+        var qualification = new FakeQualificationStore();
+        var coordinator = new CodexRuntimeCoordinator(bridge, qualification);
+
+        var result = await coordinator.ApplyTemporaryAsync(
+            CreateTheme(),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OperationErrorCode.InvalidResponse, result.Error!.Code);
+        Assert.Equal(0, qualification.WriteCount);
+    }
+
+    [Fact]
+    public async Task InspectRuntimeRequiresZeroResidueAndClosedInspector()
+    {
+        var valid = await new CodexRuntimeCoordinator(
+            new FakeBridge(),
+            new InMemoryCodexQualificationStore())
+            .InspectRuntimeAsync(CancellationToken.None);
+        var residue = await new CodexRuntimeCoordinator(
+            new FakeBridge { InspectResidualCount = 1 },
+            new InMemoryCodexQualificationStore())
+            .InspectRuntimeAsync(CancellationToken.None);
+        var open = await new CodexRuntimeCoordinator(
+            new FakeBridge
+            {
+                InspectInspectorDisposition =
+                    CodexInspectorDisposition.Residual,
+            },
+            new InMemoryCodexQualificationStore())
+            .InspectRuntimeAsync(CancellationToken.None);
+
+        Assert.True(valid.IsSuccess);
+        Assert.False(residue.IsSuccess);
+        Assert.False(open.IsSuccess);
+    }
+
     [Fact]
     public async Task UntrustedDiscoveryNeverStartsStatefulCommand()
     {
@@ -147,8 +192,13 @@ public sealed class CodexRuntimeCoordinatorTests
         public string PublisherIdentifier { get; init; } = "2DC432GLL2";
 
         public int CleanupResidualCount { get; init; }
+        public int ApplyResidualCount { get; init; } =
+            CodexRuntimeCoordinator.ExpectedAppliedManagedResourceCount;
+        public int InspectResidualCount { get; init; }
 
         public CodexInspectorDisposition CleanupInspectorDisposition { get; init; } =
+            CodexInspectorDisposition.Closed;
+        public CodexInspectorDisposition InspectInspectorDisposition { get; init; } =
             CodexInspectorDisposition.Closed;
 
         public Task<OperationResult<CodexPlatformResponse>> ExecuteAsync(
@@ -158,6 +208,8 @@ public sealed class CodexRuntimeCoordinatorTests
             cancellationToken.ThrowIfCancellationRequested();
             Commands.Add(request.Command);
             var isCleanup = request.Command == CodexPlatformCommand.Cleanup;
+            var isInspect =
+                request.Command == CodexPlatformCommand.InspectRuntime;
             var response = new CodexPlatformResponse(
                 1,
                 1,
@@ -172,7 +224,9 @@ public sealed class CodexRuntimeCoordinatorTests
                     : CodexCleanupDisposition.NotNeeded,
                 request.Command == CodexPlatformCommand.Discover
                     ? CodexInspectorDisposition.NotOpened
-                    : isCleanup
+                    : isInspect
+                        ? InspectInspectorDisposition
+                        : isCleanup
                         ? CleanupInspectorDisposition
                         : CodexInspectorDisposition.Closed,
                 request.Command == CodexPlatformCommand.Discover ? 0 : 1,
@@ -181,7 +235,13 @@ public sealed class CodexRuntimeCoordinatorTests
                     CodexPlatformCommand.QualifyAndApply
                     ? 1
                     : 0,
-                isCleanup ? CleanupResidualCount : 0,
+                isCleanup
+                    ? CleanupResidualCount
+                    : isInspect
+                        ? InspectResidualCount
+                        : request.Command == CodexPlatformCommand.Discover
+                            ? 0
+                            : ApplyResidualCount,
                 0,
                 null);
             return Task.FromResult(OperationResult<CodexPlatformResponse>.Success(response));
@@ -207,5 +267,26 @@ public sealed class CodexRuntimeCoordinatorTests
                 DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
                 "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT",
                 "arm64");
+    }
+
+    private sealed class FakeQualificationStore : ICodexQualificationStore
+    {
+        public int WriteCount { get; private set; }
+
+        public Task<bool> IsQualifiedAsync(
+            string installationFingerprint,
+            int protocolVersion,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+
+        public Task WriteQualifiedAsync(
+            string installationFingerprint,
+            int protocolVersion,
+            string toolVersion,
+            CancellationToken cancellationToken)
+        {
+            WriteCount++;
+            return Task.CompletedTask;
+        }
     }
 }

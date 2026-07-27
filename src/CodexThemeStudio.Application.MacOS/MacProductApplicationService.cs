@@ -6,7 +6,7 @@ namespace CodexThemeStudio.Application.MacOS;
 
 public sealed class MacProductApplicationService
 {
-    public const string ToolVersion = "0.1.2";
+    public const string ToolVersion = "0.1.3";
     public static readonly TimeSpan CleanupGrace = TimeSpan.FromSeconds(25);
 
     private readonly CodexRuntimeCoordinator coordinator;
@@ -30,6 +30,130 @@ public sealed class MacProductApplicationService
     public Task<OperationResult<CodexPlatformResponse>> RestoreAsync(
         CancellationToken cancellationToken) =>
         coordinator.RestoreAsync(cancellationToken);
+
+    public async Task<MacInspectorDiagnosticResult> RunInspectorDiagnosticAsync(
+        Guid requestId,
+        CancellationToken cancellationToken)
+    {
+        if (requestId == Guid.Empty)
+        {
+            return MacInspectorDiagnosticResult.CreateUnverifiedFailure(
+                ToolVersion,
+                requestId,
+                true,
+                "protocol.request_invalid",
+                "request");
+        }
+
+        bool acquired;
+        try
+        {
+            acquired = await cycleLock.WaitAsync(0, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return MacInspectorDiagnosticResult.CreateUnverifiedFailure(
+                ToolVersion,
+                requestId,
+                true,
+                "operation.cancelled",
+                "request");
+        }
+
+        if (!acquired)
+        {
+            return MacInspectorDiagnosticResult.CreateUnverifiedFailure(
+                ToolVersion,
+                requestId,
+                true,
+                "operation.busy",
+                "request");
+        }
+
+        try
+        {
+            var discovery = await coordinator.DiscoverAsync(cancellationToken);
+            if (!TryGetEvidence(
+                    discovery,
+                    out var installation,
+                    out var process,
+                    out var error))
+            {
+                return DiagnosticFailure(
+                    requestId,
+                    error!,
+                    "discover",
+                    discoverVerified: false,
+                    inspectVerified: false,
+                    inspectorClosedProofCount: 0);
+            }
+
+            var inspection =
+                await coordinator.InspectRuntimeAsync(cancellationToken);
+            if (!TryGetMatchingEvidence(
+                    inspection,
+                    installation!,
+                    process!,
+                    out error))
+            {
+                return DiagnosticFailure(
+                    requestId,
+                    error!,
+                    "inspect",
+                    discoverVerified: true,
+                    inspectVerified: false,
+                    inspectorClosedProofCount: 0);
+            }
+
+            var cleanup = await coordinator.RestoreAsync(cancellationToken);
+            if (!TryGetMatchingEvidence(
+                    cleanup,
+                    installation!,
+                    process!,
+                    out error))
+            {
+                return DiagnosticFailure(
+                    requestId,
+                    error!,
+                    "cleanup",
+                    discoverVerified: true,
+                    inspectVerified: true,
+                    inspectorClosedProofCount: 1);
+            }
+
+            var value = cleanup.Value!;
+            return new MacInspectorDiagnosticResult(
+                1,
+                ToolVersion,
+                requestId,
+                "ok",
+                true,
+                true,
+                true,
+                true,
+                true,
+                "stable",
+                2,
+                value.ResidualCount,
+                "verified-zero",
+                value.PortListenerCount,
+                "verified-zero",
+                null);
+        }
+        catch (OperationCanceledException)
+        {
+            return MacInspectorDiagnosticResult.CreateUnverifiedFailure(
+                ToolVersion,
+                requestId,
+                true,
+                "operation.cancelled",
+                "operation");
+        }
+        finally
+        {
+            cycleLock.Release();
+        }
+    }
 
     public async Task<MacQualificationCycleResult> RunQualificationCycleAsync(
         Guid requestId,
@@ -178,6 +302,71 @@ public sealed class MacProductApplicationService
             true,
             code,
             stage);
+
+    private static MacInspectorDiagnosticResult DiagnosticFailure(
+        Guid requestId,
+        string code,
+        string stage,
+        bool discoverVerified,
+        bool inspectVerified,
+        int inspectorClosedProofCount) =>
+        new(
+            1,
+            ToolVersion,
+            requestId,
+            "error",
+            true,
+            discoverVerified,
+            inspectVerified,
+            false,
+            code == "process.identity_changed" ? false : null,
+            code == "process.identity_changed" ? "changed" : "unverified",
+            inspectorClosedProofCount,
+            null,
+            "unverified",
+            null,
+            "unverified",
+            new MacQualificationCycleError(code, stage));
+
+    private static bool TryGetEvidence(
+        OperationResult<CodexPlatformResponse> result,
+        out CodexInstallationIdentityV2? installation,
+        out CodexProcessIdentityV2? process,
+        out string? error)
+    {
+        installation = result.Value?.Installation;
+        process = result.Value?.Process;
+        error = result.Error?.DiagnosticCode;
+        if (!result.IsSuccess || result.Value is null ||
+            installation is null || process is null)
+        {
+            error ??= "process.identity_missing";
+            return false;
+        }
+        return true;
+    }
+
+    private static bool TryGetMatchingEvidence(
+        OperationResult<CodexPlatformResponse> result,
+        CodexInstallationIdentityV2 installation,
+        CodexProcessIdentityV2 process,
+        out string? error)
+    {
+        if (!TryGetEvidence(
+                result,
+                out var currentInstallation,
+                out var currentProcess,
+                out error))
+        {
+            return false;
+        }
+        if (currentInstallation != installation || currentProcess != process)
+        {
+            error = "process.identity_changed";
+            return false;
+        }
+        return true;
+    }
 
     private sealed class CycleProgress(Guid requestId)
     {

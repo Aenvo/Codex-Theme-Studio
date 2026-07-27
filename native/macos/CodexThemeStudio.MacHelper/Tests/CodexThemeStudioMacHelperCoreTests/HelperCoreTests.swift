@@ -150,6 +150,65 @@ func nodeFailureUsesOneCleanupAttemptWithoutAnotherSignal() {
 }
 
 @Test
+func emergencyCleanupPreservesTheExactCloseFailure() {
+    let signal = FakeSignal()
+    let node = FakeNode(failures: [
+        "apply": HelperFailure("renderer.proof_invalid", stage: "renderer"),
+        "cleanup": HelperFailure(
+            "inspector.close_request_failed",
+            stage: "close"),
+    ])
+    let engine = HelperEngine(
+        discovery: FakeDiscovery(),
+        ports: FakePorts(sequence: [
+            [],
+            [PortListener(processId: 42, address: "127.0.0.1")],
+            [PortListener(processId: 42, address: "127.0.0.1")],
+        ]),
+        signal: signal,
+        node: node,
+        sleeper: FakeSleeper())
+
+    let document = engine.execute(
+        makeRequest(command: .applyTemporary, theme: makeTheme()))
+
+    #expect(document.status == "error")
+    #expect(document.error?.code == "inspector.close_request_failed")
+    #expect(document.error?.stage == "close")
+    #expect(signal.count == 1)
+    #expect(node.modes == ["apply", "cleanup"])
+}
+
+@Test
+func closedPortTimeoutIsNotMisreportedAsRendererCleanupFailure() {
+    let signal = FakeSignal()
+    let listener = PortListener(
+        processId: 42,
+        address: "127.0.0.1")
+    let ports = FakePorts(sequence:
+        [[]] +
+        [[listener]] +
+        Array(repeating: [listener], count: 41) +
+        [[listener], []])
+    let node = FakeNode()
+    let engine = HelperEngine(
+        discovery: FakeDiscovery(),
+        ports: ports,
+        signal: signal,
+        node: node,
+        sleeper: FakeSleeper())
+
+    let document = engine.execute(
+        makeRequest(command: .applyTemporary, theme: makeTheme()))
+
+    #expect(document.status == "error")
+    #expect(document.error?.code == "inspector.close_failed")
+    #expect(document.error?.stage == "port")
+    #expect(signal.count == 1)
+    #expect(node.modes == ["apply", "cleanup"])
+}
+
+@Test
 func emergencyCleanupRefusesUnknownPortOwner() {
     let signal = FakeSignal()
     let node = FakeNode(failingModes: ["apply"])
@@ -502,9 +561,14 @@ private final class FakeSignal: SignalSending {
 private final class FakeNode: NodeRunning {
     var modes: [String] = []
     private let failingModes: Set<String>
+    private let failures: [String: HelperFailure]
 
-    init(failingModes: Set<String> = []) {
+    init(
+        failingModes: Set<String> = [],
+        failures: [String: HelperFailure] = [:])
+    {
         self.failingModes = failingModes
+        self.failures = failures
     }
 
     func run(
@@ -513,6 +577,9 @@ private final class FakeNode: NodeRunning {
         theme: ThemeRequest?) throws -> NodeFacts
     {
         modes.append(mode)
+        if let failure = failures[mode] {
+            throw failure
+        }
         if failingModes.contains(mode) {
             throw HelperFailure(
                 "renderer.\(mode)_failed",
@@ -521,7 +588,7 @@ private final class FakeNode: NodeRunning {
         return NodeFacts(
             eligibleWindowCount: 1,
             appliedWindowCount: mode == "cleanup" ? 0 : 1,
-            residualCount: 0,
+            residualCount: mode == "apply" ? 10 : 0,
             cleanupVerified: mode != "apply",
             visualEffectApplied: mode != "cleanup")
     }

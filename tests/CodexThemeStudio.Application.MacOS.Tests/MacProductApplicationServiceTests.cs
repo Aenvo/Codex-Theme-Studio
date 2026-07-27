@@ -230,6 +230,60 @@ public sealed class MacProductApplicationServiceTests
     }
 
     [Fact]
+    public async Task InspectorDiagnosticUsesDiscoverInspectAndCleanupOnly()
+    {
+        var bridge = new FakeBridge();
+
+        var result = await CreateService(bridge).RunInspectorDiagnosticAsync(
+            Guid.NewGuid(),
+            CancellationToken.None);
+
+        Assert.Equal("ok", result.Status);
+        Assert.True(result.DiscoverVerified);
+        Assert.True(result.InspectVerified);
+        Assert.True(result.CleanupVerified);
+        Assert.True(result.ProcessStable);
+        Assert.Equal("stable", result.ProcessProof);
+        Assert.Equal(2, result.InspectorClosedProofCount);
+        Assert.Equal(0, result.FinalResidualCount);
+        Assert.Equal("verified-zero", result.ResidualProof);
+        Assert.Equal(0, result.FinalPortListenerCount);
+        Assert.Equal("verified-zero", result.PortProof);
+        Assert.Equal(
+            [
+                CodexPlatformCommand.Discover,
+                CodexPlatformCommand.InspectRuntime,
+                CodexPlatformCommand.Cleanup,
+            ],
+            bridge.Commands);
+        Assert.DoesNotContain(
+            bridge.Commands,
+            command => command is
+                CodexPlatformCommand.ApplyTemporary or
+                CodexPlatformCommand.QualifyAndApply);
+    }
+
+    [Fact]
+    public async Task InspectorDiagnosticStopsBeforeCleanupWhenInspectFails()
+    {
+        var bridge = new FakeBridge
+        {
+            FailCommand = CodexPlatformCommand.InspectRuntime,
+        };
+
+        var result = await CreateService(bridge).RunInspectorDiagnosticAsync(
+            Guid.NewGuid(),
+            CancellationToken.None);
+
+        Assert.Equal("error", result.Status);
+        Assert.Null(result.ProcessStable);
+        Assert.Equal("unverified", result.ProcessProof);
+        Assert.Null(result.FinalResidualCount);
+        Assert.Null(result.FinalPortListenerCount);
+        Assert.DoesNotContain(CodexPlatformCommand.Cleanup, bridge.Commands);
+    }
+
+    [Fact]
     public void ProtocolRejectsUnknownAndDangerousFields()
     {
         var valid = CreateRequestJson();
@@ -274,6 +328,42 @@ public sealed class MacProductApplicationServiceTests
     }
 
     [Fact]
+    public void ProtocolAcceptsThemeFreeInspectorDiagnostic()
+    {
+        var request = AcceptanceProtocol.Decode(
+            System.Text.Encoding.UTF8.GetBytes(
+                CreateInspectorDiagnosticRequestJson()),
+            DateTimeOffset.Parse("2026-07-27T00:00:00Z"));
+
+        Assert.Equal("inspector-diagnostic", request.Operation);
+        Assert.Null(request.Theme);
+        Assert.False(request.Authorization.AcknowledgeTemporaryTheme);
+    }
+
+    [Fact]
+    public void InspectorDiagnosticRejectsThemeAndTemporaryThemeAuthorization()
+    {
+        var withTheme = CreateInspectorDiagnosticRequestJson().Replace(
+            "\"deadlineMilliseconds\": 30000,",
+            "\"deadlineMilliseconds\": 30000,\n" +
+            "          \"theme\": null,",
+            StringComparison.Ordinal);
+        var withTemporaryTheme = CreateInspectorDiagnosticRequestJson().Replace(
+            "\"acknowledgeTemporaryTheme\": false",
+            "\"acknowledgeTemporaryTheme\": true",
+            StringComparison.Ordinal);
+
+        Assert.Throws<AcceptanceProtocolException>(() =>
+            AcceptanceProtocol.Decode(
+                System.Text.Encoding.UTF8.GetBytes(withTheme),
+                DateTimeOffset.Parse("2026-07-27T00:00:00Z")));
+        Assert.Throws<AcceptanceProtocolException>(() =>
+            AcceptanceProtocol.Decode(
+                System.Text.Encoding.UTF8.GetBytes(withTemporaryTheme),
+                DateTimeOffset.Parse("2026-07-27T00:00:00Z")));
+    }
+
+    [Fact]
     public async Task SourceCompositionFailsClosedBeforeCreatingRuntime()
     {
         var result = await MacProductCompositionRoot.CreateAsync(
@@ -310,7 +400,7 @@ public sealed class MacProductApplicationServiceTests
             code,
             stage);
 
-        Assert.Equal("0.1.2", result.ToolVersion);
+        Assert.Equal("0.1.3", result.ToolVersion);
         Assert.Equal("error", result.Status);
         Assert.Equal(runtimeIdentityVerified, result.RuntimeIdentityVerified);
         Assert.Null(result.ProcessStable);
@@ -346,6 +436,35 @@ public sealed class MacProductApplicationServiceTests
             .RunQualificationCycleAsync(
                 Guid.NewGuid(),
                 CreateTheme(),
+                CancellationToken.None);
+        var json = JsonSerializer.Serialize(result);
+        foreach (var forbidden in new[]
+                 {
+                     "\"pid\"",
+                     "targetId",
+                     "webSocket",
+                     "\"url\"",
+                     "\"dom\"",
+                     "\"css\"",
+                     "commandLine",
+                     "environment",
+                     "credential",
+                     "conversation",
+                 })
+        {
+            Assert.DoesNotContain(
+                forbidden,
+                json,
+                StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task InspectorDiagnosticContainsNoPrivateRuntimeFields()
+    {
+        var result = await CreateService(new FakeBridge())
+            .RunInspectorDiagnosticAsync(
+                Guid.NewGuid(),
                 CancellationToken.None);
         var json = JsonSerializer.Serialize(result);
         foreach (var forbidden in new[]
@@ -414,6 +533,23 @@ public sealed class MacProductApplicationServiceTests
               "accent": "#2563EB",
               "border": "#303030"
             }
+          }
+        }
+        """;
+
+    private static string CreateInspectorDiagnosticRequestJson() =>
+        """
+        {
+          "schemaVersion": 1,
+          "requestId": "5be08c24-d21f-4db0-bdb0-d6d4cc779d7b",
+          "operation": "inspector-diagnostic",
+          "deadlineMilliseconds": 30000,
+          "authorization": {
+            "purpose": "stage-7b.2b-diagnostic",
+            "acknowledgeStatefulInspector": true,
+            "acknowledgeTemporaryTheme": false,
+            "expiresAtUtc": "2026-07-27T00:04:00Z",
+            "stagingAssemblyId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           }
         }
         """;
@@ -494,7 +630,11 @@ public sealed class MacProductApplicationServiceTests
                         CodexPlatformCommand.QualifyAndApply
                             ? 1
                             : 0,
-                    0,
+                    cleanup || discovery ||
+                        request.Command == CodexPlatformCommand.InspectRuntime
+                        ? 0
+                        : CodexRuntimeCoordinator
+                            .ExpectedAppliedManagedResourceCount,
                     0,
                     null));
         }

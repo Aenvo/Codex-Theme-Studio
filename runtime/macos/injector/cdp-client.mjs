@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import http from "node:http";
 import { pathToFileURL } from "node:url";
-import { buildRendererExpression, validateTheme } from "./renderer-runtime.mjs";
+import {
+  buildRendererExpression,
+  expectedAppliedManagedResourceCount,
+  validateTheme,
+} from "./renderer-runtime.mjs";
 
 const maximumInputBytes = 64 * 1024;
 const maximumResponseBytes = 128 * 1024;
@@ -13,20 +17,7 @@ const identifierPattern =
 export async function runCLI() {
   try {
     const request = validateRequest(await readSingleJson(process.stdin));
-    const metadata = await fetchMetadata(request.host, request.port);
-    let result;
-    let primaryError;
-    try {
-      result = await runOperation(metadata.webSocketUrl, request);
-    } catch (error) {
-      primaryError = error;
-    }
-    try {
-      await requestClose(metadata.webSocketUrl);
-    } catch (error) {
-      if (!primaryError) primaryError = error;
-    }
-    if (primaryError) throw primaryError;
+    const result = await runInspectorSession(request);
     emit({ status: "ok", result, error: null }, 0);
   } catch (error) {
     emit({
@@ -42,7 +33,7 @@ if (process.argv[1] &&
   if (process.argv[2] === "self-test") {
     emit({
       schemaVersion: 1,
-      toolVersion: "0.1.1",
+      toolVersion: "0.1.2",
       status: "ok",
       checks: [
         "fixed-renderer-expressions",
@@ -68,11 +59,34 @@ if (process.argv[1] &&
 export function schemaDocument() {
   return {
     schemaVersion: 1,
-    toolVersion: "0.1.1",
+    toolVersion: "0.1.2",
     commands: ["inspect", "apply", "apply-cleanup", "cleanup"],
     maximumInputBytes,
     maximumResponseBytes,
   };
+}
+
+export async function runInspectorSession(request, dependencies = {}) {
+  const fetch = dependencies.fetchMetadata ?? fetchMetadata;
+  const operate = dependencies.runOperation ?? runOperation;
+  const close = dependencies.requestClose ?? requestClose;
+  const metadata = await fetch(request.host, request.port);
+  let result;
+  let operationError;
+  try {
+    result = await operate(metadata.webSocketUrl, request);
+  } catch (error) {
+    operationError = error;
+  }
+  let closeError;
+  try {
+    await close(metadata.webSocketUrl);
+  } catch (error) {
+    closeError = error;
+  }
+  if (closeError) throw closeError;
+  if (operationError) throw operationError;
+  return result;
 }
 
 export function validateRequest(value) {
@@ -117,18 +131,22 @@ export async function runOperation(webSocketUrl, request) {
   validateAggregate(first, mode);
   if (request.command !== "apply-cleanup") return first;
 
-  const cleaned = await evaluate(
-    webSocketUrl,
-    buildMainExpression("cleanup", null),
-    3_000,
-    false);
-  validateAggregate(cleaned, "cleanup");
-  return {
-    ...cleaned,
-    appliedWindowCount: first.appliedWindowCount,
-    applyVerified: first.applyVerified,
-    visualEffectApplied: first.visualEffectApplied,
-  };
+  try {
+    const cleaned = await evaluate(
+      webSocketUrl,
+      buildMainExpression("cleanup", null),
+      3_000,
+      false);
+    validateAggregate(cleaned, "cleanup");
+    return {
+      ...cleaned,
+      appliedWindowCount: first.appliedWindowCount,
+      applyVerified: first.applyVerified,
+      visualEffectApplied: first.visualEffectApplied,
+    };
+  } catch {
+    throw safeError("renderer.cleanup_failed", "renderer");
+  }
 }
 
 export function buildMainExpression(mode, theme) {
@@ -284,7 +302,8 @@ export function evaluate(
   webSocketUrl,
   expression,
   timeoutMilliseconds,
-  tolerateDisconnect
+  tolerateDisconnect,
+  awaitPromise = true
 ) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(webSocketUrl);
@@ -301,7 +320,7 @@ export function evaluate(
         params: {
           expression,
           returnByValue: true,
-          awaitPromise: true,
+          awaitPromise,
         },
       }));
     });
@@ -351,7 +370,16 @@ export function evaluate(
 }
 
 export async function requestClose(webSocketUrl) {
-  await evaluate(webSocketUrl, "process._debugEnd()", 1_200, true);
+  try {
+    await evaluate(
+      webSocketUrl,
+      "process._debugEnd()",
+      1_200,
+      true,
+      false);
+  } catch {
+    throw safeError("inspector.close_request_failed", "close");
+  }
 }
 
 function getJson(host, port, path) {
@@ -450,10 +478,16 @@ export function validateAggregate(value, mode) {
       typeof value.cleanupVerified !== "boolean" ||
       typeof value.visualEffectApplied !== "boolean" ||
       (mode === "apply" &&
-        (!value.applyVerified || !value.visualEffectApplied)) ||
+        (!value.applyVerified ||
+          !value.visualEffectApplied ||
+          value.residualCount !== expectedAppliedManagedResourceCount)) ||
       (mode === "cleanup" &&
         (!value.cleanupVerified || value.residualCount !== 0))) {
-    throw safeError("renderer.proof_invalid", "renderer");
+    throw safeError(
+      mode === "cleanup"
+        ? "renderer.cleanup_failed"
+        : "renderer.proof_invalid",
+      "renderer");
   }
 }
 

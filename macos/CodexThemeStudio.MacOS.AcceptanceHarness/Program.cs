@@ -1,5 +1,5 @@
-using System.Text.Json;
 using System.Diagnostics;
+using System.Text.Json;
 using CodexThemeStudio.Application.MacOS;
 using CodexThemeStudio.CodexAdapter.MacOS;
 using CodexThemeStudio.MacOS.AcceptanceHarness;
@@ -15,7 +15,13 @@ if (args is ["schema"])
         maximumResponseBytes = AcceptanceProtocol.MaximumResponseBytes,
         maximumDeadlineMilliseconds =
             AcceptanceProtocol.MaximumDeadlineMilliseconds,
-        acceptedOperation = "qualification-cycle",
+        inspectorDiagnosticMaximumSignalCount = 2,
+        inspectorDiagnosticAcceptsTheme = false,
+        acceptedOperations = new[]
+        {
+            "qualification-cycle",
+            "inspector-diagnostic",
+        },
         acceptedThemeFields = new[]
         {
             "schemaVersion",
@@ -62,6 +68,7 @@ if (args is ["source-self-test"])
             "product-composition-root",
             "bounded-json-output",
             "independent-final-cleanup",
+            "theme-free-inspector-diagnostic",
         },
     }, 0);
 }
@@ -69,6 +76,7 @@ if (args is ["source-self-test"])
 if (args is ["run"])
 {
     Guid requestId = Guid.Empty;
+    string? operation = null;
     try
     {
         var elapsed = Stopwatch.StartNew();
@@ -77,6 +85,7 @@ if (args is ["run"])
             input,
             DateTimeOffset.UtcNow);
         requestId = request.RequestId;
+        operation = request.Operation;
         using var hardLimit = new CancellationTokenSource(
             TimeSpan.FromMilliseconds(
                 AcceptanceProtocol.ProcessHardLimitMilliseconds));
@@ -86,7 +95,8 @@ if (args is ["run"])
             hardLimit.Token);
         if (!composition.IsSuccess || composition.Service is null)
         {
-            Emit(Error(
+            Emit(EntryError(
+                operation,
                 requestId,
                 composition.ErrorCode ??
                     "runtime.identity_verification_failed",
@@ -100,7 +110,8 @@ if (args is ["run"])
             elapsed.Elapsed;
         if (mainBudget <= TimeSpan.Zero)
         {
-            Emit(Error(
+            Emit(EntryError(
+                operation,
                 requestId,
                 "operation.timeout",
                 "identity",
@@ -110,15 +121,25 @@ if (args is ["run"])
             TimeSpan.FromMilliseconds(Math.Min(
                 request.DeadlineMilliseconds,
                 mainBudget.TotalMilliseconds)));
+        if (request.Operation == "inspector-diagnostic")
+        {
+            var diagnostic = await composition.Service!
+                .RunInspectorDiagnosticAsync(
+                    request.RequestId,
+                    deadline.Token);
+            Emit(diagnostic, diagnostic.Status == "ok" ? 0 : 1);
+            return;
+        }
         var result = await composition.Service!.RunQualificationCycleAsync(
             request.RequestId,
-            request.Theme,
+            request.Theme!,
             deadline.Token);
         Emit(result, result.Status == "ok" ? 0 : 1);
     }
     catch (AcceptanceProtocolException exception)
     {
-        Emit(Error(
+        Emit(EntryError(
+            operation,
             requestId,
             exception.Code,
             exception.Stage,
@@ -126,7 +147,8 @@ if (args is ["run"])
     }
     catch
     {
-        Emit(Error(
+        Emit(EntryError(
+            operation,
             requestId,
             "operation.unexpected",
             "harness",
@@ -163,17 +185,25 @@ static async Task<byte[]> ReadRequestAsync()
     }
 }
 
-static object Error(
+static object EntryError(
+    string? operation,
     Guid requestId,
     string code,
     string stage,
     bool runtimeIdentityVerified) =>
-    MacQualificationCycleResult.CreateUnverifiedFailure(
-        MacProductApplicationService.ToolVersion,
-        requestId,
-        runtimeIdentityVerified,
-        code,
-        stage);
+    operation == "inspector-diagnostic"
+        ? MacInspectorDiagnosticResult.CreateUnverifiedFailure(
+            MacProductApplicationService.ToolVersion,
+            requestId,
+            runtimeIdentityVerified,
+            code,
+            stage)
+        : MacQualificationCycleResult.CreateUnverifiedFailure(
+            MacProductApplicationService.ToolVersion,
+            requestId,
+            runtimeIdentityVerified,
+            code,
+            stage);
 
 static string? TryGetAssemblyId(string baseDirectory)
 {

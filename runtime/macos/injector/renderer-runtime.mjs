@@ -5,6 +5,8 @@ export const runtimeIdentifiers = Object.freeze({
   stateSymbol: "codex-theme-studio.macos-runtime.v1",
 });
 
+export const expectedAppliedManagedResourceCount = 10;
+
 const colorPattern = /^#[0-9A-F]{6}(?:[0-9A-F]{2})?$/u;
 
 export function validateTheme(theme) {

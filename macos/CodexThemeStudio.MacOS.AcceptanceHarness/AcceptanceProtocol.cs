@@ -11,13 +11,13 @@ public sealed record LiveAuthorization(
     DateTimeOffset ExpiresAtUtc,
     string StagingAssemblyId);
 
-public sealed record QualificationCycleRequest(
+public sealed record AcceptanceRequest(
     int SchemaVersion,
     Guid RequestId,
     string Operation,
     int DeadlineMilliseconds,
     LiveAuthorization Authorization,
-    MacThemeInput Theme);
+    MacThemeInput? Theme);
 
 public static class AcceptanceProtocol
 {
@@ -35,7 +35,7 @@ public static class AcceptanceProtocol
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
-    public static QualificationCycleRequest Decode(
+    public static AcceptanceRequest Decode(
         ReadOnlySpan<byte> input,
         DateTimeOffset now)
     {
@@ -46,10 +46,15 @@ public static class AcceptanceProtocol
                 "request");
         }
 
-        QualificationCycleRequest? request;
+        AcceptanceRequest? request;
+        bool containsTheme;
         try
         {
-            request = JsonSerializer.Deserialize<QualificationCycleRequest>(
+            using var document = JsonDocument.Parse(input.ToArray());
+            containsTheme = document.RootElement.TryGetProperty(
+                "theme",
+                out _);
+            request = JsonSerializer.Deserialize<AcceptanceRequest>(
                 input,
                 JsonOptions);
         }
@@ -63,7 +68,8 @@ public static class AcceptanceProtocol
         if (request is null ||
             request.SchemaVersion != 1 ||
             request.RequestId == Guid.Empty ||
-            request.Operation != "qualification-cycle" ||
+            request.Operation is not
+                ("qualification-cycle" or "inspector-diagnostic") ||
             request.DeadlineMilliseconds is <= 0 or
                 > MaximumDeadlineMilliseconds)
         {
@@ -72,11 +78,8 @@ public static class AcceptanceProtocol
                 "request");
         }
 
-        if (
-            request.Authorization is null ||
-            request.Authorization.Purpose != "stage-7b.2b" ||
+        if (request.Authorization is null ||
             !request.Authorization.AcknowledgeStatefulInspector ||
-            !request.Authorization.AcknowledgeTemporaryTheme ||
             !IsSha256(request.Authorization.StagingAssemblyId) ||
             request.Authorization.ExpiresAtUtc.Offset != TimeSpan.Zero ||
             request.Authorization.ExpiresAtUtc <= now ||
@@ -88,7 +91,27 @@ public static class AcceptanceProtocol
                 "authorization");
         }
 
-        if (request.Theme is null || !request.Theme.IsValid)
+        if (request.Operation == "qualification-cycle" &&
+            (request.Authorization.Purpose != "stage-7b.2b" ||
+             !request.Authorization.AcknowledgeTemporaryTheme ||
+             !containsTheme ||
+             request.Theme is null ||
+             !request.Theme.IsValid))
+        {
+            throw new AcceptanceProtocolException(
+                "request.theme_invalid",
+                "request");
+        }
+        if (request.Operation == "inspector-diagnostic" &&
+            (request.Authorization.Purpose != "stage-7b.2b-diagnostic" ||
+             request.Authorization.AcknowledgeTemporaryTheme))
+        {
+            throw new AcceptanceProtocolException(
+                "authorization.live_required",
+                "authorization");
+        }
+        if (request.Operation == "inspector-diagnostic" &&
+            containsTheme)
         {
             throw new AcceptanceProtocolException(
                 "request.theme_invalid",

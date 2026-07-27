@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildMainExpression,
+  requestClose,
+  runInspectorSession,
   schemaDocument,
   validateAggregate,
   validateClassification,
@@ -10,6 +12,7 @@ import {
 } from "../cdp-client.mjs";
 import {
   buildRendererExpression,
+  expectedAppliedManagedResourceCount,
   runtimeIdentifiers,
   validateTheme,
 } from "../renderer-runtime.mjs";
@@ -83,6 +86,30 @@ test("renderer expressions are syntactically valid", () => {
       mode,
       mode === "apply" ? theme : null);
     assert.doesNotThrow(() => new Function(`return ${expression};`));
+  }
+});
+
+test("real renderer apply has the fixed active count and cleanup reaches zero", () => {
+  const fixture = createRendererDocumentFixture();
+  const originalDocument = globalThis.document;
+  const originalComputedStyle = globalThis.getComputedStyle;
+  globalThis.document = fixture.document;
+  globalThis.getComputedStyle = () => ({
+    backgroundColor: "rgb(17, 17, 17)",
+    color: "rgb(245, 245, 245)",
+  });
+  try {
+    const applied = eval(buildRendererExpression("apply", theme));
+    assert.equal(applied.applyVerified, true);
+    assert.equal(
+      applied.residualCount,
+      expectedAppliedManagedResourceCount);
+    const cleaned = eval(buildRendererExpression("cleanup", null));
+    assert.equal(cleaned.cleanupVerified, true);
+    assert.equal(cleaned.residualCount, 0);
+  } finally {
+    globalThis.document = originalDocument;
+    globalThis.getComputedStyle = originalComputedStyle;
   }
 });
 
@@ -213,6 +240,131 @@ test("schema is finite and declares only fixed commands", () => {
   assert.equal(schemaDocument().maximumResponseBytes, 128 * 1024);
 });
 
+test("close request uses non-awaiting evaluation and tolerates disconnect", async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  const sent = [];
+  globalThis.WebSocket = class {
+    listeners = new Map();
+    addEventListener(name, callback) {
+      this.listeners.set(name, callback);
+      if (name === "open") queueMicrotask(() => callback());
+    }
+    send(value) {
+      sent.push(JSON.parse(value));
+      queueMicrotask(() => this.listeners.get("close")?.());
+    }
+    close() {}
+  };
+  try {
+    await requestClose("ws://127.0.0.1:9229/fixture");
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].method, "Runtime.evaluate");
+    assert.equal(sent[0].params.expression, "process._debugEnd()");
+    assert.equal(sent[0].params.awaitPromise, false);
+  } finally {
+    globalThis.WebSocket = originalWebSocket;
+  }
+});
+
+test("session preserves operation errors when close succeeds", async () => {
+  const operationError = Object.assign(new Error(), {
+    code: "renderer.proof_invalid",
+    stage: "renderer",
+  });
+  await assert.rejects(
+    runInspectorSession(validRequest(), {
+      fetchMetadata: async () => ({ webSocketUrl: "ws://fixture" }),
+      runOperation: async () => { throw operationError; },
+      requestClose: async () => {},
+    }),
+    (error) => error === operationError);
+});
+
+test("session prioritizes close failure over an operation failure", async () => {
+  const closeError = Object.assign(new Error(), {
+    code: "inspector.close_request_failed",
+    stage: "close",
+  });
+  await assert.rejects(
+    runInspectorSession(validRequest(), {
+      fetchMetadata: async () => ({ webSocketUrl: "ws://fixture" }),
+      runOperation: async () => {
+        throw Object.assign(new Error(), {
+          code: "renderer.proof_invalid",
+          stage: "renderer",
+        });
+      },
+      requestClose: async () => { throw closeError; },
+    }),
+    (error) => error === closeError);
+});
+
+test("metadata failure is distinct and does not invent a close proof", async () => {
+  let closeCalled = false;
+  const metadataError = Object.assign(new Error(), {
+    code: "inspector.metadata_invalid",
+    stage: "metadata",
+  });
+  await assert.rejects(
+    runInspectorSession(validRequest(), {
+      fetchMetadata: async () => { throw metadataError; },
+      runOperation: async () => assert.fail("operation must not run"),
+      requestClose: async () => { closeCalled = true; },
+    }),
+    (error) => error === metadataError);
+  assert.equal(closeCalled, false);
+});
+
+function validRequest() {
+  return {
+    command: "apply",
+    host: "127.0.0.1",
+    port: 9229,
+    processId: 42,
+    theme,
+  };
+}
+
+function createRendererDocumentFixture() {
+  const elements = [];
+  const classes = new Set();
+  const properties = new Map();
+  const root = {
+    classList: {
+      contains: (value) => classes.has(value),
+      add: (value) => classes.add(value),
+      remove: (value) => classes.delete(value),
+    },
+    style: {
+      getPropertyValue: (value) => properties.get(value) ?? "",
+      setProperty: (name, value) => properties.set(name, value),
+      removeProperty: (name) => properties.delete(name),
+    },
+  };
+  const createElement = (tagName) => ({
+    tagName,
+    id: "",
+    textContent: "",
+    attributes: new Map(),
+    setAttribute(name, value) {
+      this.attributes.set(name, value);
+    },
+    remove() {
+      const index = elements.indexOf(this);
+      if (index >= 0) elements.splice(index, 1);
+    },
+  });
+  return {
+    document: {
+      documentElement: root,
+      head: { append: (...items) => elements.push(...items) },
+      createElement,
+      querySelectorAll: (selector) =>
+        elements.filter((item) => selector === `#${item.id}`),
+    },
+  };
+}
+
 async function evaluateWindowExpression(
   mode,
   {
@@ -250,7 +402,7 @@ async function evaluateWindowExpression(
           };
         }
         return {
-          residualCount: 7,
+          residualCount: expectedAppliedManagedResourceCount,
           applyVerified: true,
           cleanupVerified: false,
           visualEffectApplied: true,

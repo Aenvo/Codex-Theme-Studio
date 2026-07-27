@@ -3,7 +3,7 @@ import Foundation
 public enum HelperConstants {
     public static let schemaVersion = 1
     public static let protocolVersion = 1
-    public static let toolVersion = "0.2.0"
+    public static let toolVersion = "0.2.1"
     public static let maximumRequestBytes = 64 * 1024
     public static let maximumResponseBytes = 256 * 1024
     public static let inspectorPort = 9229

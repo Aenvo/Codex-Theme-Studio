@@ -13,6 +13,7 @@ public sealed class CodexRuntimeCoordinator
     public const int DiscoverDeadlineMilliseconds = 8_000;
     public const int OperationDeadlineMilliseconds = 20_000;
     public const int QualificationDeadlineMilliseconds = 35_000;
+    public const int ExpectedAppliedManagedResourceCount = 10;
     public const string DefaultMacBundlePath = "/Applications/ChatGPT.app";
 
     private readonly ICodexPlatformBridge bridge;
@@ -28,14 +29,28 @@ public sealed class CodexRuntimeCoordinator
             qualificationStore ?? throw new ArgumentNullException(nameof(qualificationStore));
     }
 
-    public Task<OperationResult<CodexPlatformResponse>> DiscoverAsync(
-        CancellationToken cancellationToken) =>
-        bridge.ExecuteAsync(
+    public async Task<OperationResult<CodexPlatformResponse>> DiscoverAsync(
+        CancellationToken cancellationToken)
+    {
+        var response = await bridge.ExecuteAsync(
             CreateRequest(
                 CodexPlatformCommand.Discover,
                 DiscoverDeadlineMilliseconds,
                 theme: null),
             cancellationToken);
+        if (!response.IsSuccess)
+        {
+            return response;
+        }
+        if (!IsTrustedDiscovery(response.Value!))
+        {
+            return OperationResult<CodexPlatformResponse>.Failure(
+                OperationErrorCode.CodexIdentityMismatch,
+                "Codex 安装或进程身份未通过可信发现。",
+                "macos.discovery.untrusted");
+        }
+        return response;
+    }
 
     public async Task<OperationResult<CodexPlatformResponse>> ApplyTemporaryAsync(
         ThemePackage theme,
@@ -186,6 +201,57 @@ public sealed class CodexRuntimeCoordinator
         }
     }
 
+    public async Task<OperationResult<CodexPlatformResponse>> InspectRuntimeAsync(
+        CancellationToken cancellationToken)
+    {
+        bool lockAcquired;
+        try
+        {
+            lockAcquired = await operationLock.WaitAsync(0, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return Cancelled();
+        }
+
+        if (!lockAcquired)
+        {
+            return OperationResult<CodexPlatformResponse>.Failure(
+                OperationErrorCode.Conflict,
+                "已有主题操作正在进行。",
+                "macos.operation.busy");
+        }
+
+        try
+        {
+            var response = await bridge.ExecuteAsync(
+                CreateRequest(
+                    CodexPlatformCommand.InspectRuntime,
+                    OperationDeadlineMilliseconds,
+                    theme: null),
+                cancellationToken);
+            if (!response.IsSuccess)
+            {
+                return response;
+            }
+
+            var value = response.Value!;
+            if (!IsSuccessfulRuntimeInspection(value))
+            {
+                return OperationResult<CodexPlatformResponse>.Failure(
+                    OperationErrorCode.InvalidResponse,
+                    "macOS Runtime 未能证明 Inspector 诊断完成且已关闭。",
+                    value.ErrorCode ?? "macos.inspect.proof_incomplete");
+            }
+
+            return response;
+        }
+        finally
+        {
+            operationLock.Release();
+        }
+    }
+
     public static CodexThemeProjection ProjectTheme(ThemePackage theme) =>
         new(
             theme.SchemaVersion,
@@ -250,10 +316,30 @@ public sealed class CodexRuntimeCoordinator
         response.IsSuccess &&
         response.AppliedWindowCount == 1 &&
         response.EligibleWindowCount == 1 &&
-        response.ResidualCount == 0 &&
+        response.ResidualCount == ExpectedAppliedManagedResourceCount &&
         response.PortListenerCount == 0 &&
         response.InspectorDisposition == CodexInspectorDisposition.Closed &&
         response.CleanupDisposition != CodexCleanupDisposition.Unverified;
+
+    private static bool IsSuccessfulRuntimeInspection(
+        CodexPlatformResponse response) =>
+        response.IsSuccess &&
+        response.Installation is
+        {
+            Platform: CodexHostPlatform.MacOS,
+            ProductIdentifier: "com.openai.codex",
+            PublisherIdentifier: "2DC432GLL2",
+            SignatureValid: true,
+            HardenedRuntime: true,
+            GatekeeperAccepted: true,
+        } &&
+        response.Process is not null &&
+        response.EligibleWindowCount == 1 &&
+        response.AppliedWindowCount == 0 &&
+        response.ResidualCount == 0 &&
+        response.PortListenerCount == 0 &&
+        response.InspectorDisposition == CodexInspectorDisposition.Closed &&
+        response.CleanupDisposition == CodexCleanupDisposition.NotNeeded;
 
     private static OperationResult<CodexPlatformResponse> Cancelled() =>
         OperationResult<CodexPlatformResponse>.Failure(
