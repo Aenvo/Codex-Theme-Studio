@@ -168,26 +168,12 @@ static object Error(
     string code,
     string stage,
     bool runtimeIdentityVerified) =>
-    new
-    {
-        schemaVersion = 1,
-        toolVersion = MacProductApplicationService.ToolVersion,
+    MacQualificationCycleResult.CreateUnverifiedFailure(
+        MacProductApplicationService.ToolVersion,
         requestId,
-        status = "error",
         runtimeIdentityVerified,
-        qualificationEstablishedWithinRun = false,
-        firstQualificationApplied = false,
-        firstRestoreVerified = false,
-        secondTemporaryApplyVerified = false,
-        secondRestoreVerified = false,
-        processStable = false,
-        inspectorClosedProofCount = 0,
-        cleanupAttempted = false,
-        cleanupVerified = false,
-        finalResidualCount = -1,
-        finalPortListenerCount = -1,
-        error = new { code, stage },
-    };
+        code,
+        stage);
 
 static string? TryGetAssemblyId(string baseDirectory)
 {

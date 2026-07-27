@@ -6,7 +6,7 @@ namespace CodexThemeStudio.Application.MacOS;
 
 public sealed class MacProductApplicationService
 {
-    public const string ToolVersion = "0.1.1";
+    public const string ToolVersion = "0.1.2";
     public static readonly TimeSpan CleanupGrace = TimeSpan.FromSeconds(25);
 
     private readonly CodexRuntimeCoordinator coordinator;
@@ -172,28 +172,12 @@ public sealed class MacProductApplicationService
         Guid requestId,
         string code,
         string stage) =>
-        new(
-            1,
+        MacQualificationCycleResult.CreateUnverifiedFailure(
             ToolVersion,
             requestId,
-            "error",
             true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            null,
-            "unverified",
-            0,
-            false,
-            false,
-            null,
-            "unverified",
-            null,
-            "unverified",
-            new MacQualificationCycleError(code, stage),
-            null);
+            code,
+            stage);
 
     private sealed class CycleProgress(Guid requestId)
     {

@@ -25,4 +25,34 @@ public sealed record MacQualificationCycleResult(
     int? FinalPortListenerCount,
     string PortProof,
     MacQualificationCycleError? Error,
-    MacQualificationCycleError? RecoveryError);
+    MacQualificationCycleError? RecoveryError)
+{
+    public static MacQualificationCycleResult CreateUnverifiedFailure(
+        string toolVersion,
+        Guid requestId,
+        bool runtimeIdentityVerified,
+        string code,
+        string stage) =>
+        new(
+            1,
+            toolVersion,
+            requestId,
+            "error",
+            runtimeIdentityVerified,
+            false,
+            false,
+            false,
+            false,
+            false,
+            null,
+            "unverified",
+            0,
+            false,
+            false,
+            null,
+            "unverified",
+            null,
+            "unverified",
+            new MacQualificationCycleError(code, stage),
+            null);
+}

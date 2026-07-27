@@ -285,6 +285,60 @@ public sealed class MacProductApplicationServiceTests
         Assert.Null(result.Service);
     }
 
+    [Theory]
+    [InlineData(
+        "protocol.request_invalid",
+        "request",
+        false)]
+    [InlineData(
+        "runtime.identity_verification_failed",
+        "identity",
+        false)]
+    [InlineData(
+        "operation.unexpected",
+        "harness",
+        false)]
+    public void EntryFailureUsesOnlyUnverifiedFinalEvidence(
+        string code,
+        string stage,
+        bool runtimeIdentityVerified)
+    {
+        var result = MacQualificationCycleResult.CreateUnverifiedFailure(
+            MacProductApplicationService.ToolVersion,
+            Guid.NewGuid(),
+            runtimeIdentityVerified,
+            code,
+            stage);
+
+        Assert.Equal("0.1.2", result.ToolVersion);
+        Assert.Equal("error", result.Status);
+        Assert.Equal(runtimeIdentityVerified, result.RuntimeIdentityVerified);
+        Assert.Null(result.ProcessStable);
+        Assert.Equal("unverified", result.ProcessProof);
+        Assert.Null(result.FinalResidualCount);
+        Assert.Equal("unverified", result.ResidualProof);
+        Assert.Null(result.FinalPortListenerCount);
+        Assert.Equal("unverified", result.PortProof);
+        Assert.Equal(code, result.Error!.Code);
+        Assert.Equal(stage, result.Error.Stage);
+        Assert.Null(result.RecoveryError);
+
+        var json = JsonSerializer.Serialize(
+            result,
+            AcceptanceProtocol.JsonOptions);
+        Assert.Contains("\"processStable\":null", json);
+        Assert.Contains("\"finalResidualCount\":null", json);
+        Assert.Contains("\"finalPortListenerCount\":null", json);
+        Assert.DoesNotContain(
+            "\"finalResidualCount\":-1",
+            json,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "\"finalPortListenerCount\":-1",
+            json,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task StructuredResultContainsNoPrivateRuntimeFields()
     {
