@@ -6,7 +6,7 @@ namespace CodexThemeStudio.Application.MacOS;
 
 public sealed class MacProductApplicationService
 {
-    public const string ToolVersion = "0.1.0";
+    public const string ToolVersion = "0.1.1";
     public static readonly TimeSpan CleanupGrace = TimeSpan.FromSeconds(25);
 
     private readonly CodexRuntimeCoordinator coordinator;
@@ -82,7 +82,11 @@ public sealed class MacProductApplicationService
                 try
                 {
                     var result = await coordinator.RestoreAsync(cleanup.Token);
-                    if (progress.Observe(result, "final-cleanup"))
+                    if (progress.Observe(
+                            result,
+                            "final-cleanup",
+                            finalProof: true,
+                            recovery: true))
                     {
                         progress.CleanupVerified = true;
                         progress.CleanupRequired = false;
@@ -91,7 +95,7 @@ public sealed class MacProductApplicationService
                 }
                 catch (OperationCanceledException)
                 {
-                    progress.Fail(
+                    progress.FailRecovery(
                         "operation.cleanup_timeout",
                         "final-cleanup");
                 }
@@ -150,7 +154,10 @@ public sealed class MacProductApplicationService
         progress.InspectorClosedProofCount++;
 
         var secondRestore = await coordinator.RestoreAsync(cancellationToken);
-        if (!progress.Observe(secondRestore, "second-restore"))
+        if (!progress.Observe(
+                secondRestore,
+                "second-restore",
+                finalProof: true))
         {
             return;
         }
@@ -176,13 +183,17 @@ public sealed class MacProductApplicationService
             false,
             false,
             false,
-            false,
+            null,
+            "unverified",
             0,
             false,
             false,
-            -1,
-            -1,
-            new MacQualificationCycleError(code, stage));
+            null,
+            "unverified",
+            null,
+            "unverified",
+            new MacQualificationCycleError(code, stage),
+            null);
 
     private sealed class CycleProgress(Guid requestId)
     {
@@ -198,30 +209,42 @@ public sealed class MacProductApplicationService
         public bool CleanupAttempted { get; set; }
         public bool CleanupVerified { get; set; }
         public int InspectorClosedProofCount { get; set; }
-        public int FinalResidualCount { get; private set; } = -1;
-        public int FinalPortListenerCount { get; private set; } = -1;
-        public bool ProcessStable { get; private set; } = true;
+        public int? FinalResidualCount { get; private set; }
+        public string ResidualProof { get; private set; } = "unverified";
+        public int? FinalPortListenerCount { get; private set; }
+        public string PortProof { get; private set; } = "unverified";
+        public bool? ProcessStable { get; private set; }
+        public string ProcessProof { get; private set; } = "unverified";
         public bool Succeeded { get; set; }
         public MacQualificationCycleError? Error { get; private set; }
+        public MacQualificationCycleError? RecoveryError { get; private set; }
 
         public bool Observe(
             OperationResult<CodexPlatformResponse> result,
-            string stage)
+            string stage,
+            bool finalProof = false,
+            bool recovery = false)
         {
             if (!result.IsSuccess || result.Value is null)
             {
-                Fail(
-                    result.Error?.DiagnosticCode ?? "operation.failed",
-                    stage);
+                var code =
+                    result.Error?.DiagnosticCode ?? "operation.failed";
+                if (code == "process.identity_changed")
+                {
+                    ProcessStable = false;
+                    ProcessProof = "changed";
+                }
+                RecordFailure(code, stage, recovery);
                 return false;
             }
 
             var value = result.Value;
-            FinalResidualCount = value.ResidualCount;
-            FinalPortListenerCount = value.PortListenerCount;
             if (value.Installation is null || value.Process is null)
             {
-                Fail("process.identity_missing", stage);
+                RecordFailure(
+                    "process.identity_missing",
+                    stage,
+                    recovery);
                 return false;
             }
 
@@ -229,6 +252,10 @@ public sealed class MacProductApplicationService
             {
                 installation = value.Installation;
                 process = value.Process;
+                if (finalProof)
+                {
+                    RecordFinalProof(value);
+                }
                 return true;
             }
 
@@ -236,16 +263,31 @@ public sealed class MacProductApplicationService
                 !SameProcess(process!, value.Process))
             {
                 ProcessStable = false;
-                Fail("process.identity_changed", stage);
+                ProcessProof = "changed";
+                RecordFailure(
+                    "process.identity_changed",
+                    stage,
+                    recovery);
                 return false;
             }
 
+            if (finalProof)
+            {
+                RecordFinalProof(value);
+            }
             return true;
         }
 
         public void Fail(string code, string stage)
         {
             Error ??= new MacQualificationCycleError(code, stage);
+            Succeeded = false;
+        }
+
+        public void FailRecovery(string code, string stage)
+        {
+            RecoveryError ??=
+                new MacQualificationCycleError(code, stage);
             Succeeded = false;
         }
 
@@ -262,12 +304,48 @@ public sealed class MacProductApplicationService
                 SecondTemporaryApplyVerified,
                 SecondRestoreVerified,
                 ProcessStable,
+                ProcessProof,
                 InspectorClosedProofCount,
                 CleanupAttempted,
                 CleanupVerified,
                 FinalResidualCount,
+                ResidualProof,
                 FinalPortListenerCount,
-                Error);
+                PortProof,
+                Error,
+                RecoveryError);
+
+        private void RecordFailure(
+            string code,
+            string stage,
+            bool recovery)
+        {
+            if (recovery)
+            {
+                FailRecovery(code, stage);
+            }
+            else
+            {
+                Fail(code, stage);
+            }
+        }
+
+        private void RecordFinalProof(CodexPlatformResponse value)
+        {
+            if (ProcessStable != false)
+            {
+                ProcessStable = true;
+                ProcessProof = "stable";
+            }
+            FinalResidualCount = value.ResidualCount;
+            ResidualProof = value.ResidualCount == 0
+                ? "verified-zero"
+                : "verified-nonzero";
+            FinalPortListenerCount = value.PortListenerCount;
+            PortProof = value.PortListenerCount == 0
+                ? "verified-zero"
+                : "verified-nonzero";
+        }
 
         private static bool SameInstallation(
             CodexInstallationIdentityV2 left,

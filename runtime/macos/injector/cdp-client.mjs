@@ -42,7 +42,7 @@ if (process.argv[1] &&
   if (process.argv[2] === "self-test") {
     emit({
       schemaVersion: 1,
-      toolVersion: "0.1.0",
+      toolVersion: "0.1.1",
       status: "ok",
       checks: [
         "fixed-renderer-expressions",
@@ -68,7 +68,7 @@ if (process.argv[1] &&
 export function schemaDocument() {
   return {
     schemaVersion: 1,
-    toolVersion: "0.1.0",
+    toolVersion: "0.1.1",
     commands: ["inspect", "apply", "apply-cleanup", "cleanup"],
     maximumInputBytes,
     maximumResponseBytes,
@@ -132,8 +132,11 @@ export async function runOperation(webSocketUrl, request) {
 }
 
 export function buildMainExpression(mode, theme) {
-  const rendererMode = mode === "classify" ? "inspect" : mode;
-  const renderer = JSON.stringify(buildRendererExpression(rendererMode, theme));
+  const primaryRenderer = JSON.stringify(buildRendererExpression(
+    mode === "classify" ? "inspect" : mode,
+    theme));
+  const inspectRenderer = JSON.stringify(
+    buildRendererExpression("inspect", null));
   return `(() => {
     const electron = process.mainModule?.require("electron");
     if (!electron?.BrowserWindow?.getAllWindows) throw new Error();
@@ -165,11 +168,51 @@ export function buildMainExpression(mode, theme) {
       };
     }
     if (eligible.length !== 1 || unknown.length !== 0) throw new Error();
-    const run = (record) => record.contents.executeJavaScript(${renderer}, true);
+    const runPrimary = () =>
+      eligible[0].contents.executeJavaScript(${primaryRenderer}, true);
+    const inspectOverlays = () => Promise.all(overlays.map((record) =>
+      record.contents.executeJavaScript(${inspectRenderer}, true)));
+    if (${JSON.stringify(mode)} === "apply") {
+      return inspectOverlays().then((before) => {
+        const beforeResidualCount = before.reduce(
+          (sum, item) => sum + item.residualCount, 0);
+        if (beforeResidualCount !== 0) {
+          return {
+            primary: {
+              applyVerified: false,
+              cleanupVerified: false,
+              visualEffectApplied: false,
+              residualCount: 0
+            },
+            before,
+            after: []
+          };
+        }
+        return runPrimary().then((primary) =>
+          inspectOverlays().then((after) => ({ primary, before, after })));
+      })
+        .then(({ primary, before, after }) => {
+          const overlayResidualCount = [...before, ...after]
+            .reduce((sum, item) => sum + item.residualCount, 0);
+          return {
+            eligibleWindowCount: eligible.length,
+            overlayWindowCount: overlays.length,
+            unknownWindowCount: unknown.length,
+            overlayResidualCount,
+            appliedWindowCount: primary.applyVerified ? 1 : 0,
+            applyVerified: Boolean(primary.applyVerified),
+            cleanupVerified: Boolean(primary.cleanupVerified),
+            visualEffectApplied: Boolean(primary.visualEffectApplied),
+            residualCount: primary.residualCount
+          };
+        });
+    }
+    const run = (record) =>
+      record.contents.executeJavaScript(${primaryRenderer}, true);
     return Promise.all([run(eligible[0]), ...overlays.map(run)]).then((facts) => {
       const primary = facts[0];
-      const overlayResidualCount = facts.slice(1)
-        .reduce((sum, item) => sum + item.residualCount, 0);
+      const overlayResidualCount = facts.slice(1).reduce(
+        (sum, item) => sum + item.residualCount, 0);
       return {
         eligibleWindowCount: eligible.length,
         overlayWindowCount: overlays.length,
@@ -380,7 +423,7 @@ function validateIdentifier(value) {
   return value.toLowerCase();
 }
 
-function validateClassification(value) {
+export function validateClassification(value) {
   const keys = [
     "eligibleWindowCount",
     "overlayWindowCount",
@@ -389,15 +432,18 @@ function validateClassification(value) {
   ];
   if (!value || typeof value !== "object" ||
       !keys.every((key) =>
-        Number.isSafeInteger(value[key]) && value[key] >= 0) ||
-      value.overlayResidualCount !== 0) {
+        Number.isSafeInteger(value[key]) && value[key] >= 0)) {
     throw safeError("inspector.classification_invalid", "classification");
   }
 }
 
-function validateAggregate(value, mode) {
+export function validateAggregate(value, mode) {
   validateClassification(value);
+  if (value.overlayResidualCount !== 0) {
+    throw safeError("renderer.overlay_modified", "renderer");
+  }
   if (!Number.isSafeInteger(value.residualCount) ||
+      value.residualCount < 0 ||
       !Number.isSafeInteger(value.appliedWindowCount) ||
       value.appliedWindowCount < 0 ||
       typeof value.applyVerified !== "boolean" ||

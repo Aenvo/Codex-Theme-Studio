@@ -15,10 +15,14 @@ public sealed record MacQualificationCycleResult(
     bool FirstRestoreVerified,
     bool SecondTemporaryApplyVerified,
     bool SecondRestoreVerified,
-    bool ProcessStable,
+    bool? ProcessStable,
+    string ProcessProof,
     int InspectorClosedProofCount,
     bool CleanupAttempted,
     bool CleanupVerified,
-    int FinalResidualCount,
-    int FinalPortListenerCount,
-    MacQualificationCycleError? Error);
+    int? FinalResidualCount,
+    string ResidualProof,
+    int? FinalPortListenerCount,
+    string PortProof,
+    MacQualificationCycleError? Error,
+    MacQualificationCycleError? RecoveryError);

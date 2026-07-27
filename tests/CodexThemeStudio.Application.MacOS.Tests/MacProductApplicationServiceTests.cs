@@ -27,9 +27,14 @@ public sealed class MacProductApplicationServiceTests
         Assert.True(result.SecondTemporaryApplyVerified);
         Assert.True(result.SecondRestoreVerified);
         Assert.True(result.ProcessStable);
+        Assert.Equal("stable", result.ProcessProof);
         Assert.True(result.CleanupVerified);
         Assert.Equal(0, result.FinalResidualCount);
+        Assert.Equal("verified-zero", result.ResidualProof);
         Assert.Equal(0, result.FinalPortListenerCount);
+        Assert.Equal("verified-zero", result.PortProof);
+        Assert.Null(result.Error);
+        Assert.Null(result.RecoveryError);
         Assert.Equal(
             [
                 CodexPlatformCommand.Discover,
@@ -61,6 +66,19 @@ public sealed class MacProductApplicationServiceTests
         Assert.Equal("error", result.Status);
         Assert.True(result.CleanupAttempted);
         Assert.True(result.CleanupVerified);
+        Assert.True(result.ProcessStable);
+        Assert.Equal("stable", result.ProcessProof);
+        Assert.Equal(0, result.FinalResidualCount);
+        Assert.Equal("verified-zero", result.ResidualProof);
+        Assert.Equal(0, result.FinalPortListenerCount);
+        Assert.Equal("verified-zero", result.PortProof);
+        Assert.Equal("helper.failed", result.Error!.Code);
+        Assert.Null(result.RecoveryError);
+        Assert.Equal(1, bridge.Commands.Count(
+            command => command == CodexPlatformCommand.QualifyAndApply));
+        Assert.DoesNotContain(
+            CodexPlatformCommand.ApplyTemporary,
+            bridge.Commands);
         Assert.Equal(1, bridge.Commands.Count(
             command => command == CodexPlatformCommand.Cleanup));
     }
@@ -82,6 +100,9 @@ public sealed class MacProductApplicationServiceTests
         Assert.True(result.CleanupAttempted);
         Assert.True(result.CleanupVerified);
         Assert.Equal("operation.cancelled", result.Error!.Code);
+        Assert.Null(result.RecoveryError);
+        Assert.True(result.ProcessStable);
+        Assert.Equal("stable", result.ProcessProof);
         Assert.Equal(1, bridge.Commands.Count(
             command => command == CodexPlatformCommand.Cleanup));
     }
@@ -99,8 +120,52 @@ public sealed class MacProductApplicationServiceTests
         Assert.Equal("error", result.Status);
         Assert.True(result.CleanupAttempted);
         Assert.False(result.CleanupVerified);
+        Assert.Null(result.ProcessStable);
+        Assert.Equal("unverified", result.ProcessProof);
+        Assert.Null(result.FinalResidualCount);
+        Assert.Equal("unverified", result.ResidualProof);
+        Assert.Null(result.FinalPortListenerCount);
+        Assert.Equal("unverified", result.PortProof);
+        Assert.Equal("renderer.cleanup_failed", result.Error!.Code);
+        Assert.Equal(
+            "renderer.cleanup_failed",
+            result.RecoveryError!.Code);
         Assert.Equal(2, bridge.Commands.Count(
             command => command == CodexPlatformCommand.Cleanup));
+    }
+
+    [Fact]
+    public async Task FailedApplyAndRecoveryKeepBothErrorsAndUnknownProofs()
+    {
+        var bridge = new FakeBridge
+        {
+            FailCommand = CodexPlatformCommand.QualifyAndApply,
+            FailCleanup = true,
+        };
+
+        var result = await CreateService(bridge).RunQualificationCycleAsync(
+            Guid.NewGuid(),
+            CreateTheme(),
+            CancellationToken.None);
+
+        Assert.Equal("error", result.Status);
+        Assert.Equal("helper.failed", result.Error!.Code);
+        Assert.Equal("first-apply", result.Error.Stage);
+        Assert.Equal(
+            "renderer.cleanup_failed",
+            result.RecoveryError!.Code);
+        Assert.Equal("final-cleanup", result.RecoveryError.Stage);
+        Assert.True(result.CleanupAttempted);
+        Assert.False(result.CleanupVerified);
+        Assert.Null(result.ProcessStable);
+        Assert.Equal("unverified", result.ProcessProof);
+        Assert.Null(result.FinalResidualCount);
+        Assert.Equal("unverified", result.ResidualProof);
+        Assert.Null(result.FinalPortListenerCount);
+        Assert.Equal("unverified", result.PortProof);
+        Assert.DoesNotContain(
+            CodexPlatformCommand.ApplyTemporary,
+            bridge.Commands);
     }
 
     [Fact]
@@ -117,8 +182,11 @@ public sealed class MacProductApplicationServiceTests
 
         Assert.Equal("error", result.Status);
         Assert.False(result.ProcessStable);
+        Assert.Equal("changed", result.ProcessProof);
         Assert.True(result.CleanupAttempted);
+        Assert.True(result.CleanupVerified);
         Assert.Equal("process.identity_changed", result.Error!.Code);
+        Assert.Null(result.RecoveryError);
     }
 
     [Fact]

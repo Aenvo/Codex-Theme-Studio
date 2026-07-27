@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   buildMainExpression,
   schemaDocument,
+  validateAggregate,
+  validateClassification,
   validateRequest,
   validateWebSocket,
 } from "../cdp-client.mjs";
@@ -84,6 +86,125 @@ test("renderer expressions are syntactically valid", () => {
   }
 });
 
+test("apply targets only eligible and inspects overlay before and after", async () => {
+  const fixture = await evaluateWindowExpression("apply");
+
+  assert.equal(fixture.value.eligibleWindowCount, 1);
+  assert.equal(fixture.value.overlayWindowCount, 1);
+  assert.equal(fixture.value.overlayResidualCount, 0);
+  assert.doesNotThrow(() => validateAggregate(fixture.value, "apply"));
+  assert.deepEqual(
+    fixture.calls.map((call) => [call.kind, call.expression]),
+    [
+      ["overlay", buildRendererExpression("inspect", null)],
+      ["eligible", buildRendererExpression("apply", theme)],
+      ["overlay", buildRendererExpression("inspect", null)],
+    ]);
+});
+
+test("apply fails closed when overlay inspection reports residue", async () => {
+  const fixture = await evaluateWindowExpression(
+    "apply",
+    { overlayResidualCount: 1 });
+
+  assert.throws(
+    () => validateAggregate(fixture.value, "apply"),
+    (error) =>
+      error.code === "renderer.overlay_modified" &&
+      error.stage === "renderer");
+  assert.deepEqual(
+    fixture.calls.map((call) => call.kind),
+    ["overlay"]);
+});
+
+test("post-apply overlay residue prevents an apply success result", async () => {
+  const fixture = await evaluateWindowExpression(
+    "apply",
+    { overlayResidualCounts: [0, 1] });
+
+  assert.throws(
+    () => validateAggregate(fixture.value, "apply"),
+    (error) =>
+      error.code === "renderer.overlay_modified" &&
+      error.stage === "renderer");
+  assert.deepEqual(
+    fixture.calls.map((call) => call.kind),
+    ["overlay", "eligible", "overlay"]);
+});
+
+test("classification shape and overlay residue use distinct errors", () => {
+  const validClassification = {
+    eligibleWindowCount: 1,
+    overlayWindowCount: 1,
+    unknownWindowCount: 0,
+    overlayResidualCount: 1,
+  };
+  assert.doesNotThrow(() => validateClassification(validClassification));
+  assert.throws(
+    () => validateAggregate({
+      ...validClassification,
+      residualCount: 7,
+      appliedWindowCount: 1,
+      applyVerified: true,
+      cleanupVerified: false,
+      visualEffectApplied: true,
+    }, "apply"),
+    (error) => error.code === "renderer.overlay_modified");
+  assert.throws(
+    () => validateClassification({
+      ...validClassification,
+      unknownWindowCount: "invalid",
+    }),
+    (error) => error.code === "inspector.classification_invalid");
+});
+
+test("cleanup targets eligible and overlay and proves zero residue", async () => {
+  const fixture = await evaluateWindowExpression("cleanup");
+
+  assert.equal(fixture.value.overlayResidualCount, 0);
+  assert.doesNotThrow(() => validateAggregate(fixture.value, "cleanup"));
+  assert.deepEqual(
+    fixture.calls.map((call) => [call.kind, call.expression]),
+    [
+      ["eligible", buildRendererExpression("cleanup", null)],
+      ["overlay", buildRendererExpression("cleanup", null)],
+    ]);
+});
+
+test("cleanup after partial apply clears product residue in eligible and overlay", async () => {
+  const fixture = await evaluateCleanupWithManagedResidue();
+
+  assert.deepEqual(fixture.before, { eligible: 7, overlay: 5 });
+  assert.deepEqual(fixture.after, { eligible: 0, overlay: 0 });
+  assert.doesNotThrow(() => validateAggregate(fixture.value, "cleanup"));
+  assert.deepEqual(
+    fixture.calls.map((call) => [call.kind, call.expression]),
+    [
+      ["eligible", buildRendererExpression("cleanup", null)],
+      ["overlay", buildRendererExpression("cleanup", null)],
+    ]);
+});
+
+test("cleanup expression is scoped to fixed product identifiers", () => {
+  const expression = buildRendererExpression("cleanup", null);
+  for (const value of Object.values(runtimeIdentifiers)) {
+    assert.match(expression, new RegExp(value.replaceAll(".", "\\."), "u"));
+  }
+  for (const variable of [
+    "--cts-background",
+    "--cts-panel",
+    "--cts-accent",
+    "--cts-text",
+    "--cts-muted",
+    "--cts-border",
+  ]) {
+    assert.match(expression, new RegExp(variable, "u"));
+  }
+  assert.doesNotMatch(
+    expression,
+    /querySelectorAll\(["']\*["']\)|replaceChildren|innerHTML\s*=/u);
+});
+
 test("schema is finite and declares only fixed commands", () => {
   assert.deepEqual(
     schemaDocument().commands,
@@ -91,3 +212,119 @@ test("schema is finite and declares only fixed commands", () => {
   assert.equal(schemaDocument().maximumInputBytes, 64 * 1024);
   assert.equal(schemaDocument().maximumResponseBytes, 128 * 1024);
 });
+
+async function evaluateWindowExpression(
+  mode,
+  {
+    overlayResidualCount = 0,
+    overlayResidualCounts = null,
+  } = {}
+) {
+  const calls = [];
+  let overlayCallIndex = 0;
+  const originalProcess = globalThis.process;
+  const makeWindow = (kind) => ({
+    webContents: {
+      getURL: () => kind === "eligible"
+        ? "app://fixture/main"
+        : "app://fixture/avatar-overlay",
+      executeJavaScript: async (expression) => {
+        calls.push({ kind, expression });
+        if (mode === "cleanup") {
+          return {
+            residualCount: 0,
+            applyVerified: false,
+            cleanupVerified: true,
+            visualEffectApplied: false,
+          };
+        }
+        if (kind === "overlay") {
+          const currentOverlayResidualCount =
+            overlayResidualCounts?.[overlayCallIndex++] ??
+            overlayResidualCount;
+          return {
+            residualCount: currentOverlayResidualCount,
+            applyVerified: false,
+            cleanupVerified: currentOverlayResidualCount === 0,
+            visualEffectApplied: false,
+          };
+        }
+        return {
+          residualCount: 7,
+          applyVerified: true,
+          cleanupVerified: false,
+          visualEffectApplied: true,
+        };
+      },
+    },
+  });
+  globalThis.process = {
+    mainModule: {
+      require: () => ({
+        BrowserWindow: {
+          getAllWindows: () => [
+            makeWindow("eligible"),
+            makeWindow("overlay"),
+          ],
+        },
+      }),
+    },
+  };
+  try {
+    const value = await eval(buildMainExpression(
+      mode,
+      mode === "apply" ? theme : null));
+    return { calls, value };
+  } finally {
+    globalThis.process = originalProcess;
+  }
+}
+
+async function evaluateCleanupWithManagedResidue() {
+  const calls = [];
+  const managedResidue = { eligible: 7, overlay: 5 };
+  const before = { ...managedResidue };
+  const cleanupExpression = buildRendererExpression("cleanup", null);
+  const originalProcess = globalThis.process;
+  const makeWindow = (kind) => ({
+    webContents: {
+      getURL: () => kind === "eligible"
+        ? "app://fixture/main"
+        : "app://fixture/avatar-overlay",
+      executeJavaScript: async (expression) => {
+        calls.push({ kind, expression });
+        assert.equal(expression, cleanupExpression);
+        managedResidue[kind] = 0;
+        return {
+          residualCount: managedResidue[kind],
+          applyVerified: false,
+          cleanupVerified: managedResidue[kind] === 0,
+          visualEffectApplied: false,
+        };
+      },
+    },
+  });
+  globalThis.process = {
+    mainModule: {
+      require: () => ({
+        BrowserWindow: {
+          getAllWindows: () => [
+            makeWindow("eligible"),
+            makeWindow("overlay"),
+          ],
+        },
+      }),
+    },
+  };
+  try {
+    const value = await eval(buildMainExpression("cleanup", null));
+    return {
+      before,
+      after: { ...managedResidue },
+      calls,
+      value,
+    };
+  } finally {
+    globalThis.process = originalProcess;
+  }
+}
