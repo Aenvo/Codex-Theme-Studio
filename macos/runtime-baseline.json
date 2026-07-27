@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": "1",
+  "node": {
+    "version": "24.18.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "archiveFileName": "node-v24.18.0-darwin-arm64.tar.gz",
+    "archiveSha256": "e1a97e14c99c803e96c7339403282ea05a499c32f8d83defe9ef5ec66f979ed1",
+    "executableRelativePath": "bin/node",
+    "executableSize": 120965360,
+    "executableSha256": "ee6fb0e015284d83a91e8ec5213f43a157f8a392b58555301682892ba928c04a"
+  }
+}

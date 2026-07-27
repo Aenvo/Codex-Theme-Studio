@@ -58,6 +58,20 @@ export DOTNET_ROOT="${DOTNET:h}"
   --no-build \
   --no-restore
 
+"$DOTNET" restore \
+  CodexThemeStudio.RuntimeHost/CodexThemeStudio.RuntimeHost.csproj \
+  --locked-mode
+"$DOTNET" build \
+  CodexThemeStudio.RuntimeHost/CodexThemeStudio.RuntimeHost.csproj \
+  --configuration Release \
+  --no-restore
+"$DOTNET" \
+  CodexThemeStudio.RuntimeHost/bin/Release/net10.0/CodexThemeStudio.RuntimeHost.dll \
+  source-self-test
+"$DOTNET" \
+  CodexThemeStudio.RuntimeHost/bin/Release/net10.0/CodexThemeStudio.RuntimeHost.dll \
+  schema
+
 /usr/bin/xcrun swift package \
   --package-path ../native/macos/CodexThemeStudio.MacHelper \
   --scratch-path "$SWIFT_SCRATCH" \
@@ -75,9 +89,12 @@ SWIFT_BIN=$(/usr/bin/xcrun swift build \
   --scratch-path "$SWIFT_SCRATCH" \
   --configuration release \
   --show-bin-path)
-"$SWIFT_BIN/codex-theme-studio-mac-helper" self-test
+"$SWIFT_BIN/codex-theme-studio-mac-helper" source-self-test
 "$SWIFT_BIN/codex-theme-studio-mac-helper" schema
+"$SWIFT_BIN/codex-theme-studio-runtime-manifest" schema
 
-"$NODE" --test ../runtime/macos/injector/tests/cdp-client.test.mjs
+"$NODE" --test \
+  ../runtime/macos/injector/tests/cdp-client.test.mjs \
+  ../runtime/macos/injector/tests/runtime-assembly.test.mjs
 "$NODE" ../runtime/macos/injector/cdp-client.mjs self-test
 "$NODE" ../runtime/macos/injector/cdp-client.mjs schema

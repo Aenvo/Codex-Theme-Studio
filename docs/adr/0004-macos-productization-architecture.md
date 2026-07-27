@@ -65,8 +65,19 @@ Windows x64 self-contained 便携包为正式维护基线。macOS 可行性分�
   信任链未生成前 fail-closed。当前 7B.1 只验证 manifest 解析、逐文件哈希、
   manifest 自身哈希和未配置拒绝路径，不生成正式打包 manifest，也不具备
   打包身份资格。
-- 生成 runtime manifest、写入两级编译期预期值、验证最终 App Bundle 签名并
-  用该产物执行真机闭环，是 7B.2 开始前的独立前置门禁。
+- 7B.2A 使用仓库外、内容寻址、原子 staging 建立正式单向身份链。固定 Node
+  的版本、架构、官方归档哈希以及解包后二进制哈希由独立 macOS 基线固定；
+  manifest 只声明 Node、CDP 和 renderer 文件，不声明自身或 Helper。
+- Manifest SHA-256 只进入仓库外 Swift Package 副本的生成源码；Helper
+  SHA-256 只进入仓库外 .NET 生成源码。源码 checkout 中的两个默认常量继续
+  为空并 fail-closed，最终哈希、manifest 实例和二进制不得提交。
+- 7B.2A 的无 apphost .NET Host 只用于离线复核：.NET 编译身份验证 Helper，
+  Helper 编译身份验证 manifest，manifest 再验证 Node 和两份脚本。只有整条
+  staging 链成立时，严格 self-test 才报告
+  `packagedRuntimeIdentityConfigured=true`。
+- 7B.2A staging 尚未签名、公证，也不构成发布 App Bundle。使用该固定产物
+  执行正式真机闭环是 7B.2B；nested signing、Hardened Runtime 和 Gatekeeper
+  验收仍属于第 8 阶段。
 - 发布目标为 Developer ID、Hardened Runtime、公证和 stapled ZIP。
 - 首版不以 App Sandbox 或 Mac App Store 为目标，不绕过 Gatekeeper、SIP 或
   其他系统安全机制。

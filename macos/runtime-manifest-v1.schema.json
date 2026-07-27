@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexthemestudio.local/schema/runtime-manifest-v1.json",
+  "additionalProperties": false,
+  "properties": {
+    "files": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "node-runtime",
+              "cdp-client",
+              "renderer-runtime"
+            ]
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "size": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "role",
+          "size",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "type": "array"
+    },
+    "runtimeVersion": {
+      "const": "1"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "target": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "const": "arm64"
+        },
+        "os": {
+          "const": "darwin"
+        }
+      },
+      "required": [
+        "os",
+        "architecture"
+      ],
+      "type": "object"
+    },
+    "toolVersion": {
+      "const": "0.2.0"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "runtimeVersion",
+    "toolVersion",
+    "target",
+    "files"
+  ],
+  "type": "object"
+}

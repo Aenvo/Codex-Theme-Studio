@@ -14,14 +14,14 @@ let arguments = Array(CommandLine.arguments.dropFirst())
 if arguments == ["schema"] {
     emit(ProtocolPolicy.schemaDocument(), exitCode: 0)
 }
-if arguments == ["self-test"] {
+if arguments == ["source-self-test"] {
     emit([
         "schemaVersion": HelperConstants.schemaVersion,
         "protocolVersion": HelperConstants.protocolVersion,
         "toolVersion": HelperConstants.toolVersion,
         "status": "ok",
         "packagedRuntimeIdentityConfigured":
-            GeneratedRuntimeIdentity.isConfigured,
+            false,
         "checks": [
             "single-json-stdin",
             "single-json-stdout",
@@ -32,6 +32,38 @@ if arguments == ["self-test"] {
             "runtime-hash-verification",
         ],
     ], exitCode: 0)
+}
+if arguments == ["self-test"] {
+    do {
+        try PackagedRuntimeVerifier.verifyCurrentExecutableLayout()
+        emit([
+            "schemaVersion": HelperConstants.schemaVersion,
+            "protocolVersion": HelperConstants.protocolVersion,
+            "toolVersion": HelperConstants.toolVersion,
+            "status": "ok",
+            "packagedRuntimeIdentityConfigured": true,
+            "manifestToHelperMatch": true,
+            "runtimeFilesMatch": true,
+        ], exitCode: 0)
+    } catch let failure as HelperFailure {
+        emit([
+            "schemaVersion": HelperConstants.schemaVersion,
+            "protocolVersion": HelperConstants.protocolVersion,
+            "toolVersion": HelperConstants.toolVersion,
+            "status": "error",
+            "packagedRuntimeIdentityConfigured": false,
+            "error": ["code": failure.code, "stage": failure.stage],
+        ], exitCode: 1)
+    } catch {
+        emit([
+            "schemaVersion": HelperConstants.schemaVersion,
+            "protocolVersion": HelperConstants.protocolVersion,
+            "toolVersion": HelperConstants.toolVersion,
+            "status": "error",
+            "packagedRuntimeIdentityConfigured": false,
+            "error": ["code": "helper.runtime_verification_failed", "stage": "runtime"],
+        ], exitCode: 1)
+    }
 }
 guard arguments.isEmpty || arguments == ["serve"] else {
     emit([

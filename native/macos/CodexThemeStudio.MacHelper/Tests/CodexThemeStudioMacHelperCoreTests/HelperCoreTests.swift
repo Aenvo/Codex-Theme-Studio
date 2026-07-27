@@ -216,43 +216,21 @@ func publicJsonDoesNotContainPrivateFields() throws {
 
 @Test
 func runtimeManifestVerifiesEveryExecutableInputAndDetectsReplacement() throws {
-    let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("codex-theme-studio-helper-tests")
-        .appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(
-        at: directory,
-        withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let node = directory.appendingPathComponent("node")
-    let script = directory.appendingPathComponent("cdp-client.mjs")
-    let renderer = directory.appendingPathComponent("renderer-runtime.mjs")
-    try Data("node".utf8).write(to: node)
-    try Data("script".utf8).write(to: script)
-    try Data("renderer".utf8).write(to: renderer)
-    let manifest = RuntimeManifest(
-        schemaVersion: 1,
-        nodeSha256: try StableHasher.sha256(node),
-        scriptSha256: try StableHasher.sha256(script),
-        rendererScriptSha256: try StableHasher.sha256(renderer))
-    let manifestURL = directory.appendingPathComponent("runtime-manifest.json")
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.sortedKeys]
-    try encoder.encode(manifest).write(to: manifestURL)
+    let fixture = try makeRuntimeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let manifest = try RuntimeManifest.generate(contentsURL: fixture.contents)
+    let manifestURL = fixture.contents
+        .appendingPathComponent("Resources/runtime-manifest.json")
+    try RuntimeManifest.canonicalData(manifest).write(to: manifestURL)
     let expectedManifestHash = try StableHasher.sha256(manifestURL)
     let loaded = try RuntimeManifest.load(
         manifestURL,
         expectedSha256: expectedManifestHash)
 
-    try loaded.verify(
-        nodeURL: node,
-        scriptURL: script,
-        rendererURL: renderer)
-    try Data("replacement".utf8).write(to: renderer)
+    try loaded.verify(contentsURL: fixture.contents)
+    try Data("replacement".utf8).write(to: fixture.renderer)
     #expect(throws: HelperFailure.self) {
-        try loaded.verify(
-            nodeURL: node,
-            scriptURL: script,
-            rendererURL: renderer)
+        try loaded.verify(contentsURL: fixture.contents)
     }
     try Data("tampered".utf8).write(to: manifestURL)
     #expect(throws: HelperFailure.self) {
@@ -272,6 +250,164 @@ func unconfiguredRuntimeIdentityFailsClosed() throws {
     #expect(throws: HelperFailure.self) {
         try RuntimeManifest.load(directory, expectedSha256: "")
     }
+}
+
+@Test
+func runtimeManifestRejectsUnknownFieldsAndHigherSchema() throws {
+    let fixture = try makeRuntimeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let manifest = try RuntimeManifest.generate(contentsURL: fixture.contents)
+    let valid = try RuntimeManifest.canonicalData(manifest)
+    let manifestURL = fixture.contents
+        .appendingPathComponent("Resources/runtime-manifest.json")
+
+    var unknown = try JSONSerialization.jsonObject(with: valid) as! [String: Any]
+    unknown["privateData"] = true
+    try JSONSerialization.data(withJSONObject: unknown, options: [.sortedKeys])
+        .write(to: manifestURL)
+    #expect(throws: HelperFailure.self) {
+        try RuntimeManifest.load(
+            manifestURL,
+            expectedSha256: try StableHasher.sha256(manifestURL))
+    }
+
+    var higher = try JSONSerialization.jsonObject(with: valid) as! [String: Any]
+    higher["schemaVersion"] = 2
+    try JSONSerialization.data(withJSONObject: higher, options: [.sortedKeys])
+        .write(to: manifestURL)
+    #expect(throws: HelperFailure.self) {
+        try RuntimeManifest.load(
+            manifestURL,
+            expectedSha256: try StableHasher.sha256(manifestURL))
+    }
+}
+
+@Test
+func runtimeManifestRejectsSymlinkMissingAndExtraRuntimeFiles() throws {
+    let fixture = try makeRuntimeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let manifest = try RuntimeManifest.generate(contentsURL: fixture.contents)
+    let manifestURL = fixture.contents
+        .appendingPathComponent("Resources/runtime-manifest.json")
+    try RuntimeManifest.canonicalData(manifest).write(to: manifestURL)
+    let loaded = try RuntimeManifest.load(
+        manifestURL,
+        expectedSha256: try StableHasher.sha256(manifestURL))
+
+    try FileManager.default.removeItem(at: fixture.renderer)
+    try FileManager.default.createSymbolicLink(
+        at: fixture.renderer,
+        withDestinationURL: fixture.cdp)
+    #expect(throws: HelperFailure.self) {
+        try loaded.verify(contentsURL: fixture.contents)
+    }
+
+    try FileManager.default.removeItem(at: fixture.renderer)
+    try Data("renderer".utf8).write(to: fixture.renderer)
+    let extra = fixture.renderer.deletingLastPathComponent()
+        .appendingPathComponent("extra.mjs")
+    try Data("extra".utf8).write(to: extra)
+    #expect(throws: HelperFailure.self) {
+        try RuntimeManifest.generate(contentsURL: fixture.contents)
+            .verify(contentsURL: fixture.contents)
+    }
+}
+
+@Test
+func runtimeManifestRejectsEscapeDuplicateCaseConflictAndWrongRole() throws {
+    let fixture = try makeRuntimeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let valid = try RuntimeManifest.generate(contentsURL: fixture.contents)
+    let first = valid.files[0]
+    let invalidEntries: [[RuntimeManifest.FileEntry]] = [
+        [
+            .init(
+                path: "../node",
+                role: first.role,
+                size: first.size,
+                sha256: first.sha256),
+            valid.files[1],
+            valid.files[2],
+        ],
+        [first, first, valid.files[2]],
+        [
+            .init(
+                path: first.path.uppercased(),
+                role: first.role,
+                size: first.size,
+                sha256: first.sha256),
+            valid.files[1],
+            valid.files[2],
+        ],
+        [
+            .init(
+                path: first.path,
+                role: "renderer-runtime",
+                size: first.size,
+                sha256: first.sha256),
+            valid.files[1],
+            valid.files[2],
+        ],
+    ]
+    for entries in invalidEntries {
+        #expect(throws: HelperFailure.self) {
+            try RuntimeManifest.canonicalData(RuntimeManifest(files: entries))
+        }
+    }
+}
+
+@Test
+func runtimeManifestRejectsUndeclaredExecutable() throws {
+    let fixture = try makeRuntimeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let macOS = fixture.contents.appendingPathComponent("MacOS")
+    try FileManager.default.createDirectory(
+        at: macOS,
+        withIntermediateDirectories: true)
+    let unexpected = macOS.appendingPathComponent("unexpected-tool")
+    try Data("tool".utf8).write(to: unexpected)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755],
+        ofItemAtPath: unexpected.path)
+    let manifest = try RuntimeManifest.generate(contentsURL: fixture.contents)
+    #expect(throws: HelperFailure.self) {
+        try manifest.verify(contentsURL: fixture.contents)
+    }
+}
+
+private struct RuntimeFixture {
+    let root: URL
+    let contents: URL
+    let cdp: URL
+    let renderer: URL
+}
+
+private func makeRuntimeFixture() throws -> RuntimeFixture {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("codex-theme-studio-helper-tests")
+        .appendingPathComponent(UUID().uuidString)
+    let contents = root.appendingPathComponent("Contents")
+    let helpers = contents.appendingPathComponent("Helpers")
+    let runtime = contents.appendingPathComponent("Resources/runtime/macos")
+    try FileManager.default.createDirectory(
+        at: helpers,
+        withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+        at: runtime,
+        withIntermediateDirectories: true)
+    let node = helpers.appendingPathComponent("node")
+    let helper = helpers.appendingPathComponent("CodexThemeStudio.MacHelper")
+    let cdp = runtime.appendingPathComponent("cdp-client.mjs")
+    let renderer = runtime.appendingPathComponent("renderer-runtime.mjs")
+    try Data("node".utf8).write(to: node)
+    try Data("helper".utf8).write(to: helper)
+    try Data("script".utf8).write(to: cdp)
+    try Data("renderer".utf8).write(to: renderer)
+    return RuntimeFixture(
+        root: root,
+        contents: contents,
+        cdp: cdp,
+        renderer: renderer)
 }
 
 private func makeRequest(

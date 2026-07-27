@@ -77,6 +77,8 @@ public sealed class MacHelperClientTests : IDisposable
     [Fact]
     public async Task ProductionIdentityIsUnconfiguredAndFailsBeforeLaunch()
     {
+        Assert.False(MacPackagedRuntimeIdentity.IsConfigured);
+        Assert.False(MacPackagedRuntimeIdentity.VerifyHelper(helperPath));
         var client = new MacHelperClient(helperPath);
 
         var result = await client.ExecuteAsync(

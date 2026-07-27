@@ -12,4 +12,19 @@
     <ProjectReference Include="..\CodexThemeStudio.CodexRuntime\CodexThemeStudio.CodexRuntime.csproj" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(MacRuntimeIdentityGeneratedSource)' != ''">
+    <Compile Remove="GeneratedMacRuntimeIdentity.cs" />
+    <Compile Include="$(MacRuntimeIdentityGeneratedSource)"
+             Link="GeneratedMacRuntimeIdentity.g.cs" />
+  </ItemGroup>
+
+  <Target Name="ValidateMacRuntimeIdentityGeneratedSource"
+          BeforeTargets="CoreCompile"
+          Condition="'$(MacRuntimeIdentityGeneratedSource)' != ''">
+    <Error Condition="$([System.IO.Path]::IsPathFullyQualified('$(MacRuntimeIdentityGeneratedSource)')) != 'True'"
+           Text="MacRuntimeIdentityGeneratedSource must be an absolute path." />
+    <Error Condition="!Exists('$(MacRuntimeIdentityGeneratedSource)')"
+           Text="MacRuntimeIdentityGeneratedSource must name an existing generated source file." />
+  </Target>
+
 </Project>

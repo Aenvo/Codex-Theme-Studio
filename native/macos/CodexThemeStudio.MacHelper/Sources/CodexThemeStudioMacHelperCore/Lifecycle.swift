@@ -251,17 +251,12 @@ public struct SystemNodeRunner: NodeRunning {
         let nodeURL = contents.appendingPathComponent("Helpers/node")
         let scriptURL = contents
             .appendingPathComponent("Resources/runtime/macos/cdp-client.mjs")
-        let rendererURL = contents
-            .appendingPathComponent("Resources/runtime/macos/renderer-runtime.mjs")
         let manifestURL = contents
             .appendingPathComponent("Resources/runtime-manifest.json")
         let manifest = try RuntimeManifest.load(
             manifestURL,
             expectedSha256: GeneratedRuntimeIdentity.runtimeManifestSha256)
-        try manifest.verify(
-            nodeURL: nodeURL,
-            scriptURL: scriptURL,
-            rendererURL: rendererURL)
+        try manifest.verify(contentsURL: contents)
 
         let request = NodeRequest(
             command: mode,
@@ -321,53 +316,4 @@ private struct NodeDocument: Codable {
     let status: String
     let result: NodeFacts?
     let error: HelperErrorBody?
-}
-
-struct RuntimeManifest: Codable {
-    let schemaVersion: Int
-    let nodeSha256: String
-    let scriptSha256: String
-    let rendererScriptSha256: String
-
-    static func load(
-        _ url: URL,
-        expectedSha256: String) throws -> RuntimeManifest
-    {
-        guard expectedSha256.count == 64,
-              expectedSha256.allSatisfy(\.isHexDigit)
-        else {
-            throw HelperFailure(
-                "helper.runtime_identity_unconfigured",
-                stage: "runtime")
-        }
-        let file = try PathPolicy.requireRegularFile(url)
-        guard try StableHasher.sha256(file) == expectedSha256.uppercased() else {
-            throw HelperFailure(
-                "helper.runtime_manifest_hash_mismatch",
-                stage: "runtime")
-        }
-        let manifest = try JSONDecoder().decode(
-            RuntimeManifest.self,
-            from: Data(contentsOf: file))
-        guard manifest.schemaVersion == 1 else {
-            throw HelperFailure("helper.runtime_manifest_invalid", stage: "runtime")
-        }
-        return manifest
-    }
-
-    func verify(
-        nodeURL: URL,
-        scriptURL: URL,
-        rendererURL: URL) throws
-    {
-        let node = try PathPolicy.requireRegularFile(nodeURL)
-        let script = try PathPolicy.requireRegularFile(scriptURL)
-        let renderer = try PathPolicy.requireRegularFile(rendererURL)
-        guard try StableHasher.sha256(node) == nodeSha256,
-              try StableHasher.sha256(script) == scriptSha256,
-              try StableHasher.sha256(renderer) == rendererScriptSha256
-        else {
-            throw HelperFailure("helper.runtime_hash_mismatch", stage: "runtime")
-        }
-    }
 }

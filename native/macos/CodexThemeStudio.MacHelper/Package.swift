@@ -14,6 +14,9 @@ let package = Package(
         .executable(
             name: "codex-theme-studio-mac-helper",
             targets: ["CodexThemeStudioMacHelperCLI"]),
+        .executable(
+            name: "codex-theme-studio-runtime-manifest",
+            targets: ["CodexThemeStudioRuntimeManifestCLI"]),
     ],
     dependencies: [],
     targets: [
@@ -24,6 +27,9 @@ let package = Package(
             ]),
         .executableTarget(
             name: "CodexThemeStudioMacHelperCLI",
+            dependencies: ["CodexThemeStudioMacHelperCore"]),
+        .executableTarget(
+            name: "CodexThemeStudioRuntimeManifestCLI",
             dependencies: ["CodexThemeStudioMacHelperCore"]),
         .testTarget(
             name: "CodexThemeStudioMacHelperCoreTests",

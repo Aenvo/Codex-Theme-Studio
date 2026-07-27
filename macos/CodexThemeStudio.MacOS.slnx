@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="CodexThemeStudio.RuntimeHost/CodexThemeStudio.RuntimeHost.csproj" />
     <Project Path="../src/CodexThemeStudio.Contracts/CodexThemeStudio.Contracts.csproj" />
     <Project Path="../src/CodexThemeStudio.ThemeCore/CodexThemeStudio.ThemeCore.csproj" />
     <Project Path="../src/CodexThemeStudio.CodexRuntime/CodexThemeStudio.CodexRuntime.csproj" />
