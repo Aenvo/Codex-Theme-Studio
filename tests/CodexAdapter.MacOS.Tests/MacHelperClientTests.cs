@@ -153,6 +153,28 @@ public sealed class MacHelperClientTests : IDisposable
         Assert.Equal(OperationErrorCode.InvalidResponse, result.Error!.Code);
     }
 
+    [Fact]
+    public async Task PreservesPrimaryAndRecoveryFailuresSeparately()
+    {
+        var request = CreateRequest(CodexPlatformCommand.InspectRuntime);
+        var runner = new FakeRunner(request.RequestId)
+        {
+            ReturnStructuredFailure = true,
+        };
+
+        var result = await CreateClient(runner).ExecuteAsync(
+            request,
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("protocol.request_invalid", result.PrimaryError!.Code);
+        Assert.Equal("request", result.PrimaryError.Stage);
+        Assert.Equal(
+            "inspector.close_request_failed",
+            result.RecoveryError!.Code);
+        Assert.Equal("close", result.RecoveryError.Stage);
+    }
+
     public void Dispose()
     {
         Directory.Delete(directory, recursive: true);
@@ -195,6 +217,7 @@ public sealed class MacHelperClientTests : IDisposable
     {
         public bool TimedOut { get; init; }
         public bool AddUnknownResponseField { get; init; }
+        public bool ReturnStructuredFailure { get; init; }
         public int RunCount { get; private set; }
         public string RequestJson { get; private set; } = string.Empty;
         public string? Command { get; private set; }
@@ -213,6 +236,31 @@ public sealed class MacHelperClientTests : IDisposable
             {
                 return Task.FromResult(
                     new HelperProcessResult(-1, [], [], true));
+            }
+
+            if (ReturnStructuredFailure)
+            {
+                var failureOutput = JsonSerializer.SerializeToUtf8Bytes(new
+                {
+                    schemaVersion = 1,
+                    protocolVersion = 1,
+                    toolVersion = "0.2.2",
+                    requestId = responseRequestId,
+                    status = "error",
+                    result = (object?)null,
+                    error = new
+                    {
+                        code = "protocol.request_invalid",
+                        stage = "request",
+                    },
+                    recoveryError = new
+                    {
+                        code = "inspector.close_request_failed",
+                        stage = "close",
+                    },
+                });
+                return Task.FromResult(
+                    new HelperProcessResult(1, failureOutput, [], false));
             }
 
             var output = JsonSerializer.SerializeToUtf8Bytes(new

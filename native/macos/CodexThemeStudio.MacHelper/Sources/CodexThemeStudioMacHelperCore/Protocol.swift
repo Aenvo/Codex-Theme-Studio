@@ -3,7 +3,7 @@ import Foundation
 public enum HelperConstants {
     public static let schemaVersion = 1
     public static let protocolVersion = 1
-    public static let toolVersion = "0.2.1"
+    public static let toolVersion = "0.2.2"
     public static let maximumRequestBytes = 64 * 1024
     public static let maximumResponseBytes = 256 * 1024
     public static let inspectorPort = 9229
@@ -172,15 +172,22 @@ public struct HelperDocument: Codable, Equatable {
     public let status: String
     public let result: HelperResult?
     public let error: HelperErrorBody?
+    public let recoveryError: HelperErrorBody?
 }
 
 public struct HelperFailure: Error, Equatable {
     public let code: String
     public let stage: String
+    public let recoveryError: HelperErrorBody?
 
-    public init(_ code: String, stage: String) {
+    public init(
+        _ code: String,
+        stage: String,
+        recoveryError: HelperErrorBody? = nil)
+    {
         self.code = code
         self.stage = stage
+        self.recoveryError = recoveryError
     }
 }
 

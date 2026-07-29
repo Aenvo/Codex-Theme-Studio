@@ -38,7 +38,7 @@ public sealed class MacHelperClient : ICodexPlatformBridge
         this.runner = runner ?? new HelperProcessRunner();
     }
 
-    public async Task<OperationResult<CodexPlatformResponse>> ExecuteAsync(
+    public async Task<CodexPlatformBridgeResult> ExecuteAsync(
         CodexPlatformRequest request,
         CancellationToken cancellationToken)
     {
@@ -109,7 +109,15 @@ public sealed class MacHelperClient : ICodexPlatformBridge
                 document.Result is null)
             {
                 var code = document.Error?.Code ?? "helper.failed";
-                return Failure(MapError(code), code);
+                return Failure(
+                    MapError(code),
+                    code,
+                    document.Error?.Stage ?? "helper",
+                    document.RecoveryError is null
+                        ? null
+                        : new CodexPlatformFailure(
+                            document.RecoveryError.Code,
+                            document.RecoveryError.Stage));
             }
 
             CodexPlatformResponse response;
@@ -128,7 +136,7 @@ public sealed class MacHelperClient : ICodexPlatformBridge
                     "protocol.response_invalid");
             }
 
-            return OperationResult<CodexPlatformResponse>.Success(response);
+            return CodexPlatformBridgeResult.Success(response);
         }
         catch (OperationCanceledException)
         {
@@ -196,13 +204,17 @@ public sealed class MacHelperClient : ICodexPlatformBridge
         }
     }
 
-    private static OperationResult<CodexPlatformResponse> Failure(
+    private static CodexPlatformBridgeResult Failure(
         OperationErrorCode code,
-        string diagnosticCode) =>
-        OperationResult<CodexPlatformResponse>.Failure(
+        string diagnosticCode,
+        string stage = "adapter",
+        CodexPlatformFailure? recoveryError = null) =>
+        CodexPlatformBridgeResult.Failure(
             code,
             "macOS Runtime 请求未能安全完成。",
-            diagnosticCode);
+            diagnosticCode,
+            stage,
+            recoveryError);
 
     private static OperationErrorCode MapError(string code) =>
         code switch
@@ -282,7 +294,8 @@ public sealed class MacHelperClient : ICodexPlatformBridge
         Guid RequestId,
         string Status,
         WireResult? Result,
-        WireError? Error);
+        WireError? Error,
+        WireError? RecoveryError);
 
     private sealed record WireError(string Code, string Stage);
 

@@ -201,7 +201,7 @@ public sealed class CodexRuntimeCoordinatorTests
         public CodexInspectorDisposition InspectInspectorDisposition { get; init; } =
             CodexInspectorDisposition.Closed;
 
-        public Task<OperationResult<CodexPlatformResponse>> ExecuteAsync(
+        public Task<CodexPlatformBridgeResult> ExecuteAsync(
             CodexPlatformRequest request,
             CancellationToken cancellationToken)
         {
@@ -244,7 +244,7 @@ public sealed class CodexRuntimeCoordinatorTests
                             : ApplyResidualCount,
                 0,
                 null);
-            return Task.FromResult(OperationResult<CodexPlatformResponse>.Success(response));
+            return Task.FromResult(CodexPlatformBridgeResult.Success(response));
         }
 
         private static CodexInstallationIdentityV2 CreateInstallation(string publisher) =>

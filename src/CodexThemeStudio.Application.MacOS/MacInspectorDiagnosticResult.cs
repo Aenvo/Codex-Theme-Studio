@@ -16,7 +16,8 @@ public sealed record MacInspectorDiagnosticResult(
     string ResidualProof,
     int? FinalPortListenerCount,
     string PortProof,
-    MacQualificationCycleError? Error)
+    MacQualificationCycleError? Error,
+    MacQualificationCycleError? RecoveryError)
 {
     public static MacInspectorDiagnosticResult CreateUnverifiedFailure(
         string toolVersion,
@@ -40,5 +41,6 @@ public sealed record MacInspectorDiagnosticResult(
             "unverified",
             null,
             "unverified",
-            new MacQualificationCycleError(code, stage));
+            new MacQualificationCycleError(code, stage),
+            null);
 }

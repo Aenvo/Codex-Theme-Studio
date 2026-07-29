@@ -106,10 +106,23 @@ public final class HelperEngine {
                         theme: request.theme)
                     try waitForClosedPort()
                 } catch {
-                    try emergencyCloseIfSafe(
-                        snapshot: snapshot,
-                        bundlePath: request.bundlePath)
-                    throw error
+                    let primary = normalizedFailure(error)
+                    let recoveryError: HelperErrorBody?
+                    do {
+                        try emergencyCloseIfSafe(
+                            snapshot: snapshot,
+                            bundlePath: request.bundlePath)
+                        recoveryError = nil
+                    } catch {
+                        let recovery = normalizedFailure(error)
+                        recoveryError = HelperErrorBody(
+                            code: recovery.code,
+                            stage: recovery.stage)
+                    }
+                    throw HelperFailure(
+                        primary.code,
+                        stage: primary.stage,
+                        recoveryError: recoveryError)
                 }
             }
             let final = try discovery.discover(bundlePath: request.bundlePath)
@@ -137,7 +150,8 @@ public final class HelperEngine {
                 result: nil,
                 error: HelperErrorBody(
                     code: failure.code,
-                    stage: failure.stage))
+                    stage: failure.stage),
+                recoveryError: failure.recoveryError)
         } catch {
             return HelperDocument(
                 schemaVersion: HelperConstants.schemaVersion,
@@ -148,7 +162,8 @@ public final class HelperEngine {
                 result: nil,
                 error: HelperErrorBody(
                     code: "helper.unexpected",
-                    stage: "helper"))
+                    stage: "helper"),
+                recoveryError: nil)
         }
     }
 
@@ -233,7 +248,15 @@ public final class HelperEngine {
                 appliedWindowCount: facts?.appliedWindowCount ?? 0,
                 residualCount: facts?.residualCount ?? 0,
                 portListenerCount: 0),
-            error: nil)
+            error: nil,
+            recoveryError: nil)
+    }
+
+    private func normalizedFailure(_ error: Error) -> HelperFailure {
+        if let failure = error as? HelperFailure {
+            return failure
+        }
+        return HelperFailure("helper.unexpected", stage: "helper")
     }
 }
 
@@ -306,12 +329,33 @@ public struct SystemNodeRunner: NodeRunning {
     }
 }
 
-private struct NodeRequest: Codable {
+struct NodeRequest: Codable {
     let command: String
     let host: String
     let port: Int
     let processId: Int32
     let theme: ThemeRequest?
+
+    enum CodingKeys: String, CodingKey {
+        case command
+        case host
+        case port
+        case processId
+        case theme
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(command, forKey: .command)
+        try container.encode(host, forKey: .host)
+        try container.encode(port, forKey: .port)
+        try container.encode(processId, forKey: .processId)
+        if let theme {
+            try container.encode(theme, forKey: .theme)
+        } else {
+            try container.encodeNil(forKey: .theme)
+        }
+    }
 }
 
 private struct NodeDocument: Codable {

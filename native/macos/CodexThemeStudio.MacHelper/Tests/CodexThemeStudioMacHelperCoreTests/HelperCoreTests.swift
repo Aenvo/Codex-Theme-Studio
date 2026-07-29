@@ -65,6 +65,40 @@ func protocolRejectsUnknownKeysAtEveryLevel() throws {
 }
 
 @Test
+func nodeRequestEncodesNullThemeForInspectAndCleanup() throws {
+    for command in ["inspect", "cleanup"] {
+        let data = try JSONEncoder().encode(NodeRequest(
+            command: command,
+            host: "127.0.0.1",
+            port: 9229,
+            processId: 42,
+            theme: nil))
+        let root = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(Set(root.keys) == [
+            "command", "host", "port", "processId", "theme",
+        ])
+        #expect(root["theme"] is NSNull)
+    }
+}
+
+@Test
+func nodeRequestEncodesApplyThemeWithoutExtraFields() throws {
+    let data = try JSONEncoder().encode(NodeRequest(
+        command: "apply",
+        host: "127.0.0.1",
+        port: 9229,
+        processId: 42,
+        theme: makeTheme()))
+    let root = try #require(
+        JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(Set(root.keys) == [
+        "command", "host", "port", "processId", "theme",
+    ])
+    #expect(root["theme"] is [String: Any])
+}
+
+@Test
 func discoverDoesNotSignalOrRunNode() {
     let signal = FakeSignal()
     let node = FakeNode()
@@ -173,8 +207,10 @@ func emergencyCleanupPreservesTheExactCloseFailure() {
         makeRequest(command: .applyTemporary, theme: makeTheme()))
 
     #expect(document.status == "error")
-    #expect(document.error?.code == "inspector.close_request_failed")
-    #expect(document.error?.stage == "close")
+    #expect(document.error?.code == "renderer.proof_invalid")
+    #expect(document.error?.stage == "renderer")
+    #expect(document.recoveryError?.code == "inspector.close_request_failed")
+    #expect(document.recoveryError?.stage == "close")
     #expect(signal.count == 1)
     #expect(node.modes == ["apply", "cleanup"])
 }
@@ -225,7 +261,8 @@ func emergencyCleanupRefusesUnknownPortOwner() {
     let document = engine.execute(
         makeRequest(command: .applyTemporary, theme: makeTheme()))
     #expect(document.status == "error")
-    #expect(document.error?.code == "port.owner_mismatch")
+    #expect(document.error?.code == "renderer.apply_failed")
+    #expect(document.recoveryError?.code == "port.owner_mismatch")
     #expect(signal.count == 1)
     #expect(node.modes == ["apply"])
 }

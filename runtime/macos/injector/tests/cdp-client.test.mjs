@@ -55,6 +55,30 @@ test("request rejects extra fields and themes on cleanup", () => {
   assert.throws(() => validateRequest({ ...value, command: "cleanup" }));
 });
 
+test("inspect and cleanup require an explicit null theme", () => {
+  for (const command of ["inspect", "cleanup"]) {
+    const value = {
+      command,
+      host: "127.0.0.1",
+      port: 9229,
+      processId: 42,
+      theme: null,
+    };
+    assert.equal(validateRequest(value), value);
+    const { theme: _, ...missingTheme } = value;
+    assert.throws(
+      () => validateRequest(missingTheme),
+      (error) =>
+        error.code === "protocol.request_invalid" &&
+        error.stage === "request");
+    assert.throws(
+      () => validateRequest({ ...value, theme }),
+      (error) =>
+        error.code === "protocol.request_invalid" &&
+        error.stage === "request");
+  }
+});
+
 test("websocket validation requires loopback, UUID, and no query", () => {
   const id = "12345678-1234-1234-1234-123456789abc";
   assert.equal(

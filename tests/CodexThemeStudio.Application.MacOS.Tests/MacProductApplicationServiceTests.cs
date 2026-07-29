@@ -280,7 +280,34 @@ public sealed class MacProductApplicationServiceTests
         Assert.Equal("unverified", result.ProcessProof);
         Assert.Null(result.FinalResidualCount);
         Assert.Null(result.FinalPortListenerCount);
+        Assert.Null(result.RecoveryError);
         Assert.DoesNotContain(CodexPlatformCommand.Cleanup, bridge.Commands);
+    }
+
+    [Fact]
+    public async Task InspectorDiagnosticKeepsRecoveryFailureSeparate()
+    {
+        var bridge = new FakeBridge
+        {
+            FailCommand = CodexPlatformCommand.InspectRuntime,
+            RecoveryFailure = new CodexPlatformFailure(
+                "inspector.close_request_failed",
+                "close"),
+        };
+
+        var result = await CreateService(bridge).RunInspectorDiagnosticAsync(
+            Guid.NewGuid(),
+            CancellationToken.None);
+
+        Assert.Equal("helper.failed", result.Error!.Code);
+        Assert.Equal("inspect", result.Error.Stage);
+        Assert.Equal(
+            "inspector.close_request_failed",
+            result.RecoveryError!.Code);
+        Assert.Equal("close", result.RecoveryError.Stage);
+        Assert.Null(result.ProcessStable);
+        Assert.Null(result.FinalResidualCount);
+        Assert.Null(result.FinalPortListenerCount);
     }
 
     [Fact]
@@ -400,7 +427,7 @@ public sealed class MacProductApplicationServiceTests
             code,
             stage);
 
-        Assert.Equal("0.1.3", result.ToolVersion);
+        Assert.Equal("0.1.4", result.ToolVersion);
         Assert.Equal("error", result.Status);
         Assert.Equal(runtimeIdentityVerified, result.RuntimeIdentityVerified);
         Assert.Null(result.ProcessStable);
@@ -562,6 +589,7 @@ public sealed class MacProductApplicationServiceTests
         public CodexPlatformCommand? FailCommand { get; init; }
         public CodexPlatformCommand? CancelCommand { get; init; }
         public bool FailCleanup { get; init; }
+        public CodexPlatformFailure? RecoveryFailure { get; init; }
         public int ChangeProcessOnCall { get; init; }
         public bool PauseFirstCall { get; init; }
         public TaskCompletionSource FirstCallStarted { get; } =
@@ -569,7 +597,7 @@ public sealed class MacProductApplicationServiceTests
         public TaskCompletionSource ReleaseFirstCall { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public async Task<OperationResult<CodexPlatformResponse>> ExecuteAsync(
+        public async Task<CodexPlatformBridgeResult> ExecuteAsync(
             CodexPlatformRequest request,
             CancellationToken cancellationToken)
         {
@@ -582,10 +610,12 @@ public sealed class MacProductApplicationServiceTests
             }
             if (request.Command == FailCommand)
             {
-                return OperationResult<CodexPlatformResponse>.Failure(
+                return CodexPlatformBridgeResult.Failure(
                     OperationErrorCode.ExternalToolFailure,
                     "fixture",
-                    "helper.failed");
+                    "helper.failed",
+                    "helper",
+                    RecoveryFailure);
             }
             if (request.Command == CancelCommand)
             {
@@ -594,16 +624,17 @@ public sealed class MacProductApplicationServiceTests
             if (FailCleanup &&
                 request.Command == CodexPlatformCommand.Cleanup)
             {
-                return OperationResult<CodexPlatformResponse>.Failure(
+                return CodexPlatformBridgeResult.Failure(
                     OperationErrorCode.InvalidResponse,
                     "fixture",
-                    "renderer.cleanup_failed");
+                    "renderer.cleanup_failed",
+                    "cleanup");
             }
 
             var cleanup = request.Command == CodexPlatformCommand.Cleanup;
             var discovery = request.Command == CodexPlatformCommand.Discover;
             var changed = callCount == ChangeProcessOnCall;
-            return OperationResult<CodexPlatformResponse>.Success(
+            return CodexPlatformBridgeResult.Success(
                 new CodexPlatformResponse(
                     1,
                     1,

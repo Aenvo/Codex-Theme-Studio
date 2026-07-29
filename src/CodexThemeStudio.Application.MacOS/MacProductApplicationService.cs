@@ -6,7 +6,7 @@ namespace CodexThemeStudio.Application.MacOS;
 
 public sealed class MacProductApplicationService
 {
-    public const string ToolVersion = "0.1.3";
+    public const string ToolVersion = "0.1.4";
     public static readonly TimeSpan CleanupGrace = TimeSpan.FromSeconds(25);
 
     private readonly CodexRuntimeCoordinator coordinator;
@@ -89,9 +89,9 @@ public sealed class MacProductApplicationService
             }
 
             var inspection =
-                await coordinator.InspectRuntimeAsync(cancellationToken);
+                await coordinator.InspectRuntimeDetailedAsync(cancellationToken);
             if (!TryGetMatchingEvidence(
-                    inspection,
+                    inspection.Operation,
                     installation!,
                     process!,
                     out error))
@@ -102,12 +102,13 @@ public sealed class MacProductApplicationService
                     "inspect",
                     discoverVerified: true,
                     inspectVerified: false,
-                    inspectorClosedProofCount: 0);
+                    inspectorClosedProofCount: 0,
+                    recoveryError: inspection.RecoveryError);
             }
 
-            var cleanup = await coordinator.RestoreAsync(cancellationToken);
+            var cleanup = await coordinator.RestoreDetailedAsync(cancellationToken);
             if (!TryGetMatchingEvidence(
-                    cleanup,
+                    cleanup.Operation,
                     installation!,
                     process!,
                     out error))
@@ -118,7 +119,8 @@ public sealed class MacProductApplicationService
                     "cleanup",
                     discoverVerified: true,
                     inspectVerified: true,
-                    inspectorClosedProofCount: 1);
+                    inspectorClosedProofCount: 1,
+                    recoveryError: cleanup.RecoveryError);
             }
 
             var value = cleanup.Value!;
@@ -138,6 +140,7 @@ public sealed class MacProductApplicationService
                 "verified-zero",
                 value.PortListenerCount,
                 "verified-zero",
+                null,
                 null);
         }
         catch (OperationCanceledException)
@@ -309,7 +312,8 @@ public sealed class MacProductApplicationService
         string stage,
         bool discoverVerified,
         bool inspectVerified,
-        int inspectorClosedProofCount) =>
+        int inspectorClosedProofCount,
+        CodexPlatformFailure? recoveryError = null) =>
         new(
             1,
             ToolVersion,
@@ -326,7 +330,12 @@ public sealed class MacProductApplicationService
             "unverified",
             null,
             "unverified",
-            new MacQualificationCycleError(code, stage));
+            new MacQualificationCycleError(code, stage),
+            recoveryError is null
+                ? null
+                : new MacQualificationCycleError(
+                    recoveryError.Code,
+                    recoveryError.Stage));
 
     private static bool TryGetEvidence(
         OperationResult<CodexPlatformResponse> result,

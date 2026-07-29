@@ -147,6 +147,10 @@ public sealed class CodexRuntimeCoordinator
     }
 
     public async Task<OperationResult<CodexPlatformResponse>> RestoreAsync(
+        CancellationToken cancellationToken) =>
+        (await RestoreDetailedAsync(cancellationToken)).Operation;
+
+    public async Task<CodexPlatformBridgeResult> RestoreDetailedAsync(
         CancellationToken cancellationToken)
     {
         bool lockAcquired;
@@ -156,15 +160,16 @@ public sealed class CodexRuntimeCoordinator
         }
         catch (OperationCanceledException)
         {
-            return Cancelled();
+            return BridgeFailure(Cancelled(), "request");
         }
 
         if (!lockAcquired)
         {
-            return OperationResult<CodexPlatformResponse>.Failure(
+            return CodexPlatformBridgeResult.Failure(
                 OperationErrorCode.Conflict,
                 "已有主题操作正在进行。",
-                "macos.operation.busy");
+                "macos.operation.busy",
+                "request");
         }
 
         try
@@ -187,10 +192,12 @@ public sealed class CodexRuntimeCoordinator
                 value.ResidualCount != 0 ||
                 value.PortListenerCount != 0)
             {
-                return OperationResult<CodexPlatformResponse>.Failure(
+                return CodexPlatformBridgeResult.Failure(
                     OperationErrorCode.InvalidResponse,
                     "macOS Runtime 未能证明清理完成且 Inspector 已关闭。",
-                    value.ErrorCode ?? "macos.cleanup.proof_incomplete");
+                    value.ErrorCode ?? "macos.cleanup.proof_incomplete",
+                    "cleanup",
+                    response.RecoveryError);
             }
 
             return response;
@@ -202,6 +209,10 @@ public sealed class CodexRuntimeCoordinator
     }
 
     public async Task<OperationResult<CodexPlatformResponse>> InspectRuntimeAsync(
+        CancellationToken cancellationToken) =>
+        (await InspectRuntimeDetailedAsync(cancellationToken)).Operation;
+
+    public async Task<CodexPlatformBridgeResult> InspectRuntimeDetailedAsync(
         CancellationToken cancellationToken)
     {
         bool lockAcquired;
@@ -211,15 +222,16 @@ public sealed class CodexRuntimeCoordinator
         }
         catch (OperationCanceledException)
         {
-            return Cancelled();
+            return BridgeFailure(Cancelled(), "request");
         }
 
         if (!lockAcquired)
         {
-            return OperationResult<CodexPlatformResponse>.Failure(
+            return CodexPlatformBridgeResult.Failure(
                 OperationErrorCode.Conflict,
                 "已有主题操作正在进行。",
-                "macos.operation.busy");
+                "macos.operation.busy",
+                "request");
         }
 
         try
@@ -238,10 +250,12 @@ public sealed class CodexRuntimeCoordinator
             var value = response.Value!;
             if (!IsSuccessfulRuntimeInspection(value))
             {
-                return OperationResult<CodexPlatformResponse>.Failure(
+                return CodexPlatformBridgeResult.Failure(
                     OperationErrorCode.InvalidResponse,
                     "macOS Runtime 未能证明 Inspector 诊断完成且已关闭。",
-                    value.ErrorCode ?? "macos.inspect.proof_incomplete");
+                    value.ErrorCode ?? "macos.inspect.proof_incomplete",
+                    "inspect",
+                    response.RecoveryError);
             }
 
             return response;
@@ -346,4 +360,14 @@ public sealed class CodexRuntimeCoordinator
             OperationErrorCode.Cancelled,
             "操作已在启动 macOS Helper 前取消。",
             "operation.cancelled");
+
+    private static CodexPlatformBridgeResult BridgeFailure(
+        OperationResult<CodexPlatformResponse> operation,
+        string stage) =>
+        new(
+            operation,
+            new CodexPlatformFailure(
+                operation.Error?.DiagnosticCode ?? "helper.failed",
+                stage),
+            null);
 }
