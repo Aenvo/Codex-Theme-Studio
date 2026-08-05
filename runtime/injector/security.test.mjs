@@ -102,6 +102,20 @@ test("fake local inspector accepts Node version metadata without a browser socke
   });
 });
 
+test("closed local inspector reports a retryable unavailable error", async () => {
+  const server = http.createServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.equal(typeof address, "object");
+  const port = address.port;
+  await new Promise((resolve, reject) =>
+    server.close((error) => error ? reject(error) : resolve()));
+
+  await assert.rejects(
+    fetchInspectorMetadata(port, { timeoutMs: 100, retryDelayMs: 10 }),
+    (error) => error.code === "inspector_unavailable" && error.retryable);
+});
+
 test("port reuse by another PID or a non-loopback listener fails closed", () => {
   assert.throws(
     () => assertPortOwner([{

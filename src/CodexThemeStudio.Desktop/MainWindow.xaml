@@ -1107,9 +1107,26 @@
                                  AutomationProperties.Name="主题应用进度" />
                     <WrapPanel Grid.Column="2" VerticalAlignment="Center">
                         <Button Style="{StaticResource PrimaryButtonStyle}"
-                                Command="{Binding ApplyTemporaryCommand}" Content="临时应用" />
-                        <Button Command="{Binding SetPersistentCommand}" Content="设为持久主题"
-                                ToolTip="{Binding PersistenceEligibilityMessage}" />
+                                Command="{Binding ApplyTemporaryCommand}"
+                                Content="临时应用"
+                                ToolTipService.InitialShowDelay="350"
+                                ToolTipService.ShowDuration="5000">
+                            <Button.ToolTip>
+                                <ToolTip Placement="Custom"
+                                         CustomPopupPlacementCallback="PlaceActionButtonToolTip"
+                                         Content="关闭当前 Codex 应用后失效" />
+                            </Button.ToolTip>
+                        </Button>
+                        <Button Command="{Binding SetPersistentCommand}"
+                                Content="设为持久主题"
+                                ToolTipService.InitialShowDelay="350"
+                                ToolTipService.ShowDuration="5000">
+                            <Button.ToolTip>
+                                <ToolTip Placement="Custom"
+                                         CustomPopupPlacementCallback="PlaceActionButtonToolTip"
+                                         Content="Codex 应用可永远保持主题持久化，直到还原外观" />
+                            </Button.ToolTip>
+                        </Button>
                         <Button Style="{StaticResource GhostButtonStyle}"
                                 Command="{Binding RestoreCommand}" Content="还原外观" />
                     </WrapPanel>
@@ -1416,7 +1433,7 @@
                                                         Visibility="{Binding ShowTemporaryStatus, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                     <TextBlock FontSize="11"
                                                                Foreground="{DynamicResource WarningBrush}"
-                                                               Text="临时主题" />
+                                                               Text="临时应用" />
                                                 </Border>
                                                 <Border Visibility="{Binding IsExternalPersistent, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                     <Border.Style>
@@ -1608,7 +1625,7 @@
                                                 Margin="0,0,0,7"
                                                 Background="#3B2D12"
                                                 Visibility="{Binding ShowTemporaryStatus, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                            <TextBlock FontSize="11" Foreground="{DynamicResource WarningBrush}" Text="临时主题" />
+                                            <TextBlock FontSize="11" Foreground="{DynamicResource WarningBrush}" Text="临时应用" />
                                         </Border>
                                         <Border Margin="0,0,0,7"
                                                 Visibility="{Binding IsExternalPersistent, Converter={StaticResource BooleanToVisibilityConverter}}">

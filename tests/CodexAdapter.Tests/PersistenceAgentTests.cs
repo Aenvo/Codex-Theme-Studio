@@ -224,6 +224,58 @@ public sealed class PersistenceAgentTests
     }
 
     [Fact]
+    public async Task Agent_DifferentActiveThemeYieldsForCurrentProcess()
+    {
+        var fixture = new AgentFixture();
+        var temporaryThemeId = Guid.NewGuid();
+        fixture.Renderer.StatusResult =
+            OperationResult<RendererRuntimeResult>.Success(
+                new RendererRuntimeResult(
+                    1,
+                    true,
+                    1,
+                    temporaryThemeId,
+                    1,
+                    1,
+                    1,
+                    2));
+
+        var first = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+        var statusCallsAfterDetection = fixture.Renderer.StatusCount;
+        var probeCallsAfterDetection = fixture.Discovery.ProbeCount;
+        var second = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+
+        Assert.True(first.IsSuccess);
+        Assert.True(second.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Temporary, first.Value!.State);
+        Assert.Equal(temporaryThemeId, first.Value.ThemeId);
+        Assert.Equal(fixture.Snapshot.Current.Theme.Id, first.Value.SelectedThemeId);
+        Assert.Equal(0, fixture.Renderer.ApplyCount);
+        Assert.Equal(statusCallsAfterDetection, fixture.Renderer.StatusCount);
+        Assert.Equal(probeCallsAfterDetection, fixture.Discovery.ProbeCount);
+        Assert.Equal(temporaryThemeId, fixture.State.State.SuppressedThemeId);
+
+        fixture.Discovery.Process = fixture.Discovery.Process with
+        {
+            StartedAtUtc = fixture.Discovery.Process.StartedAtUtc.AddMinutes(1),
+        };
+        fixture.Renderer.StatusResult =
+            OperationResult<RendererRuntimeResult>.Success(
+                new RendererRuntimeResult(1, false, null, null, 0, 0, 1, 0));
+        var restarted = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+
+        Assert.True(restarted.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Persistent, restarted.Value!.State);
+        Assert.Equal(1, fixture.Renderer.ApplyCount);
+    }
+
+    [Fact]
     public void ConfigurationPolicy_RejectsArbitraryExecutablePaths()
     {
         var fixture = new AgentFixture();
@@ -445,6 +497,8 @@ public sealed class PersistenceAgentTests
 
         public int FindInstallationCount { get; private set; }
 
+        public int ProbeCount { get; private set; }
+
         public Task<OperationResult<CodexDiscoverySnapshot>> DiscoverAsync(
             CancellationToken cancellationToken)
         {
@@ -464,8 +518,10 @@ public sealed class PersistenceAgentTests
 
         public Task<OperationResult<CodexProbeResult>> ProbeAsync(
             CodexProcessInfo process,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(OperationResult<CodexProbeResult>.Success(
+            CancellationToken cancellationToken)
+        {
+            ProbeCount++;
+            return Task.FromResult(OperationResult<CodexProbeResult>.Success(
                 new CodexProbeResult(
                     process.ProcessId,
                     process.StartedAtUtc,
@@ -473,6 +529,7 @@ public sealed class PersistenceAgentTests
                     1,
                     ["main"],
                     TimeSpan.Zero)));
+        }
 
         public Task<OperationResult> CloseInspectorAsync(
             CodexProcessInfo process,

@@ -12,9 +12,11 @@ public sealed class CodexVersionPolicyTests
         Assert.True(policy.IsVerified("26.715.4045.0"));
         Assert.True(policy.IsVerified("26.715.10079.0"));
         Assert.True(policy.IsVerified("26.721.3404.0"));
+        Assert.True(policy.IsVerified("26.727.6591.0"));
         Assert.False(policy.IsVerified("26.715.4045.1"));
         Assert.False(policy.IsVerified("26.715.10079.1"));
         Assert.False(policy.IsVerified("26.721.3404.1"));
+        Assert.False(policy.IsVerified("26.727.6591.1"));
         Assert.False(policy.IsVerified("99.0.0.0"));
     }
 

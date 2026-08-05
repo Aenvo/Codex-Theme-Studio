@@ -1750,9 +1750,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     return;
                 }
 
-                var result = runtimeStatus?.ThemeId is null
-                    ? await runtime.ApplyTemporaryAsync(theme.Value!, cancellationToken)
-                    : await runtime.SwitchTemporaryAsync(theme.Value!, cancellationToken);
+                var result = await ApplyTemporaryWithRetryAsync(
+                    theme.Value!,
+                    runtimeStatus?.ThemeId is not null,
+                    cancellationToken);
                 if (!result.IsSuccess)
                 {
                     NotifyError(result.Error!);
@@ -1766,6 +1767,35 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 MarkThemeStates();
                 NotifyRuntimeResult(result.Value!);
             });
+    }
+
+    private async Task<OperationResult<ThemeRuntimeStatus>>
+        ApplyTemporaryWithRetryAsync(
+            ThemePackage theme,
+            bool switchExisting,
+            CancellationToken cancellationToken)
+    {
+        const int maximumAttempts = 6;
+        var delay = TimeSpan.FromMilliseconds(250);
+        OperationResult<ThemeRuntimeStatus>? result = null;
+        for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+        {
+            result = switchExisting
+                ? await runtime.SwitchTemporaryAsync(theme, cancellationToken)
+                : await runtime.ApplyTemporaryAsync(theme, cancellationToken);
+            if (result.IsSuccess ||
+                result.Error!.DiagnosticCode != "injector.operation_busy" ||
+                attempt == maximumAttempts)
+            {
+                return result;
+            }
+
+            await Task.Delay(delay, cancellationToken);
+            delay = TimeSpan.FromMilliseconds(
+                Math.Min(1000, delay.TotalMilliseconds * 2));
+        }
+
+        return result!;
     }
 
     private async Task SetPersistentAsync()
@@ -2160,13 +2190,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var status = runtimeResult.Value! with
+        var runtimeValue = runtimeResult.Value!;
+        var hasTemporaryRuntimeTheme =
+            runtimeValue.State is ThemeRuntimeState.Temporary or ThemeRuntimeState.Partial &&
+            runtimeValue.ThemeId is not null;
+        var status = runtimeValue with
         {
             IsPersistenceEnabled = IsPersistenceEnabled,
-            ThemeId = persistenceResult.IsSuccess &&
+            ThemeId = !hasTemporaryRuntimeTheme &&
+                persistenceResult.IsSuccess &&
                 persistenceResult.Value!.IsPersistenceEnabled
                     ? persistenceResult.Value.ThemeId
-                    : runtimeResult.Value.ThemeId,
+                    : runtimeValue.ThemeId,
         };
         ApplyRuntimeStatus(status);
         MarkThemeStates();
@@ -2206,7 +2241,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         PersistenceEligibilityMessage = status.IsPersistenceEligible
-            ? "当前 Codex 构建已具备持久化资格。"
+            ? "Codex 应用可永远保持主题持久化，直到还原外观"
             : "首次使用此 Codex 构建，请先临时应用；程序将自动验证应用、清理和重新应用，成功后即可持久化。";
         NotifyCommands();
     }
@@ -2308,13 +2343,16 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         foreach (var theme in allThemes)
         {
-            theme.IsPersistent =
-                theme.Summary.IsCurrentPersistent ||
-                (IsPersistenceEnabled && runtimeStatus?.ThemeId == theme.ThemeId);
-            theme.IsTemporary =
-                !theme.IsPersistent &&
+            var isTemporary =
                 runtimeStatus?.State is ThemeRuntimeState.Temporary or ThemeRuntimeState.Partial &&
                 runtimeStatus.ThemeId == theme.ThemeId;
+            theme.IsPersistent =
+                !isTemporary &&
+                (theme.Summary.IsCurrentPersistent ||
+                 (IsPersistenceEnabled &&
+                  runtimeStatus?.State == ThemeRuntimeState.Persistent &&
+                  runtimeStatus.ThemeId == theme.ThemeId));
+            theme.IsTemporary = isTemporary;
             theme.IsExternalPersistent =
                 externalTheme?.IsPersistenceConfigured == true &&
                 string.Equals(

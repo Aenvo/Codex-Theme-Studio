@@ -23,7 +23,9 @@
       "taskMode": "ambient",
       "taskOpacity": 0.3,
       "taskOverlay": 0.68,
-      "blur": 0
+      "blur": 0,
+      "panelBlur": 0,
+      "cropScale": 1
     }
   },
   "image": {

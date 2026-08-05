@@ -24,7 +24,7 @@ test("applies once to a complete main window and preserves pointer interaction",
   assert.match(environment.findById("codex-theme-studio-style").textContent, /pointer-events: none/);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
-    /main\.main-surface\s*\{\s*background: transparent !important;/);
+    /:is\(main\.main-surface, main\[data-app-shell-main-surface='default'\]\)\s*\{\s*background: transparent !important;/);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
     /--color-background-surface: var\(--cts-panel\) !important;/);
@@ -207,6 +207,35 @@ test("task banner and off modes scope overlays without reading page text", () =>
     "var(--cts-background)");
 });
 
+test("supports the current app-shell surface when the legacy class is absent", () => {
+  const environment = createEnvironment();
+  environment.addMainFeatures();
+  environment.useModernMainSurface();
+  environment.document.modernMainSurface.style.setProperty(
+    "background",
+    "modern-original",
+    "important");
+
+  const applied = runRenderer(environment, createPayload(), 1);
+
+  assert.equal(applied.pageMode, "home");
+  assert.equal(
+    environment.document.modernMainSurface.style.getPropertyValue("background"),
+    "transparent");
+  assert.equal(
+    environment.document.modernMainSurface.style.getPropertyPriority("background"),
+    "important");
+
+  const state = environment.window.__CODEX_THEME_STUDIO_RENDERER_V1__;
+  assert.equal(state.cleanup(1), true);
+  assert.equal(
+    environment.document.modernMainSurface.style.getPropertyValue("background"),
+    "modern-original");
+  assert.equal(
+    environment.document.modernMainSurface.style.getPropertyPriority("background"),
+    "important");
+});
+
 test("route changes update page mode without replacing the current Blob URL", () => {
   const environment = createEnvironment();
   environment.addMainFeatures();
@@ -329,6 +358,10 @@ function createEnvironment(href = "app://-/index.html") {
         document.selectorMatches.add(selector);
       }
     },
+    useModernMainSurface() {
+      document.hasLegacyMainSurface = false;
+      document.hasModernMainSurface = true;
+    },
     findById(id) {
       return findElement(document.documentElement, id);
     },
@@ -346,6 +379,9 @@ class FakeDocument {
     this.head = new FakeElement("head");
     this.body = new FakeElement("body");
     this.mainSurface = new FakeElement("main");
+    this.modernMainSurface = new FakeElement("main");
+    this.hasLegacyMainSurface = true;
+    this.hasModernMainSurface = false;
     this.documentElement.append(this.head, this.body);
   }
 
@@ -358,10 +394,17 @@ class FakeDocument {
   }
 
   querySelectorAll(selector) {
-    return selector === "main.main-surface" &&
-      this.selectorMatches.has("main")
+    if (selector !== rendererCompatibility.mainSurfaceSelectors.join(", ")) {
+      return [];
+    }
+    const surfaces = this.selectorMatches.has("main") &&
+      this.hasLegacyMainSurface
       ? [this.mainSurface]
       : [];
+    if (this.hasModernMainSurface) {
+      surfaces.push(this.modernMainSurface);
+    }
+    return surfaces;
   }
 }
 

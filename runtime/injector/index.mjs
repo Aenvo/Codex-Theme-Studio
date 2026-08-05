@@ -25,6 +25,8 @@ const service = "CodexThemeStudio.Injector";
 const version = "0.3.0";
 const protocolVersion = 1;
 const inspectorPort = 9229;
+const inspectorCloseTimeoutMs = 12000;
+const inspectorClosedSettleMs = 3000;
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const discoveryScript = path.join(scriptDirectory, "windows-discovery.ps1");
 const rendererCompatibilityProbeExpression =
@@ -267,27 +269,12 @@ async function executeRendererOperation(processId, executablePath, expression) {
   ensureWindows();
   const before = await requireTrustedSnapshot(processId, executablePath);
   const initialPort = await getPortListeners();
-  if (initialPort.length > 0) {
-    assertPortOwner(initialPort, processId);
-  } else {
-    try {
-      process._debugProcess(processId);
-    } catch {
-      throw commandError(
-        "access_denied",
-        "无法为已校验的 Codex 主进程短时打开 Inspector。",
-        false);
-    }
-  }
-
   const openedAt = performance.now();
   let metadata;
   let result;
   try {
-    const listeners = await waitForPortOwner(processId);
-    assertPortOwner(listeners, processId);
+    metadata = await openInspectorForProcess(processId, initialPort);
     await assertSnapshotUnchanged(before, executablePath);
-    metadata = await fetchInspectorMetadata(inspectorPort);
     result = await evaluate(metadata.webSocketUrl, expression, {
       timeoutMs: 8000,
       maxBytes: 256 * 1024,
@@ -315,28 +302,12 @@ async function probe(processId, executablePath) {
   ensureWindows();
   const before = await requireTrustedSnapshot(processId, executablePath);
   const initialPort = await getPortListeners();
-  if (initialPort.length > 0) {
-    assertPortOwner(initialPort, processId);
-  } else {
-    try {
-      process._debugProcess(processId);
-    } catch {
-      throw commandError(
-        "access_denied",
-        "无法为已校验的 Codex 主进程短时打开 Inspector。",
-        false);
-    }
-  }
-
   const openedAt = performance.now();
   let metadata;
   let probeData;
   try {
-    const listeners = await waitForPortOwner(processId);
-    assertPortOwner(listeners, processId);
+    metadata = await openInspectorForProcess(processId, initialPort);
     await assertSnapshotUnchanged(before, executablePath);
-
-    metadata = await fetchInspectorMetadata(inspectorPort);
     const result = await evaluate(metadata.webSocketUrl, probeExpression, {
       timeoutMs: 8000,
       maxBytes: 256 * 1024,
@@ -389,28 +360,13 @@ async function inspectStatus(processId, executablePath) {
   ensureWindows();
   const before = await requireTrustedSnapshot(processId, executablePath);
   const initialPort = await getPortListeners();
-  if (initialPort.length > 0) {
-    assertPortOwner(initialPort, processId);
-  } else {
-    try {
-      process._debugProcess(processId);
-    } catch {
-      throw commandError(
-        "access_denied",
-        "无法为已校验的 Codex 主进程短时打开 Inspector。",
-        false);
-    }
-  }
-
   const openedAt = performance.now();
   let metadata;
   let probeData;
   let rendererData;
   try {
-    const listeners = await waitForPortOwner(processId);
-    assertPortOwner(listeners, processId);
+    metadata = await openInspectorForProcess(processId, initialPort);
     await assertSnapshotUnchanged(before, executablePath);
-    metadata = await fetchInspectorMetadata(inspectorPort);
 
     const probeResult = await evaluate(metadata.webSocketUrl, probeExpression, {
       timeoutMs: 8000,
@@ -541,13 +497,40 @@ async function getPortListeners() {
   return result.listeners ?? [];
 }
 
-async function waitForPortOwner(processId) {
-  const deadline = Date.now() + 2500;
+async function openInspectorForProcess(processId, initialListeners) {
+  if (initialListeners.length > 0) {
+    assertPortOwner(initialListeners, processId);
+  }
+
+  const deadline = Date.now() + 6000;
+  let lastOpenRequestAt = initialListeners.length > 0 ? Date.now() : 0;
+  let requestedOnce = false;
   while (Date.now() < deadline) {
     const listeners = await getPortListeners();
     if (listeners.length > 0) {
       assertPortOwner(listeners, processId);
-      return listeners;
+      try {
+        return await fetchInspectorMetadata(inspectorPort, {
+          timeoutMs: Math.min(750, Math.max(1, deadline - Date.now())),
+        });
+      } catch (error) {
+        if (!error?.retryable) {
+          throw error;
+        }
+      }
+    } else if (Date.now() - lastOpenRequestAt >= 750) {
+      try {
+        process._debugProcess(processId);
+        requestedOnce = true;
+      } catch {
+        if (!requestedOnce) {
+          throw commandError(
+            "access_denied",
+            "无法为已校验的 Codex 主进程短时打开 Inspector。",
+            false);
+        }
+      }
+      lastOpenRequestAt = Date.now();
     }
     await delay(75);
   }
@@ -558,13 +541,21 @@ async function waitForPortOwner(processId) {
 }
 
 async function waitForPortClosed(processId) {
-  const deadline = Date.now() + 2000;
+  const deadline = Date.now() +
+    inspectorCloseTimeoutMs +
+    inspectorClosedSettleMs;
+  let closedAt;
   while (Date.now() < deadline) {
     const listeners = await getPortListeners();
     if (listeners.length === 0) {
-      return;
+      closedAt ??= Date.now();
+      if (Date.now() - closedAt >= inspectorClosedSettleMs) {
+        return;
+      }
+    } else {
+      closedAt = undefined;
+      assertPortOwner(listeners, processId);
     }
-    assertPortOwner(listeners, processId);
     await delay(75);
   }
   throw commandError(

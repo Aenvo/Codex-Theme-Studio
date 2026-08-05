@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   MAX_MANAGED_IMAGE_BYTES,
@@ -6,6 +7,18 @@ import {
   prepareRendererPayload,
 } from "./renderer-payload.mjs";
 import { createInput } from "./renderer-test-fixture.mjs";
+
+test("keeps the bundled verification theme aligned with the payload schema", async () => {
+  const fixture = JSON.parse(await readFile(
+    new URL("./fixtures/verification-theme.json", import.meta.url),
+    "utf8"));
+
+  const payload = prepareRendererPayload(fixture);
+
+  assert.equal(payload.themeId, fixture.theme.id);
+  assert.equal(payload.art.panelBlur, 0);
+  assert.equal(payload.art.cropScale, 1);
+});
 
 test("prepares a serialized payload and maps frozen Schema v1 task modes", () => {
   const full = prepareRendererPayload(createInput("full"));

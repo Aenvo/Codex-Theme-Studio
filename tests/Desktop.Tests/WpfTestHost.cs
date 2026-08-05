@@ -43,6 +43,8 @@ internal static class WpfTestHost
         {
             try
             {
+                WindowsEnvironmentBootstrap
+                    .EnsureWindowsDirectoryEnvironmentVariable();
                 var app = new Application
                 {
                     ShutdownMode = ShutdownMode.OnExplicitShutdown,
