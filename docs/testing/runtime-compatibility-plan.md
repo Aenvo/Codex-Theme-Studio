@@ -43,3 +43,11 @@
 - 增加无 `ExecutablePath` 进程的 fail-closed JSON 返回，避免 PID 复用或系统进程边界破坏协议。
 - 静态检查其余原子文件写入点，均在 `Move/Replace` 前结束写入流作用域；未发现第二处同类句柄占用缺陷。
 - Store Codex `26.721.3404.0`、Electron `150.0.7871.128` 已完成能力探测及首次应用闭环，最终 `9229` 无监听；未执行持久化 enable/disable。
+
+## 2026-08-05 审计结果
+
+- Store Codex `26.727.6591.0`、Electron `150.0.7871.182` 已完成能力探测、主窗口与 `avatar-overlay` 隔离，以及“应用 → 清理 → 重新应用”闭环。
+- 修复验证主题 fixture 缺少 `panelBlur`、`cropScale` 导致 `art_fields_invalid`；Node 测试现在直接加载该 fixture，防止白名单再次漂移。
+- Inspector 端口开始监听后可能短暂拒绝 HTTP 元数据连接；暂态连接在固定总门限内重试，协议、身份或端口所有者错误仍立即 fail-closed。
+- Inspector 关闭后等待端口稳定收敛，并放宽关闭确认门限以适配新版宿主时序；最终清理为 `active=false`、`hookCount=0`，端口 `9229` 无监听。
+- 未执行持久化 enable/disable、Codex 完整重启恢复或带私人内容的截图保存。

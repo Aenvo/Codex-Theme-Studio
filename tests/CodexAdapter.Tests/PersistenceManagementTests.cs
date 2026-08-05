@@ -329,6 +329,28 @@ public sealed class PersistenceManagementTests
     }
 
     [Fact]
+    public async Task GetStatus_PreservesTemporaryRuntimeWhilePersistenceRemainsEnabled()
+    {
+        var fixture = new ServiceFixture();
+        Assert.True(
+            (await fixture.Service.EnableAsync(
+                fixture.Theme,
+                CancellationToken.None)).IsSuccess);
+        var temporaryThemeId = Guid.NewGuid();
+        fixture.Runtime.SetStatus(
+            temporaryThemeId,
+            ThemeRuntimeState.Temporary);
+
+        var result = await fixture.Service.GetStatusAsync(CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Temporary, result.Value!.State);
+        Assert.Equal(temporaryThemeId, result.Value.ThemeId);
+        Assert.Equal(fixture.Theme.Id, result.Value.SelectedThemeId);
+        Assert.True(result.Value.IsPersistenceEnabled);
+    }
+
+    [Fact]
     public async Task Switch_WhenCodexNotRunningStillChangesActiveSnapshot()
     {
         var fixture = new ServiceFixture();
@@ -598,6 +620,11 @@ public sealed class PersistenceManagementTests
 
         public OperationResult<ThemeRuntimeStatus>? SwitchResult { get; set; }
 
+        public OperationResult<ThemeRuntimeStatus>? StatusResult { get; set; }
+
+        public void SetStatus(Guid? themeId, ThemeRuntimeState state) =>
+            StatusResult = Success(themeId, state);
+
         public int RestoreCount { get; private set; }
 
         public Task<OperationResult<ThemeRuntimeStatus>> ApplyTemporaryAsync(
@@ -621,7 +648,8 @@ public sealed class PersistenceManagementTests
 
         public Task<OperationResult<ThemeRuntimeStatus>> GetStatusAsync(
             CancellationToken cancellationToken) =>
-            Task.FromResult(Success(null, ThemeRuntimeState.Ready));
+            Task.FromResult(
+                StatusResult ?? Success(null, ThemeRuntimeState.Ready));
 
         public Task<OperationResult<ThemeRuntimeStatus>> GetStatusAsync(
             CodexStatusRefreshMode refreshMode,
@@ -648,6 +676,8 @@ public sealed class PersistenceManagementTests
 
     private sealed class FakeSnapshot : IPersistenceSnapshotStore
     {
+        private readonly Dictionary<Guid, ThemePackage> themes = [];
+
         public PersistenceSnapshotDescriptor? Active { get; private set; }
 
         public int CreateCount { get; private set; }
@@ -660,6 +690,7 @@ public sealed class PersistenceManagementTests
             CancellationToken cancellationToken)
         {
             CreateCount++;
+            themes[theme.Id] = theme;
             return Task.FromResult(
                 OperationResult<PersistenceSnapshotDescriptor>.Success(
                     new PersistenceSnapshotDescriptor(
@@ -692,7 +723,14 @@ public sealed class PersistenceManagementTests
         public Task<OperationResult<VerifiedPersistenceSnapshot>> ReadCurrentAsync(
             string snapshotRoot,
             CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+            Task.FromResult(
+                Active is null || !themes.TryGetValue(Active.ThemeId, out var theme)
+                    ? OperationResult<VerifiedPersistenceSnapshot>.Failure(
+                        OperationErrorCode.NotFound,
+                        "未创建。",
+                        "persistence.pointer.missing")
+                    : OperationResult<VerifiedPersistenceSnapshot>.Success(
+                        new VerifiedPersistenceSnapshot(Active, theme, [])));
     }
 
     private sealed class FakeInstaller : IManagedAgentInstaller

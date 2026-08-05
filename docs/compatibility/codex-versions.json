@@ -40,6 +40,16 @@
       "electronVersion": "150.0.7871.128",
       "rendererCompatibilityVersion": 1,
       "notes": "Codex 应用内更新后完成 Store 自动发现、精确 EXE 路径复核、能力探测，以及主题应用、清理、重新应用闭环；当前 EXE 指纹取得本机持久化资格，最终 Inspector 9229 无监听。未执行持久化 enable/disable。"
+    },
+    {
+      "version": "26.727.6591.0",
+      "architecture": "x64",
+      "packageFamilyName": "OpenAI.Codex_2p2nqsd0c76g0",
+      "status": "verified",
+      "verifiedAtUtc": "2026-08-05T03:46:21Z",
+      "electronVersion": "150.0.7871.182",
+      "rendererCompatibilityVersion": 1,
+      "notes": "完成 Store 身份、精确 EXE、能力 Canary、主窗口与 avatar-overlay 隔离，以及应用、状态确认、清理、重新应用闭环。适配新版 Inspector 关闭与重开时序后，最终清理为 active=false、hookCount=0，端口 9229 无监听；未执行持久化 enable/disable。"
     }
   ]
 }

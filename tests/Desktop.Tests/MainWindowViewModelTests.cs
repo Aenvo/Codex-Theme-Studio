@@ -308,6 +308,73 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task Initialize_PreservesTemporaryRuntimeThemeWhenPersistenceIsConfigured()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 2,
+            managedPersistenceEnabled: true);
+        var temporaryId = fixture.Repository.Summaries[0].ThemeId;
+        var persistentId = fixture.Repository.Summaries[1].ThemeId;
+        fixture.Repository.Summaries[1] = fixture.Repository.Summaries[1] with
+        {
+            IsCurrentPersistent = true,
+        };
+        fixture.Runtime.Status = Status(
+            ThemeRuntimeState.Temporary,
+            temporaryId,
+            persistenceEnabled: true);
+        fixture.Persistence.Status = fixture.Runtime.Status with
+        {
+            SelectedThemeId = persistentId,
+        };
+
+        await fixture.ViewModel.InitializeAsync();
+
+        var temporaryTheme = fixture.ViewModel.Themes.Single(
+            theme => theme.ThemeId == temporaryId);
+        Assert.True(temporaryTheme.IsTemporary);
+        Assert.False(temporaryTheme.IsPersistent);
+        Assert.True(fixture.ViewModel.Themes.Single(
+            theme => theme.ThemeId == persistentId).IsPersistent);
+    }
+
+    [Fact]
+    public async Task ApplyTemporary_OverridesTheActiveBadgeWithoutClearingPersistentConfiguration()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 2,
+            managedPersistenceEnabled: true);
+        var persistentId = fixture.Repository.Summaries[^1].ThemeId;
+        fixture.Repository.Summaries[^1] = fixture.Repository.Summaries[^1] with
+        {
+            IsCurrentPersistent = true,
+        };
+        await fixture.ViewModel.InitializeAsync();
+
+        var otherTheme = fixture.ViewModel.Themes.Single(
+            theme => theme.ThemeId != persistentId);
+        fixture.ViewModel.SelectedTheme = otherTheme;
+        fixture.ViewModel.ApplyTemporaryCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.True(otherTheme.IsTemporary);
+        Assert.False(otherTheme.IsPersistent);
+        Assert.True(fixture.ViewModel.Themes.Single(
+            theme => theme.ThemeId == persistentId).IsPersistent);
+
+        var persistentTheme = fixture.ViewModel.Themes.Single(
+            theme => theme.ThemeId == persistentId);
+        fixture.ViewModel.SelectedTheme = persistentTheme;
+        fixture.ViewModel.ApplyTemporaryCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.True(persistentTheme.IsTemporary);
+        Assert.False(persistentTheme.IsPersistent);
+        Assert.True(fixture.Repository.Summaries.Single(
+            theme => theme.ThemeId == persistentId).IsCurrentPersistent);
+    }
+
+    [Fact]
     public async Task ToggleFavorite_UsesClickedCardWithoutChangingSelection()
     {
         using var fixture = new ViewModelFixture(themeCount: 3);
@@ -349,6 +416,30 @@ public sealed class MainWindowViewModelTests
         await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
         Assert.Contains(
             "已临时应用",
+            fixture.ViewModel.NotificationMessage,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TemporaryApply_RetriesInspectorContentionWithoutShowingFailure()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        await fixture.ViewModel.InitializeAsync();
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+        fixture.Runtime.ApplyResults.Enqueue(
+            OperationResult<ThemeRuntimeStatus>.Failure(
+                OperationErrorCode.Conflict,
+                "另一个 Codex Inspector 操作正在执行，请稍后重试。",
+                "injector.operation_busy"));
+
+        fixture.ViewModel.ApplyTemporaryCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.Equal(2, fixture.Runtime.ApplyCalls);
+        Assert.True(fixture.ViewModel.SelectedTheme.IsTemporary);
+        Assert.Equal("Success", fixture.ViewModel.NotificationKind);
+        Assert.DoesNotContain(
+            "另一个 Codex Inspector 操作",
             fixture.ViewModel.NotificationMessage,
             StringComparison.Ordinal);
     }
@@ -403,6 +494,9 @@ public sealed class MainWindowViewModelTests
         await fixture.ViewModel.WaitForBackgroundInitializationAsync();
         fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
 
+        Assert.Equal(
+            "Codex 应用可永远保持主题持久化，直到还原外观",
+            fixture.ViewModel.PersistenceEligibilityMessage);
         fixture.ViewModel.SetPersistentCommand.Execute(null);
         await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
 
@@ -1345,14 +1439,24 @@ internal sealed class FakeRuntimeService : ICodexThemeRuntime
 
     public int RestoreCalls { get; private set; }
 
+    public int ApplyCalls { get; private set; }
+
+    public Queue<OperationResult<ThemeRuntimeStatus>> ApplyResults { get; } = new();
+
     public async Task<OperationResult<ThemeRuntimeStatus>> ApplyTemporaryAsync(
         ThemePackage theme,
         CancellationToken cancellationToken)
     {
+        ApplyCalls++;
         ApplyEntered.TrySetResult();
         if (ApplyGate is not null)
         {
             await ApplyGate.Task.WaitAsync(cancellationToken);
+        }
+
+        if (ApplyResults.TryDequeue(out var queuedResult))
+        {
+            return queuedResult;
         }
 
         Status = Status with

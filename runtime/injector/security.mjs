@@ -57,14 +57,29 @@ export function assertPortOwner(listeners, expectedProcessId) {
 export async function fetchInspectorMetadata(port, {
   timeoutMs = 1500,
   maxBytes = 128 * 1024,
+  retryDelayMs = 75,
 } = {}) {
   const versionUrl = `http://127.0.0.1:${port}/json/version`;
   const listUrl = `http://127.0.0.1:${port}/json/list`;
   validateEndpoint(versionUrl, { scheme: "http", port, path: "/json/version" });
   validateEndpoint(listUrl, { scheme: "http", port, path: "/json/list" });
 
-  const version = await getJson(versionUrl, timeoutMs, maxBytes);
-  const targets = await getJson(listUrl, timeoutMs, maxBytes);
+  const deadline = Date.now() + timeoutMs;
+  let version;
+  let targets;
+  while (true) {
+    try {
+      const remainingMs = Math.max(1, deadline - Date.now());
+      version = await getJson(versionUrl, remainingMs, maxBytes);
+      targets = await getJson(listUrl, remainingMs, maxBytes);
+      break;
+    } catch (error) {
+      if (!error?.retryable || Date.now() >= deadline) {
+        throw error;
+      }
+      await delay(Math.min(retryDelayMs, Math.max(1, deadline - Date.now())));
+    }
+  }
   if (!version || typeof version !== "object" || Array.isArray(version) ||
       !Array.isArray(targets) || targets.length !== 1) {
     throw protocolError("invalid_response");
@@ -243,6 +258,10 @@ function isLoopbackAddress(address) {
   return address === "127.0.0.1" || address === "::1";
 }
 
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 async function getJson(rawUrl, timeoutMs, maxBytes) {
   return await new Promise((resolve, reject) => {
     const request = http.get(rawUrl, {
@@ -279,6 +298,10 @@ async function getJson(rawUrl, timeoutMs, maxBytes) {
     });
 
     request.on("timeout", () => request.destroy(retryableError("timeout")));
-    request.on("error", reject);
+    request.on("error", (error) => {
+      reject(error?.code === "protocol_rejected"
+        ? error
+        : retryableError("inspector_unavailable"));
+    });
   });
 }

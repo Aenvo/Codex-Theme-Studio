@@ -71,6 +71,21 @@ public partial class MainWindow : Window
             (DataContext as MainWindowViewModel)?.Dispose();
     }
 
+    private CustomPopupPlacement[] PlaceActionButtonToolTip(
+        Size popupSize,
+        Size targetSize,
+        Point _)
+    {
+        var centeredX = (targetSize.Width - popupSize.Width) / 2;
+        var aboveY = -popupSize.Height - 8;
+        return
+        [
+            new CustomPopupPlacement(
+                new Point(centeredX, aboveY),
+                PopupPrimaryAxis.Horizontal),
+        ];
+    }
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.F && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))

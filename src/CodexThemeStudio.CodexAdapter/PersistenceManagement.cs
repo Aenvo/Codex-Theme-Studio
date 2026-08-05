@@ -1138,13 +1138,28 @@ public sealed class PersistenceService : IPersistenceService
         }
 
         var runtimeStatus = await runtime.GetStatusAsync(cancellationToken);
-        return runtimeStatus.IsSuccess
-            ? OperationResult<ThemeRuntimeStatus>.Success(
-                ToPersistentStatus(
-                    runtimeStatus.Value!,
-                    snapshot.Value!.Theme.Id,
-                    "持久化已启用。"))
-            : OperationResult<ThemeRuntimeStatus>.Failure(runtimeStatus.Error!);
+        if (!runtimeStatus.IsSuccess)
+        {
+            return OperationResult<ThemeRuntimeStatus>.Failure(runtimeStatus.Error!);
+        }
+
+        var runtimeValue = runtimeStatus.Value!;
+        if (runtimeValue.State is ThemeRuntimeState.Temporary or ThemeRuntimeState.Partial &&
+            runtimeValue.ThemeId is not null)
+        {
+            return OperationResult<ThemeRuntimeStatus>.Success(runtimeValue with
+            {
+                IsPersistenceEnabled = true,
+                SelectedThemeId = snapshot.Value!.Theme.Id,
+                UserMessage = "持久化已启用；当前 Codex 正在使用临时主题。",
+            });
+        }
+
+        return OperationResult<ThemeRuntimeStatus>.Success(
+            ToPersistentStatus(
+                runtimeValue,
+                snapshot.Value!.Theme.Id,
+                "持久化已启用。"));
     }
 
     private async Task<OperationResult> ResumeAsync(

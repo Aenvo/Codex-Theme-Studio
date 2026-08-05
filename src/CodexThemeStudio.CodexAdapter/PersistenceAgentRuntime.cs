@@ -30,7 +30,10 @@ public sealed record PersistenceAgentState(
     Guid? ThemeId,
     string? SnapshotFingerprint,
     DateTimeOffset? LastVerifiedAtUtc,
-    string? LastDiagnosticCode)
+    string? LastDiagnosticCode,
+    int? SuppressedProcessId = null,
+    DateTimeOffset? SuppressedProcessStartedAtUtc = null,
+    Guid? SuppressedThemeId = null)
 {
     public const int CurrentSchemaVersion = 1;
 
@@ -290,6 +293,30 @@ public sealed class PersistenceAgentEngine
         }
 
         var process = processes[0];
+        var state = await stateStore.ReadAsync(cancellationToken);
+        if (!state.IsSuccess)
+        {
+            return OperationResult<ThemeRuntimeStatus>.Failure(state.Error!);
+        }
+
+        var temporaryOverrideMatches =
+            state.Value!.SuppressedProcessId == process.ProcessId &&
+            state.Value.SuppressedProcessStartedAtUtc == process.StartedAtUtc &&
+            state.Value.SnapshotFingerprint == verifiedSnapshot.Descriptor.Fingerprint &&
+            state.Value.SuppressedThemeId is not null &&
+            state.Value.SuppressedThemeId != verifiedSnapshot.Theme.Id;
+        if (temporaryOverrideMatches)
+        {
+            return Success(
+                ThemeRuntimeState.Temporary,
+                "当前 Codex 实例正在使用临时主题；Agent 本轮让行。",
+                state.Value.SuppressedThemeId,
+                process.ProcessId,
+                ThemeRuntimeEvidence.ProcessOnly,
+                installed.Version,
+                verifiedSnapshot.Theme.Id);
+        }
+
         var probe = await inspectorService.ProbeAsync(process, cancellationToken);
         if (!probe.IsSuccess ||
             versionPolicy.Evaluate(installed.Version, probe.Value!) ==
@@ -303,12 +330,6 @@ public sealed class PersistenceAgentEngine
                 process.ProcessId,
                 ThemeRuntimeEvidence.ProcessOnly,
                 installed.Version);
-        }
-
-        var state = await stateStore.ReadAsync(cancellationToken);
-        if (!state.IsSuccess)
-        {
-            return OperationResult<ThemeRuntimeStatus>.Failure(state.Error!);
         }
 
         var now = timeProvider.GetUtcNow();
@@ -395,6 +416,38 @@ public sealed class PersistenceAgentEngine
                     ThemeRuntimeEvidence.RuntimeMarkers,
                     installed.Version);
             }
+
+            if (handoffStatus.Value.Active &&
+                handoffStatus.Value.ThemeId is { } temporaryThemeId &&
+                temporaryThemeId != verifiedSnapshot.Theme.Id &&
+                handoffStatus.Value.AppliedWindows > 0)
+            {
+                var suppressionWrite = await stateStore.WriteAsync(
+                    state.Value with
+                    {
+                        ThemeId = verifiedSnapshot.Theme.Id,
+                        SnapshotFingerprint = verifiedSnapshot.Descriptor.Fingerprint,
+                        SuppressedProcessId = process.ProcessId,
+                        SuppressedProcessStartedAtUtc = process.StartedAtUtc,
+                        SuppressedThemeId = temporaryThemeId,
+                    },
+                    cancellationToken);
+                await TryCloseInspectorAsync(process);
+                if (!suppressionWrite.IsSuccess)
+                {
+                    return OperationResult<ThemeRuntimeStatus>.Failure(
+                        suppressionWrite.Error!);
+                }
+
+                return Success(
+                    ThemeRuntimeState.Temporary,
+                    "检测到当前 Codex 实例的临时主题；Agent 已让行。",
+                    temporaryThemeId,
+                    process.ProcessId,
+                    ThemeRuntimeEvidence.RuntimeMarkers,
+                    installed.Version,
+                    verifiedSnapshot.Theme.Id);
+            }
         }
 
         var payload = RendererPayloadFactory.Create(
@@ -467,7 +520,8 @@ public sealed class PersistenceAgentEngine
         Guid? themeId = null,
         int? processId = null,
         ThemeRuntimeEvidence evidence = ThemeRuntimeEvidence.None,
-        string? codexVersion = null) =>
+        string? codexVersion = null,
+        Guid? selectedThemeId = null) =>
         OperationResult<ThemeRuntimeStatus>.Success(
             new ThemeRuntimeStatus(
                 state,
@@ -476,7 +530,7 @@ public sealed class PersistenceAgentEngine
                 processId,
                 timeProvider.GetUtcNow(),
                 message,
-                themeId,
+                selectedThemeId ?? themeId,
                 null,
                 evidence,
                 false,

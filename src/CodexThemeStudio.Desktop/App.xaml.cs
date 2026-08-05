@@ -16,14 +16,7 @@ public partial class App : Application
 
     static App()
     {
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("windir")))
-        {
-            var systemRoot = Environment.GetEnvironmentVariable("SystemRoot");
-            if (!string.IsNullOrWhiteSpace(systemRoot))
-            {
-                Environment.SetEnvironmentVariable("windir", systemRoot);
-            }
-        }
+        WindowsEnvironmentBootstrap.EnsureWindowsDirectoryEnvironmentVariable();
     }
 
     protected override async void OnStartup(StartupEventArgs e)

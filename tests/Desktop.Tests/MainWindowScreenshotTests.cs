@@ -314,6 +314,41 @@ public sealed class MainWindowScreenshotTests
             var applyButton = Assert.Single(
                 FindVisualChildren<Button>(root),
                 button => Equals(button.Content, "临时应用"));
+            var temporaryToolTip = Assert.IsType<ToolTip>(applyButton.ToolTip);
+            Assert.Equal(PlacementMode.Custom, temporaryToolTip.Placement);
+            var placementCallback = Assert.IsType<CustomPopupPlacementCallback>(
+                temporaryToolTip.CustomPopupPlacementCallback);
+            var placements = placementCallback(
+                new Size(220, 30),
+                new Size(100, 44),
+                new Point());
+            var placement = Assert.Single(placements);
+            Assert.Equal(new Point(-60, -38), placement.Point);
+            Assert.Equal(PopupPrimaryAxis.Horizontal, placement.PrimaryAxis);
+            Assert.Equal(
+                "关闭当前 Codex 应用后失效",
+                Assert.IsType<string>(temporaryToolTip.Content));
+            Assert.Equal(350, ToolTipService.GetInitialShowDelay(applyButton));
+            Assert.Equal(5000, ToolTipService.GetShowDuration(applyButton));
+            var persistentButton = Assert.Single(
+                FindVisualChildren<Button>(root),
+                button => Equals(button.Content, "设为持久主题"));
+            var persistentToolTip = Assert.IsType<ToolTip>(persistentButton.ToolTip);
+            Assert.Equal(PlacementMode.Custom, persistentToolTip.Placement);
+            var persistentPlacementCallback = Assert.IsType<CustomPopupPlacementCallback>(
+                persistentToolTip.CustomPopupPlacementCallback);
+            var persistentPlacements = persistentPlacementCallback(
+                new Size(300, 30),
+                new Size(120, 44),
+                new Point());
+            var persistentPlacement = Assert.Single(persistentPlacements);
+            Assert.Equal(new Point(-90, -38), persistentPlacement.Point);
+            Assert.Equal(PopupPrimaryAxis.Horizontal, persistentPlacement.PrimaryAxis);
+            Assert.Equal(
+                "Codex 应用可永远保持主题持久化，直到还原外观",
+                persistentToolTip.Content);
+            Assert.Equal(350, ToolTipService.GetInitialShowDelay(persistentButton));
+            Assert.Equal(5000, ToolTipService.GetShowDuration(persistentButton));
             var progressPositionBeforeLoading = busyProgress.TranslatePoint(new Point(), root);
             var applyPositionBeforeLoading = applyButton.TranslatePoint(new Point(), root);
             var progressSizeBeforeLoading = busyProgress.RenderSize;

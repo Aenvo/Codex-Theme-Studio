@@ -22,6 +22,10 @@ export const rendererCompatibility = Object.freeze({
     "[role='main']",
     "main.main-surface",
   ],
+  mainSurfaceSelectors: [
+    "main.main-surface",
+    "main[data-app-shell-main-surface='default']",
+  ],
   composerSelectors: [
     "textarea",
     "[contenteditable='true']",
@@ -98,6 +102,7 @@ export function rendererBootstrap(request) {
   const styleId = "codex-theme-studio-style";
   const layerId = "codex-theme-studio-layer";
   const rootClass = "codex-theme-studio-active";
+  const compatibility = request?.compatibility;
   const variantClasses = [
     "codex-theme-studio-variant-auto",
     "codex-theme-studio-variant-light",
@@ -116,6 +121,9 @@ export function rendererBootstrap(request) {
     "--cts-panel-blur",
     "--cts-panel-opacity",
   ];
+  const mainSurfaceSelector = Array.isArray(compatibility?.mainSurfaceSelectors)
+    ? compatibility.mainSurfaceSelectors.join(", ")
+    : "";
   const staticCss = `
 html.codex-theme-studio-active {
   background: var(--cts-background) !important;
@@ -153,11 +161,11 @@ html.codex-theme-studio-active body > :not(#codex-theme-studio-layer) {
   position: relative;
   z-index: 1;
 }
-html.codex-theme-studio-active main.main-surface {
+html.codex-theme-studio-active :is(${mainSurfaceSelector}) {
   background: transparent !important;
   box-shadow: none !important;
 }
-html.codex-theme-studio-active[data-codex-theme-studio-page="task-off"] main.main-surface {
+html.codex-theme-studio-active[data-codex-theme-studio-page="task-off"] :is(${mainSurfaceSelector}) {
   background: var(--cts-background) !important;
 }
 #codex-theme-studio-layer {
@@ -229,10 +237,9 @@ html.codex-theme-studio-active ::selection {
   color: var(--cts-text);
 }`;
 
-  const compatibility = request?.compatibility;
   const payload = request?.payload;
   const generation = request?.generation;
-  if (!compatibility || compatibility.version !== 1 ||
+  if (!compatibility || compatibility.version !== 1 || !mainSurfaceSelector ||
       !payload || payload.runtimeVersion !== 1 ||
       !Number.isSafeInteger(generation) || generation < 1) {
     return { eligible: false, applied: false, reason: "invalid-request" };
@@ -388,7 +395,7 @@ html.codex-theme-studio-active ::selection {
       : pageMode === "task-banner" || pageMode === "task-ambient"
         ? rgbaFromHex(payload.palette.background, payload.art.taskOverlay)
         : "transparent";
-    for (const surface of document.querySelectorAll("main.main-surface")) {
+    for (const surface of document.querySelectorAll(mainSurfaceSelector)) {
       if (!managedMainSurfaces.has(surface)) {
         managedMainSurfaces.set(surface, {
           value: surface.style.getPropertyValue("background"),
