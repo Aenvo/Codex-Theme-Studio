@@ -50,6 +50,16 @@
       "electronVersion": "150.0.7871.182",
       "rendererCompatibilityVersion": 1,
       "notes": "完成 Store 身份、精确 EXE、能力 Canary、主窗口与 avatar-overlay 隔离，以及应用、状态确认、清理、重新应用闭环。适配新版 Inspector 关闭与重开时序后，最终清理为 active=false、hookCount=0，端口 9229 无监听；未执行持久化 enable/disable。"
+    },
+    {
+      "version": "26.730.8199.0",
+      "architecture": "x64",
+      "packageFamilyName": "OpenAI.Codex_2p2nqsd0c76g0",
+      "status": "verified",
+      "verifiedAtUtc": "2026-08-05T15:35:13Z",
+      "electronVersion": "151.0.7922.71",
+      "rendererCompatibilityVersion": 1,
+      "notes": "使用 1.2.2-rc.1 完成首次应用、清理、重新应用闭环及人工可见效果确认；随后从 1.2.0 Agent 原子升级并切换持久主题。Codex 重启后新版 Agent 对新主 PID 完成重注入，配置、Run 项、快照指针和持久主题一致，唯一 Agent 进程，最终端口 9229 无监听。"
     }
   ]
 }

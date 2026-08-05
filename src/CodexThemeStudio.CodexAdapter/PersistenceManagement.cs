@@ -696,6 +696,8 @@ public sealed class WindowsRunStartupManager : IAgentStartupManager
 
 public sealed class AgentProcessController : IAgentProcessController
 {
+    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(10);
+
     public Task<OperationResult> StartAsync(
         string agentExecutablePath,
         string configurationPath,
@@ -727,17 +729,45 @@ public sealed class AgentProcessController : IAgentProcessController
         }
     }
 
-    public Task<OperationResult> SignalStopAsync(
+    public async Task<OperationResult> SignalStopAsync(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(
-            PersistenceAgentRunner.SignalStop()
-                ? OperationResult.Success()
-                : OperationResult.Failure(
-                    OperationErrorCode.ExternalToolFailure,
-                    "无法通知持久化 Agent 退出。",
-                    "persistence.agent.stop_failed"));
+        if (!PersistenceAgentRunner.SignalStop())
+        {
+            return OperationResult.Failure(
+                OperationErrorCode.ExternalToolFailure,
+                "无法通知持久化 Agent 退出。",
+                "persistence.agent.stop_failed");
+        }
+
+        var deadline = DateTimeOffset.UtcNow + StopTimeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                using var mutex = Mutex.OpenExisting(PersistenceAgentRunner.MutexName);
+            }
+            catch (WaitHandleCannotBeOpenedException)
+            {
+                return OperationResult.Success();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return OperationResult.Failure(
+                    OperationErrorCode.AccessDenied,
+                    "无法确认持久化 Agent 是否已退出。",
+                    "persistence.agent.stop_access_denied");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
+        }
+
+        return OperationResult.Failure(
+            OperationErrorCode.Timeout,
+            "持久化 Agent 未在 10 秒内退出；未切换持久主题。",
+            "persistence.agent.stop_timeout");
     }
 }
 
@@ -780,6 +810,31 @@ public sealed class PersistenceService : IPersistenceService
             "CodexThemeStudio"));
         configurationPath = Path.Combine(this.stableRoot, "Agent", "config.json");
         configurationStore = new PersistenceAgentConfigurationStore(configurationPath);
+    }
+
+    internal PersistenceService(
+        ICodexThemeRuntime runtime,
+        IThemeAssetStore assetStore,
+        IThemeRepository repository,
+        IPersistenceSnapshotStore snapshotStore,
+        IManagedAgentInstaller installer,
+        IAgentStartupManager startupManager,
+        IAgentProcessController processController,
+        string sourceBundleDirectory,
+        string stableRoot,
+        IPersistenceAgentConfigurationStore configurationStore)
+        : this(
+            runtime,
+            assetStore,
+            repository,
+            snapshotStore,
+            installer,
+            startupManager,
+            processController,
+            sourceBundleDirectory,
+            stableRoot)
+    {
+        this.configurationStore = configurationStore;
     }
 
     public Task<OperationResult<ThemeRuntimeStatus>> EnableAsync(
@@ -948,24 +1003,55 @@ public sealed class PersistenceService : IPersistenceService
             }
 
             var config = configResult.Value;
-            await configurationStore.WriteAsync(
-                config with { Suspended = true },
+            var installation = await installer.InstallAsync(
+                sourceBundleDirectory,
+                Path.Combine(stableRoot, "Agent"),
                 cancellationToken);
-            await processController.SignalStopAsync(cancellationToken);
-            var previous = await snapshotStore.GetCurrentDescriptorAsync(
+            if (!installation.IsSuccess)
+            {
+                return OperationResult<ThemeRuntimeStatus>.Failure(installation.Error!);
+            }
+
+            var previous = await snapshotStore.ReadCurrentAsync(
                 config.SnapshotRoot,
                 cancellationToken);
+            if (!previous.IsSuccess)
+            {
+                return OperationResult<ThemeRuntimeStatus>.Failure(previous.Error!);
+            }
+
+            var suspend = await configurationStore.WriteAsync(
+                config with { Suspended = true },
+                cancellationToken);
+            if (!suspend.IsSuccess)
+            {
+                return OperationResult<ThemeRuntimeStatus>.Failure(suspend.Error!);
+            }
+
+            var stop = await processController.SignalStopAsync(cancellationToken);
+            if (!stop.IsSuccess)
+            {
+                await configurationStore.WriteAsync(config, CancellationToken.None);
+                await processController.StartAsync(
+                    config.AgentExecutablePath,
+                    configurationPath,
+                    CancellationToken.None);
+                return OperationResult<ThemeRuntimeStatus>.Failure(stop.Error!);
+            }
+
             var snapshot = await snapshotStore.CreateAsync(
                 theme,
                 assetStore,
                 config.SnapshotRoot,
                 createRoot: false,
                 cancellationToken);
-            if (!previous.IsSuccess || !snapshot.IsSuccess)
+            if (!snapshot.IsSuccess)
             {
-                await ResumeAsync(config, cancellationToken);
-                return OperationResult<ThemeRuntimeStatus>.Failure(
-                    (previous.IsSuccess ? snapshot.Error : previous.Error)!);
+                return await FailSwitchWithRollbackAsync(
+                    snapshot.Error!,
+                    config,
+                    previous.Value!,
+                    restoreRuntime: false);
             }
 
             var activate = await snapshotStore.ActivateAsync(
@@ -973,20 +1059,22 @@ public sealed class PersistenceService : IPersistenceService
                 cancellationToken);
             if (!activate.IsSuccess)
             {
-                await ResumeAsync(config, cancellationToken);
-                return OperationResult<ThemeRuntimeStatus>.Failure(activate.Error!);
+                return await FailSwitchWithRollbackAsync(
+                    activate.Error!,
+                    config,
+                    previous.Value!,
+                    restoreRuntime: false);
             }
 
             var apply = await runtime.SwitchTemporaryAsync(theme, cancellationToken);
             if (!apply.IsSuccess &&
                 apply.Error!.Code != OperationErrorCode.CodexNotFound)
             {
-                await snapshotStore.ActivateAsync(
+                return await FailSwitchWithRollbackAsync(
+                    apply.Error!,
+                    config,
                     previous.Value!,
-                    CancellationToken.None);
-
-                await ResumeAsync(config, CancellationToken.None);
-                return OperationResult<ThemeRuntimeStatus>.Failure(apply.Error!);
+                    restoreRuntime: false);
             }
 
             var current = await repository.SetCurrentPersistentAsync(
@@ -994,18 +1082,71 @@ public sealed class PersistenceService : IPersistenceService
                 cancellationToken);
             if (!current.IsSuccess)
             {
-                await snapshotStore.ActivateAsync(
+                return await FailSwitchWithRollbackAsync(
+                    current.Error!,
+                    config,
                     previous.Value!,
-                    CancellationToken.None);
-
-                await ResumeAsync(config, CancellationToken.None);
-                return OperationResult<ThemeRuntimeStatus>.Failure(current.Error!);
+                    restoreRuntime: apply.IsSuccess);
             }
 
-            var resume = await ResumeAsync(config, cancellationToken);
-            if (!resume.IsSuccess)
+            var upgraded = CreateConfiguration(
+                config.StorageMode,
+                config.SnapshotRoot,
+                installation.Value!,
+                enabled: true,
+                suspended: true) with
             {
-                return OperationResult<ThemeRuntimeStatus>.Failure(resume.Error!);
+                PollIntervalSeconds = config.PollIntervalSeconds,
+                VerifyIntervalSeconds = config.VerifyIntervalSeconds,
+            };
+            var configPrepare = await configurationStore.WriteAsync(
+                upgraded,
+                cancellationToken);
+            if (!configPrepare.IsSuccess)
+            {
+                return await FailSwitchWithRollbackAsync(
+                    configPrepare.Error!,
+                    config,
+                    previous.Value!,
+                    restoreRuntime: apply.IsSuccess);
+            }
+
+            var startup = await startupManager.InstallAsync(
+                installation.Value!.AgentExecutablePath,
+                configurationPath,
+                cancellationToken);
+            if (!startup.IsSuccess)
+            {
+                return await FailSwitchWithRollbackAsync(
+                    startup.Error!,
+                    config,
+                    previous.Value!,
+                    restoreRuntime: apply.IsSuccess);
+            }
+
+            var configCommit = await configurationStore.WriteAsync(
+                upgraded with { Suspended = false },
+                cancellationToken);
+            if (!configCommit.IsSuccess)
+            {
+                return await FailSwitchWithRollbackAsync(
+                    configCommit.Error!,
+                    config,
+                    previous.Value!,
+                    restoreRuntime: apply.IsSuccess);
+            }
+
+            var start = await processController.StartAsync(
+                installation.Value!.AgentExecutablePath,
+                configurationPath,
+                cancellationToken);
+            if (!start.IsSuccess)
+            {
+                return await FailSwitchWithRollbackAsync(
+                    start.Error!,
+                    config,
+                    previous.Value!,
+                    restoreRuntime: apply.IsSuccess);
             }
 
             return OperationResult<ThemeRuntimeStatus>.Success(
@@ -1162,22 +1303,73 @@ public sealed class PersistenceService : IPersistenceService
                 "持久化已启用。"));
     }
 
-    private async Task<OperationResult> ResumeAsync(
-        PersistenceAgentConfiguration configuration,
-        CancellationToken cancellationToken)
+    private async Task<OperationResult<ThemeRuntimeStatus>>
+        FailSwitchWithRollbackAsync(
+            OperationError originalError,
+            PersistenceAgentConfiguration previousConfiguration,
+            VerifiedPersistenceSnapshot previousSnapshot,
+            bool restoreRuntime)
     {
-        var write = await configurationStore.WriteAsync(
-            configuration with { Suspended = false },
-            cancellationToken);
-        if (!write.IsSuccess)
+        using var rollbackSource = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var token = rollbackSource.Token;
+        var rollbackSucceeded = true;
+        try
         {
-            return write;
+            var snapshot = await snapshotStore.ActivateAsync(
+                previousSnapshot.Descriptor,
+                token);
+            rollbackSucceeded &= snapshot.IsSuccess;
+
+            var current = await repository.SetCurrentPersistentAsync(
+                previousSnapshot.Theme.Id,
+                token);
+            rollbackSucceeded &= current.IsSuccess;
+
+            if (restoreRuntime)
+            {
+                var runtimeRestore = await runtime.SwitchTemporaryAsync(
+                    previousSnapshot.Theme,
+                    token);
+                rollbackSucceeded &= runtimeRestore.IsSuccess ||
+                    runtimeRestore.Error!.Code == OperationErrorCode.CodexNotFound;
+            }
+
+            var suspendedPrevious = await configurationStore.WriteAsync(
+                previousConfiguration with { Suspended = true },
+                token);
+            rollbackSucceeded &= suspendedPrevious.IsSuccess;
+
+            var startup = await startupManager.InstallAsync(
+                previousConfiguration.AgentExecutablePath,
+                configurationPath,
+                token);
+            rollbackSucceeded &= startup.IsSuccess;
+
+            var config = await configurationStore.WriteAsync(
+                previousConfiguration,
+                token);
+            rollbackSucceeded &= config.IsSuccess;
+
+            var start = await processController.StartAsync(
+                previousConfiguration.AgentExecutablePath,
+                configurationPath,
+                token);
+            rollbackSucceeded &= start.IsSuccess;
+        }
+        catch (OperationCanceledException)
+        {
+            rollbackSucceeded = false;
         }
 
-        return await processController.StartAsync(
-            configuration.AgentExecutablePath,
-            configurationPath,
-            cancellationToken);
+        if (!rollbackSucceeded)
+        {
+            return OperationResult<ThemeRuntimeStatus>.Failure(
+                OperationErrorCode.InvalidResponse,
+                $"{originalError.UserMessage} 旧持久化状态未能完整恢复，请停止重试并检查诊断日志。",
+                "persistence.switch.rollback_failed");
+        }
+
+        return OperationResult<ThemeRuntimeStatus>.Failure(originalError);
     }
 
     private OperationResult<string> ResolveSnapshotRoot(PersistenceOptions options)

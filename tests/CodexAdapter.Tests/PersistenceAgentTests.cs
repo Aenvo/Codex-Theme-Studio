@@ -381,7 +381,9 @@ public sealed class PersistenceAgentTests
                 ThemeTaskMode.Ambient,
                 0.25,
                 0.5,
-                0));
+                0,
+                PanelBlur: 30.104712041884795,
+                CropScale: 1.0575916230366487));
 
     private static VerifiedPersistenceSnapshot CreateSnapshot(
         Guid themeId,

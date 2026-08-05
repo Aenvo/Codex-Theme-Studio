@@ -376,6 +376,84 @@ public sealed class PersistenceManagementTests
     }
 
     [Fact]
+    public async Task Switch_UpgradesConfiguredAgentAndStartupAtomically()
+    {
+        var fixture = new ServiceFixture();
+        Assert.True(
+            (await fixture.Service.EnableAsync(
+                fixture.Theme,
+                CancellationToken.None)).IsSuccess);
+        var oldAgentPath = fixture.Startup.AgentExecutablePath;
+        fixture.Installer.VersionName = "1.2.2";
+        var next = CreateTheme(Guid.NewGuid());
+
+        var result = await fixture.Service.SwitchAsync(next, CancellationToken.None);
+        var config = await fixture.ReadConfigurationAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.NotEqual(oldAgentPath, fixture.Startup.AgentExecutablePath);
+        Assert.Contains(
+            Path.Combine("versions", "1.2.2"),
+            fixture.Startup.AgentExecutablePath,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(fixture.Startup.AgentExecutablePath, config.AgentExecutablePath);
+        Assert.False(config.Suspended);
+        Assert.Equal(next.Id, fixture.Snapshot.Active!.ThemeId);
+        Assert.Equal(next.Id, fixture.Repository.CurrentPersistent);
+        Assert.Equal(1, fixture.Controller.StopCount);
+        Assert.Equal(2, fixture.Controller.StartCount);
+    }
+
+    [Fact]
+    public async Task Switch_SameAgentVersionRemainsSuccessful()
+    {
+        var fixture = new ServiceFixture();
+        Assert.True(
+            (await fixture.Service.EnableAsync(
+                fixture.Theme,
+                CancellationToken.None)).IsSuccess);
+        var oldAgentPath = fixture.Startup.AgentExecutablePath;
+
+        var result = await fixture.Service.SwitchAsync(
+            CreateTheme(Guid.NewGuid()),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(oldAgentPath, fixture.Startup.AgentExecutablePath);
+        Assert.Equal(2, fixture.Installer.InstallCount);
+    }
+
+    [Fact]
+    public async Task Switch_WhenAgentStopTimesOutDoesNotChangeSnapshotOrAgent()
+    {
+        var fixture = new ServiceFixture();
+        Assert.True(
+            (await fixture.Service.EnableAsync(
+                fixture.Theme,
+                CancellationToken.None)).IsSuccess);
+        var oldDescriptor = fixture.Snapshot.Active;
+        var oldAgentPath = fixture.Startup.AgentExecutablePath;
+        fixture.Installer.VersionName = "1.2.2";
+        fixture.Controller.StopError = new OperationError(
+            OperationErrorCode.Timeout,
+            "Agent 未退出。",
+            "persistence.agent.stop_timeout");
+
+        var result = await fixture.Service.SwitchAsync(
+            CreateTheme(Guid.NewGuid()),
+            CancellationToken.None);
+        var config = await fixture.ReadConfigurationAsync();
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("persistence.agent.stop_timeout", result.Error!.DiagnosticCode);
+        Assert.Equal(oldDescriptor, fixture.Snapshot.Active);
+        Assert.Equal(fixture.Theme.Id, fixture.Repository.CurrentPersistent);
+        Assert.Equal(oldAgentPath, config.AgentExecutablePath);
+        Assert.False(config.Suspended);
+        Assert.Equal(1, fixture.Snapshot.CreateCount);
+    }
+
+    [Fact]
     public async Task Switch_WhenRuntimeFailsRollsBackSnapshotPointer()
     {
         var fixture = new ServiceFixture();
@@ -384,6 +462,8 @@ public sealed class PersistenceManagementTests
                 fixture.Theme,
                 CancellationToken.None)).IsSuccess);
         var oldDescriptor = fixture.Snapshot.Active;
+        var oldAgentPath = fixture.Startup.AgentExecutablePath;
+        fixture.Installer.VersionName = "1.2.2";
         fixture.Runtime.SwitchResult =
             OperationResult<ThemeRuntimeStatus>.Failure(
                 OperationErrorCode.Timeout,
@@ -397,6 +477,98 @@ public sealed class PersistenceManagementTests
         Assert.False(result.IsSuccess);
         Assert.Equal(oldDescriptor, fixture.Snapshot.Active);
         Assert.Equal(fixture.Theme.Id, fixture.Repository.CurrentPersistent);
+        Assert.Equal(oldAgentPath, fixture.Startup.AgentExecutablePath);
+        Assert.False((await fixture.ReadConfigurationAsync()).Suspended);
+    }
+
+    [Fact]
+    public async Task Switch_WhenNewAgentStartFailsRestoresAllPreviousState()
+    {
+        var fixture = new ServiceFixture();
+        Assert.True(
+            (await fixture.Service.EnableAsync(
+                fixture.Theme,
+                CancellationToken.None)).IsSuccess);
+        var oldDescriptor = fixture.Snapshot.Active;
+        var oldAgentPath = fixture.Startup.AgentExecutablePath;
+        fixture.Installer.VersionName = "1.2.2";
+        fixture.Controller.StartErrorOnce = new OperationError(
+            OperationErrorCode.ExternalToolFailure,
+            "新版 Agent 启动失败。",
+            "persistence.agent.start_failed");
+
+        var result = await fixture.Service.SwitchAsync(
+            CreateTheme(Guid.NewGuid()),
+            CancellationToken.None);
+        var config = await fixture.ReadConfigurationAsync();
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("persistence.agent.start_failed", result.Error!.DiagnosticCode);
+        Assert.Equal(oldDescriptor, fixture.Snapshot.Active);
+        Assert.Equal(fixture.Theme.Id, fixture.Repository.CurrentPersistent);
+        Assert.Equal(oldAgentPath, fixture.Startup.AgentExecutablePath);
+        Assert.Equal(oldAgentPath, config.AgentExecutablePath);
+        Assert.False(config.Suspended);
+        Assert.Equal(oldAgentPath, fixture.Controller.LastStartedAgentPath);
+    }
+
+    [Fact]
+    public async Task Switch_WhenUpgradedConfigurationWriteFailsRestoresAllPreviousState()
+    {
+        var fixture = new ServiceFixture();
+        Assert.True(
+            (await fixture.Service.EnableAsync(
+                fixture.Theme,
+                CancellationToken.None)).IsSuccess);
+        var oldDescriptor = fixture.Snapshot.Active;
+        var oldAgentPath = fixture.Startup.AgentExecutablePath;
+        fixture.Installer.VersionName = "1.2.2";
+        fixture.Configuration.FailOnWriteNumber = 3;
+
+        var result = await fixture.Service.SwitchAsync(
+            CreateTheme(Guid.NewGuid()),
+            CancellationToken.None);
+        var config = await fixture.ReadConfigurationAsync();
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("persistence.config.test_failure", result.Error!.DiagnosticCode);
+        Assert.Equal(oldDescriptor, fixture.Snapshot.Active);
+        Assert.Equal(fixture.Theme.Id, fixture.Repository.CurrentPersistent);
+        Assert.Equal(oldAgentPath, fixture.Startup.AgentExecutablePath);
+        Assert.Equal(oldAgentPath, config.AgentExecutablePath);
+        Assert.False(config.Suspended);
+        Assert.Equal(oldAgentPath, fixture.Controller.LastStartedAgentPath);
+    }
+
+    [Fact]
+    public async Task Switch_WhenRunUpdateFailsRestoresAllPreviousState()
+    {
+        var fixture = new ServiceFixture();
+        Assert.True(
+            (await fixture.Service.EnableAsync(
+                fixture.Theme,
+                CancellationToken.None)).IsSuccess);
+        var oldDescriptor = fixture.Snapshot.Active;
+        var oldAgentPath = fixture.Startup.AgentExecutablePath;
+        fixture.Installer.VersionName = "1.2.2";
+        fixture.Startup.InstallErrorOnce = new OperationError(
+            OperationErrorCode.AccessDenied,
+            "Run 项更新失败。",
+            "persistence.startup.test_failure");
+
+        var result = await fixture.Service.SwitchAsync(
+            CreateTheme(Guid.NewGuid()),
+            CancellationToken.None);
+        var config = await fixture.ReadConfigurationAsync();
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("persistence.startup.test_failure", result.Error!.DiagnosticCode);
+        Assert.Equal(oldDescriptor, fixture.Snapshot.Active);
+        Assert.Equal(fixture.Theme.Id, fixture.Repository.CurrentPersistent);
+        Assert.Equal(oldAgentPath, fixture.Startup.AgentExecutablePath);
+        Assert.Equal(oldAgentPath, config.AgentExecutablePath);
+        Assert.False(config.Suspended);
+        Assert.Equal(oldAgentPath, fixture.Controller.LastStartedAgentPath);
     }
 
     [Fact]
@@ -583,16 +755,19 @@ public sealed class PersistenceManagementTests
         {
             Root = CreateTemporaryDirectory();
             Theme = CreateTheme(Guid.NewGuid());
+            Configuration = new FakeConfigurationStore(
+                Path.Combine(Root, "Agent", "config.json"));
             Service = new PersistenceService(
                 Runtime,
                 new FakeAssets(),
                 Repository,
                 Snapshot,
-                new FakeInstaller(),
+                Installer,
                 Startup,
                 Controller,
                 Root,
-                Root);
+                Root,
+                Configuration);
         }
 
         public string Root { get; }
@@ -605,13 +780,54 @@ public sealed class PersistenceManagementTests
 
         public FakeSnapshot Snapshot { get; } = new();
 
+        public FakeInstaller Installer { get; } = new();
+
         public FakeStartup Startup { get; } = new();
 
         public FakeController Controller { get; } = new();
 
+        public FakeConfigurationStore Configuration { get; }
+
         public PersistenceService Service { get; }
 
+        public async Task<PersistenceAgentConfiguration> ReadConfigurationAsync()
+        {
+            var result = await Configuration.ReadAsync(CancellationToken.None);
+            Assert.True(result.IsSuccess);
+            return result.Value!;
+        }
+
         public void Dispose() => Directory.Delete(Root, recursive: true);
+    }
+
+    private sealed class FakeConfigurationStore(string path) :
+        IPersistenceAgentConfigurationStore
+    {
+        private readonly PersistenceAgentConfigurationStore inner = new(path);
+        private int writeCount;
+
+        public int? FailOnWriteNumber { get; set; }
+
+        public Task<OperationResult<PersistenceAgentConfiguration>> ReadAsync(
+            CancellationToken cancellationToken) =>
+            inner.ReadAsync(cancellationToken);
+
+        public Task<OperationResult> WriteAsync(
+            PersistenceAgentConfiguration configuration,
+            CancellationToken cancellationToken)
+        {
+            writeCount++;
+            if (writeCount == FailOnWriteNumber)
+            {
+                return Task.FromResult(
+                    OperationResult.Failure(
+                        OperationErrorCode.AccessDenied,
+                        "配置写入失败。",
+                        "persistence.config.test_failure"));
+            }
+
+            return inner.WriteAsync(configuration, cancellationToken);
+        }
     }
 
     private sealed class FakeRuntime : ICodexThemeRuntime
@@ -735,12 +951,17 @@ public sealed class PersistenceManagementTests
 
     private sealed class FakeInstaller : IManagedAgentInstaller
     {
+        public string VersionName { get; set; } = "test";
+
+        public int InstallCount { get; private set; }
+
         public Task<OperationResult<ManagedAgentInstallation>> InstallAsync(
             string sourceDirectory,
             string stableAgentRoot,
             CancellationToken cancellationToken)
         {
-            var version = Path.Combine(stableAgentRoot, "versions", "test");
+            InstallCount++;
+            var version = Path.Combine(stableAgentRoot, "versions", VersionName);
             return Task.FromResult(
                 OperationResult<ManagedAgentInstallation>.Success(
                     new ManagedAgentInstallation(
@@ -756,6 +977,10 @@ public sealed class PersistenceManagementTests
     {
         public bool Installed { get; private set; }
 
+        public string? AgentExecutablePath { get; private set; }
+
+        public OperationError? InstallErrorOnce { get; set; }
+
         public OperationError? RemoveError { get; set; }
 
         public Task<OperationResult> InstallAsync(
@@ -763,7 +988,15 @@ public sealed class PersistenceManagementTests
             string configurationPath,
             CancellationToken cancellationToken)
         {
+            if (InstallErrorOnce is not null)
+            {
+                var error = InstallErrorOnce;
+                InstallErrorOnce = null;
+                return Task.FromResult(OperationResult.Failure(error));
+            }
+
             Installed = true;
+            AgentExecutablePath = agentExecutablePath;
             return Task.FromResult(OperationResult.Success());
         }
 
@@ -790,12 +1023,26 @@ public sealed class PersistenceManagementTests
 
         public int StopCount { get; private set; }
 
+        public string? LastStartedAgentPath { get; private set; }
+
+        public OperationError? StartErrorOnce { get; set; }
+
+        public OperationError? StopError { get; set; }
+
         public Task<OperationResult> StartAsync(
             string agentExecutablePath,
             string configurationPath,
             CancellationToken cancellationToken)
         {
             StartCount++;
+            if (StartErrorOnce is not null)
+            {
+                var error = StartErrorOnce;
+                StartErrorOnce = null;
+                return Task.FromResult(OperationResult.Failure(error));
+            }
+
+            LastStartedAgentPath = agentExecutablePath;
             return Task.FromResult(OperationResult.Success());
         }
 
@@ -803,7 +1050,10 @@ public sealed class PersistenceManagementTests
             CancellationToken cancellationToken)
         {
             StopCount++;
-            return Task.FromResult(OperationResult.Success());
+            return Task.FromResult(
+                StopError is null
+                    ? OperationResult.Success()
+                    : OperationResult.Failure(StopError));
         }
     }
 

@@ -151,7 +151,7 @@ jobs:
             Join-Path $packageRoot 'agent\CodexThemeStudio.Agent.exe')
           if ($mainSignature.Status -ne 'NotSigned' -or
               $agentSignature.Status -ne 'NotSigned') {
-            throw 'Unexpected signing status for unsigned 1.2.0 release.'
+            throw "Unexpected signing status for unsigned $version release."
           }
 
           $artifactName = "Codex-Theme-Studio-$version-release"
@@ -207,4 +207,4 @@ jobs:
             --fail-on-no-commits `
             --generate-notes `
             --title "Codex Theme Studio v$version" `
-            --notes "init：建立初始github版本`n`nUnsigned Windows x64 portable build. Verify SHA256SUMS.txt before use. This project is not an official OpenAI product."
+            --notes "Unsigned Windows x64 portable build. Verify SHA256SUMS.txt before use. This project is not an official OpenAI product."

@@ -81,6 +81,76 @@ public sealed class CodexThemeRuntimeServiceTests
     }
 
     [Fact]
+    public async Task QualificationCycle_UsesDedicatedLongerDeadline()
+    {
+        var fixture = new RuntimeFixture(
+            TimeSpan.FromMilliseconds(100),
+            TimeSpan.FromMilliseconds(500));
+        fixture.Renderer.ApplyDelay = TimeSpan.FromMilliseconds(45);
+        fixture.Renderer.CleanupDelay = TimeSpan.FromMilliseconds(45);
+        fixture.Discovery.InstallationResult =
+            OperationResult<CodexInstallationInfo>.Success(
+                RuntimeFixture.Installation with
+                {
+                    ExecutableSha256 = "slow-qualification-hash",
+                });
+
+        var result = await fixture.Service.ApplyTemporaryAsync(
+            CreateTheme(Guid.NewGuid()),
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value!.IsPersistenceEligible);
+        Assert.Equal(2, fixture.Renderer.ApplyCount);
+        Assert.Equal(1, fixture.Renderer.CleanupCount);
+    }
+
+    [Fact]
+    public async Task QualificationCycle_DeadlineReturnsTimeoutAndRecovers()
+    {
+        var fixture = new RuntimeFixture(
+            TimeSpan.FromMilliseconds(50),
+            TimeSpan.FromMilliseconds(45));
+        fixture.Renderer.ApplyDelay = TimeSpan.FromMilliseconds(20);
+        fixture.Renderer.CleanupDelay = TimeSpan.FromMilliseconds(20);
+        fixture.Discovery.InstallationResult =
+            OperationResult<CodexInstallationInfo>.Success(
+                RuntimeFixture.Installation with
+                {
+                    ExecutableSha256 = "qualification-timeout-hash",
+                });
+
+        var result = await fixture.Service.ApplyTemporaryAsync(
+            CreateTheme(Guid.NewGuid()),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OperationErrorCode.Timeout, result.Error!.Code);
+        Assert.Equal("compatibility.qualification_timeout", result.Error.DiagnosticCode);
+        Assert.Null(fixture.Session.State.ThemeId);
+        Assert.True(fixture.Renderer.CleanupCount >= 2);
+        Assert.Equal(1, fixture.Discovery.CloseCount);
+    }
+
+    [Fact]
+    public async Task CallerCancellationRemainsCancelled()
+    {
+        var fixture = new RuntimeFixture();
+        fixture.Renderer.ApplyResults.Enqueue(
+            OperationResult<RendererRuntimeResult>.Failure(
+                OperationErrorCode.Cancelled,
+                "操作已取消。",
+                "injector_cancelled"));
+        var result = await fixture.Service.ApplyTemporaryAsync(
+            CreateTheme(Guid.NewGuid()),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OperationErrorCode.Cancelled, result.Error!.Code);
+        Assert.Equal("injector_cancelled", result.Error.DiagnosticCode);
+    }
+
+    [Fact]
     public async Task Switch_WhenNewApplyFails_ReappliesPreviousTheme()
     {
         var oldTheme = CreateTheme(Guid.NewGuid());
@@ -514,6 +584,17 @@ public sealed class CodexThemeRuntimeServiceTests
                 null);
 
         public RuntimeFixture(params ThemePackage[] themes)
+            : this(
+                TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(15),
+                themes)
+        {
+        }
+
+        public RuntimeFixture(
+            TimeSpan operationTimeout,
+            TimeSpan qualificationTimeout,
+            params ThemePackage[] themes)
         {
             Renderer = new FakeRenderer(Events, Discovery);
             Repository = new FakeRepository(Events);
@@ -533,7 +614,8 @@ public sealed class CodexThemeRuntimeServiceTests
                 Repository,
                 Session,
                 qualificationStore: Qualification,
-                operationTimeout: TimeSpan.FromSeconds(5));
+                operationTimeout: operationTimeout,
+                qualificationTimeout: qualificationTimeout);
         }
 
         public List<string> Events { get; } = [];
@@ -620,6 +702,10 @@ public sealed class CodexThemeRuntimeServiceTests
 
         public TaskCompletionSource? ApplyGate { get; set; }
 
+        public TimeSpan ApplyDelay { get; set; }
+
+        public TimeSpan CleanupDelay { get; set; }
+
         public int ApplyCount { get; private set; }
 
         public int CleanupCount { get; private set; }
@@ -640,6 +726,10 @@ public sealed class CodexThemeRuntimeServiceTests
             {
                 await ApplyGate.Task.WaitAsync(cancellationToken);
             }
+            if (ApplyDelay > TimeSpan.Zero)
+            {
+                await Task.Delay(ApplyDelay, cancellationToken);
+            }
 
             return ApplyResults.Count > 0
                 ? ApplyResults.Dequeue()
@@ -655,13 +745,17 @@ public sealed class CodexThemeRuntimeServiceTests
             return Task.FromResult(StatusResult);
         }
 
-        public Task<OperationResult<RendererRuntimeResult>> CleanupAsync(
+        public async Task<OperationResult<RendererRuntimeResult>> CleanupAsync(
             CodexProcessInfo process,
             CancellationToken cancellationToken)
         {
             CleanupCount++;
-            return Task.FromResult(
-                OperationResult<RendererRuntimeResult>.Success(InactiveRenderer()));
+            if (CleanupDelay > TimeSpan.Zero)
+            {
+                await Task.Delay(CleanupDelay, cancellationToken);
+            }
+
+            return OperationResult<RendererRuntimeResult>.Success(InactiveRenderer());
         }
 
         public Task<OperationResult<CodexInspectionResult>> InspectAsync(
