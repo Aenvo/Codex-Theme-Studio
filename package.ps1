@@ -18,8 +18,8 @@ $declaredVersion = [string](
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = $declaredVersion
 }
-if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    throw "Release version must use major.minor.patch format. Actual: $Version"
+if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$') {
+    throw "Release version must use major.minor.patch or a SemVer prerelease format. Actual: $Version"
 }
 $runtimeBaseline = Get-Content -Raw -LiteralPath (
     Join-Path $projectRoot 'eng\runtime-baseline.json') |

@@ -445,6 +445,26 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task TemporaryApply_QualificationTimeoutShowsTimeoutNotCancellation()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        await fixture.ViewModel.InitializeAsync();
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+        fixture.Runtime.ApplyResults.Enqueue(
+            OperationResult<ThemeRuntimeStatus>.Failure(
+                OperationErrorCode.Timeout,
+                "首次兼容验证超时；已执行安全恢复，请重试。",
+                "compatibility.qualification_timeout"));
+
+        fixture.ViewModel.ApplyTemporaryCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.Equal("Error", fixture.ViewModel.NotificationKind);
+        Assert.Contains("首次兼容验证超时", fixture.ViewModel.NotificationMessage);
+        Assert.DoesNotContain("操作已取消", fixture.ViewModel.NotificationMessage);
+    }
+
+    [Fact]
     public async Task OfflineActionsRemainClickableAndExplainUnavailableWork()
     {
         using var fixture = new ViewModelFixture(themeCount: 1);

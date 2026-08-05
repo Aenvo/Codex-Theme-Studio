@@ -20,6 +20,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
     private readonly CodexCompatibilityQualificationStore qualificationStore;
     private readonly TimeProvider timeProvider;
     private readonly TimeSpan operationTimeout;
+    private readonly TimeSpan qualificationTimeout;
     private readonly SemaphoreSlim writeLock = new(1, 1);
     private readonly object operationSync = new();
     private ActiveOperation? activeOperation;
@@ -34,7 +35,8 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
         CodexVersionPolicy? versionPolicy = null,
         CodexCompatibilityQualificationStore? qualificationStore = null,
         TimeProvider? timeProvider = null,
-        TimeSpan? operationTimeout = null)
+        TimeSpan? operationTimeout = null,
+        TimeSpan? qualificationTimeout = null)
     {
         this.discoveryService =
             discoveryService ?? throw new ArgumentNullException(nameof(discoveryService));
@@ -52,6 +54,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
         this.qualificationStore = qualificationStore ?? new CodexCompatibilityQualificationStore();
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.operationTimeout = operationTimeout ?? TimeSpan.FromSeconds(60);
+        this.qualificationTimeout = qualificationTimeout ?? TimeSpan.FromSeconds(180);
     }
 
     public Task<OperationResult<ThemeRuntimeStatus>> ApplyTemporaryAsync(
@@ -409,6 +412,9 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
             theme.Id,
             timeProvider.GetUtcNow()));
         CodexProcessInfo? process = null;
+        RuntimeSessionState? previousSession = null;
+        ReadOnlyMemory<byte>? rollbackPayload = null;
+        var qualificationCycle = false;
         using var timeoutSource =
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(operationTimeout);
@@ -419,6 +425,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
             {
                 return OperationResult<ThemeRuntimeStatus>.Failure(session.Error!);
             }
+            previousSession = session.Value!;
 
             var context = await DiscoverAsync(timeoutSource.Token);
             if (!context.IsSuccess)
@@ -433,7 +440,6 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                 return OperationResult<ThemeRuntimeStatus>.Failure(payload.Error!);
             }
 
-            ReadOnlyMemory<byte>? rollbackPayload = null;
             if (allowRollback &&
                 session.Value!.ThemeId is { } previousThemeId &&
                 previousThemeId != theme.Id)
@@ -442,6 +448,15 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                     previousThemeId,
                     timeoutSource.Token);
             }
+
+            var qualification = await qualificationStore.IsQualifiedAsync(
+                context.Value.Installation.ExecutableSha256,
+                timeoutSource.Token);
+            var persistenceEligible =
+                qualification.IsSuccess && qualification.Value;
+            qualificationCycle = !persistenceEligible;
+            timeoutSource.CancelAfter(
+                qualificationCycle ? qualificationTimeout : operationTimeout);
 
             var apply = await rendererClient.ApplyAsync(
                 process,
@@ -454,7 +469,12 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                     rollbackPayload,
                     session.Value!,
                     operationId);
-                return OperationResult<ThemeRuntimeStatus>.Failure(apply.Error!);
+                return OperationResult<ThemeRuntimeStatus>.Failure(
+                    NormalizeDeadlineError(
+                        apply.Error!,
+                        cancellationToken,
+                        timeoutSource,
+                        qualificationCycle));
             }
 
             var renderer = apply.Value!;
@@ -471,11 +491,6 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                     "runtime.apply.verification_failed");
             }
 
-            var qualification = await qualificationStore.IsQualifiedAsync(
-                context.Value.Installation.ExecutableSha256,
-                timeoutSource.Token);
-            var persistenceEligible =
-                qualification.IsSuccess && qualification.Value;
             var completedCompatibilityCycle = false;
             if (!persistenceEligible)
             {
@@ -488,10 +503,16 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                         session.Value!,
                         operationId);
                     return OperationResult<ThemeRuntimeStatus>.Failure(
-                        cleanup.Error ?? new OperationError(
-                            OperationErrorCode.InvalidResponse,
-                            "首次兼容验证未能完整清理临时主题。",
-                            "compatibility.cleanup_verification_failed"));
+                        cleanup.Error is null
+                            ? new OperationError(
+                                OperationErrorCode.InvalidResponse,
+                                "首次兼容验证未能完整清理临时主题。",
+                                "compatibility.cleanup_verification_failed")
+                            : NormalizeDeadlineError(
+                                cleanup.Error,
+                                cancellationToken,
+                                timeoutSource,
+                                qualificationCycle));
                 }
 
                 var reapplied = await rendererClient.ApplyAsync(
@@ -507,10 +528,16 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                         session.Value!,
                         operationId);
                     return OperationResult<ThemeRuntimeStatus>.Failure(
-                        reapplied.Error ?? new OperationError(
-                            OperationErrorCode.InvalidResponse,
-                            "首次兼容验证重新应用主题失败。",
-                            "compatibility.reapply_verification_failed"));
+                        reapplied.Error is null
+                            ? new OperationError(
+                                OperationErrorCode.InvalidResponse,
+                                "首次兼容验证重新应用主题失败。",
+                                "compatibility.reapply_verification_failed")
+                            : NormalizeDeadlineError(
+                                reapplied.Error,
+                                cancellationToken,
+                                timeoutSource,
+                                qualificationCycle));
                 }
 
                 renderer = reapplied.Value!;
@@ -518,6 +545,18 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                     context.Value.Installation.ExecutableSha256,
                     timeProvider.GetUtcNow(),
                     timeoutSource.Token);
+                if (!qualified.IsSuccess &&
+                    timeoutSource.IsCancellationRequested &&
+                    !cancellationToken.IsCancellationRequested)
+                {
+                    await RecoverAfterFailedSwitchAsync(
+                        process,
+                        rollbackPayload,
+                        session.Value!,
+                        operationId);
+                    return OperationResult<ThemeRuntimeStatus>.Failure(
+                        QualificationTimeoutError());
+                }
                 persistenceEligible = qualified.IsSuccess;
                 completedCompatibilityCycle = true;
             }
@@ -582,6 +621,24 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                     timeProvider.GetUtcNow(),
                     context.Value.Probe.DiagnosticCode,
                     persistenceEligible));
+        }
+        catch (OperationCanceledException)
+            when (!cancellationToken.IsCancellationRequested &&
+                  timeoutSource.IsCancellationRequested)
+        {
+            if (process is not null && previousSession is not null)
+            {
+                await RecoverAfterFailedSwitchAsync(
+                    process,
+                    rollbackPayload,
+                    previousSession,
+                    operationId);
+            }
+
+            return OperationResult<ThemeRuntimeStatus>.Failure(
+                qualificationCycle
+                    ? QualificationTimeoutError()
+                    : RuntimeTimeoutError());
         }
         finally
         {
@@ -730,6 +787,31 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
         renderer.Failures == 0 &&
         renderer.EligibleWindows > 0 &&
         renderer.AppliedWindows == renderer.EligibleWindows;
+
+    private static OperationError NormalizeDeadlineError(
+        OperationError error,
+        CancellationToken cancellationToken,
+        CancellationTokenSource timeoutSource,
+        bool qualificationCycle) =>
+        error.Code == OperationErrorCode.Cancelled &&
+        !cancellationToken.IsCancellationRequested &&
+        timeoutSource.IsCancellationRequested
+            ? qualificationCycle
+                ? QualificationTimeoutError()
+                : RuntimeTimeoutError()
+            : error;
+
+    private static OperationError QualificationTimeoutError() =>
+        new(
+            OperationErrorCode.Timeout,
+            "首次兼容验证超时；已执行安全恢复，请重试。",
+            "compatibility.qualification_timeout");
+
+    private static OperationError RuntimeTimeoutError() =>
+        new(
+            OperationErrorCode.Timeout,
+            "主题运行时操作超时；已执行安全恢复，请重试。",
+            "runtime.operation_timeout");
 
     private async Task RecoverAfterFailedSwitchAsync(
         CodexProcessInfo process,

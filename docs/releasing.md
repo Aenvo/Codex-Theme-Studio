@@ -7,7 +7,7 @@
 - Node.js Windows x64 `v24.18.0`。
 - Node 压缩包 SHA-256：
   `0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821`。
-- 当前维护 Release 版本号：`1.2.0`。
+- 当前维护 Release 版本号：`1.2.2`。
 
 Node Runtime 只从 `https://nodejs.org/download/release/v24.18.0/` 获取。脚本会在解压前校验固定 SHA-256，并在打包前执行 `node.exe --version`。
 
@@ -19,7 +19,7 @@ Node Runtime 只从 `https://nodejs.org/download/release/v24.18.0/` 获取。脚
 .\package.ps1
 ```
 
-未传入 `-Version` 时，脚本以 `Directory.Build.props` 的 `Version` 作为发布版本；显式传入版本仅用于有意覆盖，并且仍必须使用 `major.minor.patch` 格式。
+未传入 `-Version` 时，脚本以 `Directory.Build.props` 的 `Version` 作为发布版本；显式传入版本仅用于有意覆盖，可使用 `major.minor.patch` 或 SemVer 预发布格式（例如 `1.2.2-rc.1`）。
 
 脚本按顺序执行：
 
@@ -41,9 +41,9 @@ Node Runtime 只从 `https://nodejs.org/download/release/v24.18.0/` 获取。脚
 ## 产物
 
 ```text
-artifacts/release/1.2.0/
-├─ Codex-Theme-Studio-1.2.0-win-x64-portable/
-├─ Codex-Theme-Studio-1.2.0-win-x64-portable.zip
+artifacts/release/1.2.2/
+├─ Codex-Theme-Studio-1.2.2-win-x64-portable/
+├─ Codex-Theme-Studio-1.2.2-win-x64-portable.zip
 ├─ SHA256SUMS.txt
 └─ release-manifest.json
 ```
@@ -52,18 +52,18 @@ artifacts/release/1.2.0/
 
 ## 归档状态
 
-- 历史验收文档继续保留；本机发布归档只保留 `1.1.7` 回滚包和当前 `1.2.0`。
+- 历史验收文档继续保留；本机发布归档保留既有回滚包和当前 `1.2.2`。
 - `1.1.8`、`1.1.9` 和 `1.1.10` 从未取得对应本地验收记录，已按可恢复方式移出项目目录。
-- 当前源码维护基线为 `1.2.0`。发布包必须通过本版本门禁；旧本机交接快照已移除，不再作为仓库真相源。
+- 当前源码维护基线为 `1.2.2`。发布包必须通过本版本门禁；旧本机交接快照已移除，不再作为仓库真相源。
 
 ## 发布前检查
 
 ```powershell
-Get-Content .\artifacts\release\1.2.0\SHA256SUMS.txt
+Get-Content .\artifacts\release\1.2.2\SHA256SUMS.txt
 Get-AuthenticodeSignature `
-  .\artifacts\release\1.2.0\Codex-Theme-Studio-1.2.0-win-x64-portable\CodexThemeManager.exe
+  .\artifacts\release\1.2.2\Codex-Theme-Studio-1.2.2-win-x64-portable\CodexThemeManager.exe
 Get-AuthenticodeSignature `
-  .\artifacts\release\1.2.0\Codex-Theme-Studio-1.2.0-win-x64-portable\agent\CodexThemeStudio.Agent.exe
+  .\artifacts\release\1.2.2\Codex-Theme-Studio-1.2.2-win-x64-portable\agent\CodexThemeStudio.Agent.exe
 ```
 
 该版本预期为 `NotSigned`，必须在用户文档中如实披露。
@@ -98,17 +98,17 @@ Release。同一分支的新 CI 会取消尚未完成的旧运行。
    `Directory.Build.props` 精确匹配的带注释 tag：
 
 ```powershell
-git tag -a v1.2.0 -m 'init：建立初始github版本'
-git push origin v1.2.0
+git tag -a v1.2.2 -m 'release: Codex Theme Studio v1.2.2'
+git push origin v1.2.2
 ```
 
-精确 tag 触发的 workflow 会创建标题为 `Codex Theme Studio v1.2.0` 的 Draft
+精确 tag 触发的 workflow 会创建标题为 `Codex Theme Studio v1.2.2` 的 Draft
 Release，并上传便携 ZIP、`SHA256SUMS.txt` 和 `release-manifest.json`。GitHub
 自动附带的 Source code ZIP/TAR 不是可运行产品。workflow 不会自动创建 tag，
 也不会把 Draft 公开发布。
 
-首次 GitHub 版本的提交信息、带注释 tag 说明和 Draft Release Notes 均包含：
-`init：建立初始github版本`。
+带注释 tag 使用 `release: Codex Theme Studio v1.2.2`；Draft Release Notes 由
+GitHub 自动生成，并附带未签名、哈希校验和非 OpenAI 官方产品说明。
 
 仓库公开后应立即启用 GitHub Private Vulnerability Reporting、Secret Scanning
 和 Push Protection。确认 Draft 的 tag、提交、三项产品资产、两个源码归档、
