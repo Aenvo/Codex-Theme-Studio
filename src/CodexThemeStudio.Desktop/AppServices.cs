@@ -5,6 +5,7 @@ using CodexThemeStudio.Contracts.Interfaces;
 using CodexThemeStudio.Desktop.Services;
 using CodexThemeStudio.Desktop.ViewModels;
 using CodexThemeStudio.Storage;
+using CodexThemeStudio.Update;
 
 namespace CodexThemeStudio.Desktop;
 
@@ -147,7 +148,10 @@ public sealed class AppServices
             appVersion,
             diagnosticSessionId,
             externalThemeCatalog,
-            codexDiscovery: injector);
+            codexDiscovery: injector,
+            updateService: new GitHubUpdateService(
+                new GitHubUpdateServiceOptions { CurrentVersion = appVersion }),
+            updateDialogs: new WpfUpdateDialogService());
         return new AppServices(viewModel, colorHistory);
     }
 

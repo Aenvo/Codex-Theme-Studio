@@ -1,0 +1,87 @@
+<Window x:Class="CodexThemeStudio.Desktop.Controls.UpdateDialogWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        x:ClassModifier="internal"
+        Width="640"
+        MaxHeight="720"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStyle="None"
+        Background="{DynamicResource PopoverBrush}"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        automation:AutomationProperties.Name="应用更新">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="0" ResizeBorderThickness="0"
+                                  GlassFrameThickness="0" CornerRadius="12" />
+    </shell:WindowChrome.WindowChrome>
+    <Border Padding="24" Background="{DynamicResource PopoverBrush}"
+            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+            CornerRadius="12">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock FontSize="20" FontWeight="SemiBold" Text="发现新版本" />
+                <Button x:Name="CloseButton" Grid.Column="1" Width="36" Height="36"
+                        MinHeight="0" Margin="12,0,0,0" Padding="0"
+                        IsCancel="True" Style="{StaticResource GhostButtonStyle}"
+                        FontSize="22" Content="×" ToolTip="关闭"
+                        automation:AutomationProperties.Name="关闭更新对话框"
+                        Click="Close_Click" />
+            </Grid>
+            <StackPanel Grid.Row="1" Margin="0,20,0,0">
+                <TextBlock x:Name="VersionText" FontSize="15" FontWeight="SemiBold" />
+                <TextBlock x:Name="PublishedText" Margin="0,6,0,0"
+                           Foreground="{DynamicResource MutedTextBrush}" />
+                <Border Margin="0,16,0,0" Padding="14"
+                        Background="{DynamicResource SurfaceBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1" CornerRadius="8">
+                    <StackPanel>
+                        <TextBlock FontWeight="SemiBold" Text="更新说明" />
+                        <ScrollViewer MaxHeight="300" Margin="0,10,0,0"
+                                      VerticalScrollBarVisibility="Auto">
+                            <TextBlock x:Name="ReleaseNotesText" LineHeight="21"
+                                       TextWrapping="Wrap" />
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+                <TextBlock Margin="0,14,0,0" FontSize="12"
+                           Foreground="{DynamicResource MutedTextBrush}"
+                           TextWrapping="Wrap"
+                           Text="此项目不是 OpenAI 官方产品，Windows 程序当前未签名。下载内容将通过 GitHub 资产摘要、发布清单与 SHA256SUMS 三重校验。" />
+            </StackPanel>
+            <StackPanel x:Name="ProgressPanel" Grid.Row="2" Margin="0,18,0,0"
+                        Visibility="Collapsed">
+                <Grid>
+                    <TextBlock x:Name="ProgressStageText" Text="正在下载更新" />
+                    <TextBlock x:Name="ProgressPercentText" HorizontalAlignment="Right" Text="0%" />
+                </Grid>
+                <ProgressBar x:Name="DownloadProgress" Height="8" Margin="0,8,0,0"
+                             Minimum="0" Maximum="100" />
+                <TextBlock x:Name="ResultText" Margin="0,10,0,0"
+                           Foreground="{DynamicResource MutedTextBrush}"
+                           TextWrapping="Wrap" Visibility="Collapsed" />
+            </StackPanel>
+            <StackPanel Grid.Row="3" Margin="0,22,0,0" Orientation="Horizontal"
+                        HorizontalAlignment="Right">
+                <Button x:Name="GitHubButton" MinWidth="116" Content="前往 GitHub"
+                        Click="GitHub_Click" />
+                <Button x:Name="DownloadButton" MinWidth="116" Margin="0"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        Content="下载更新" Click="Download_Click" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

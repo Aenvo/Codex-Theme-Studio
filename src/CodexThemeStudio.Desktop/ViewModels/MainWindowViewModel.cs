@@ -81,6 +81,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly Guid diagnosticSessionId;
     private readonly ExternalThemeCatalogService? externalThemeCatalog;
     private readonly ICodexDiscoveryService? codexDiscovery;
+    private readonly IUpdateService? updateService;
+    private readonly IUpdateDialogService? updateDialogs;
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim presenceCheckLock = new(1, 1);
     private readonly object presenceMonitorSync = new();
@@ -143,6 +145,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private bool isBackgroundInitializationComplete;
     private int statusRefreshGeneration;
     private int isDisposed;
+    private bool isCheckingForUpdates;
+    private UpdateReleaseInfo? availableUpdate;
+    private Task updateCheckTask = Task.CompletedTask;
 
     public MainWindowViewModel(
         IThemeRepository repository,
@@ -164,7 +169,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         Guid? diagnosticSessionId = null,
         ExternalThemeCatalogService? externalThemeCatalog = null,
         Action<string>? openExternalUrl = null,
-        ICodexDiscoveryService? codexDiscovery = null)
+        ICodexDiscoveryService? codexDiscovery = null,
+        IUpdateService? updateService = null,
+        IUpdateDialogService? updateDialogs = null)
     {
         this.repository = repository;
         this.runtime = runtime;
@@ -185,6 +192,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         this.diagnosticSessionId = diagnosticSessionId ?? Guid.NewGuid();
         this.externalThemeCatalog = externalThemeCatalog;
         this.codexDiscovery = codexDiscovery;
+        this.updateService = updateService;
+        this.updateDialogs = updateDialogs;
         Editor = editor;
 
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsBusy);
@@ -254,6 +263,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ExportDiagnosticBundleCommand = new AsyncRelayCommand(
             ExportDiagnosticBundleAsync,
             () => !IsBusy && diagnosticBundle is not null);
+        CheckUpdatesCommand = new AsyncRelayCommand(
+            () => CheckForUpdatesAsync(userInitiated: true),
+            () => !IsCheckingForUpdates && updateService is not null);
+        NavigateToUpdateCommand = new RelayCommand(_ => NavigateToUpdate());
     }
 
     public ReadOnlyObservableCollection<ThemeCardViewModel> Themes =>
@@ -547,6 +560,24 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string AppVersion => appVersion;
 
+    public bool IsCheckingForUpdates
+    {
+        get => isCheckingForUpdates;
+        private set
+        {
+            if (SetProperty(ref isCheckingForUpdates, value))
+            {
+                OnPropertyChanged(nameof(CheckUpdateButtonText));
+                CheckUpdatesCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public string CheckUpdateButtonText =>
+        IsCheckingForUpdates ? "正在检查" : "检查更新";
+
+    public bool IsUpdateAvailable => availableUpdate is not null;
+
     public DiagnosticHealth DiagnosticHealth
     {
         get => diagnosticHealth;
@@ -645,6 +676,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public AsyncRelayCommand ExportDiagnosticBundleCommand { get; }
 
+    public AsyncRelayCommand CheckUpdatesCommand { get; }
+
+    public RelayCommand NavigateToUpdateCommand { get; }
+
     public async Task InitializeAsync()
     {
         await ApplyCachedCompatibilityAsync(lifetime.Token);
@@ -663,10 +698,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             "desktop.theme_load",
             correlationId);
         backgroundInitialization = CompleteBackgroundInitializationAsync(lifetime.Token);
+        updateCheckTask = CheckForUpdatesAfterStartupAsync(lifetime.Token);
         isInitialized = true;
     }
 
     internal Task WaitForBackgroundInitializationAsync() => backgroundInitialization;
+
+    internal Task WaitForUpdateCheckAsync() => updateCheckTask;
 
     internal Task WaitForPresenceMonitorAsync()
     {
@@ -2468,6 +2506,98 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
         ApplyFilter();
         SelectedTheme = null;
+    }
+
+    private void NavigateToUpdate()
+    {
+        CurrentPage = LibraryPage.Settings;
+        SelectedSettingsSection = SettingsSection.About;
+        SelectedTheme = null;
+    }
+
+    private async Task CheckForUpdatesAfterStartupAsync(
+        CancellationToken cancellationToken)
+    {
+        if (updateService is null) return;
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+            await CheckForUpdatesAsync(userInitiated: false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task CheckForUpdatesAsync(bool userInitiated)
+    {
+        if (updateService is null || IsCheckingForUpdates) return;
+        IsCheckingForUpdates = true;
+        try
+        {
+            var result = await updateService.CheckAsync(
+                forceRefresh: userInitiated,
+                lifetime.Token);
+            if (!result.IsSuccess)
+            {
+                if (userInitiated) Notify("检查失败，请重试", "Error");
+                return;
+            }
+
+            availableUpdate = result.Value!.IsUpdateAvailable
+                ? result.Value.Release
+                : null;
+            OnPropertyChanged(nameof(IsUpdateAvailable));
+            if (availableUpdate is null)
+            {
+                if (userInitiated) Notify("已是最新版本", "Success");
+                return;
+            }
+
+            if (userInitiated && updateDialogs is not null)
+            {
+                await updateDialogs.ShowReleaseAsync(
+                    appVersion,
+                    availableUpdate,
+                    () => openExternalUrl(availableUpdate.ReleaseUri.AbsoluteUri),
+                    DownloadVerifiedUpdateAsync,
+                    lifetime.Token);
+            }
+        }
+        finally
+        {
+            IsCheckingForUpdates = false;
+        }
+    }
+
+    private async Task<OperationResult<UpdateInstallResult>>
+        DownloadVerifiedUpdateAsync(
+            IProgress<UpdateDownloadProgress> progress,
+            CancellationToken cancellationToken)
+    {
+        if (updateService is null || availableUpdate is null)
+        {
+            return OperationResult<UpdateInstallResult>.Failure(
+                OperationErrorCode.Conflict,
+                "更新信息已失效，请重新检查。",
+                "update.release.missing");
+        }
+
+        var staged = await updateService.DownloadAndStageAsync(
+            availableUpdate,
+            progress,
+            cancellationToken);
+        if (!staged.IsSuccess)
+        {
+            return OperationResult<UpdateInstallResult>.Failure(staged.Error!);
+        }
+
+        return OperationResult<UpdateInstallResult>.Success(
+            new UpdateInstallResult(
+                UpdateInstallOutcome.Succeeded,
+                appVersion,
+                availableUpdate.Version,
+                "更新包已下载并通过校验；自动安装尚未启用。"));
     }
 
     private async Task RunOperationAsync(

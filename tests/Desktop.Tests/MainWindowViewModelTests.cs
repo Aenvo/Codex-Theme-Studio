@@ -10,6 +10,44 @@ namespace CodexThemeStudio.Desktop.Tests;
 
 public sealed class MainWindowViewModelTests
 {
+    [Fact]
+    public async Task CheckUpdates_OffersNewReleaseAndShowsGlobalIndicator()
+    {
+        var release = FakeUpdateService.CreateRelease("1.3.0");
+        var updates = new FakeUpdateService(
+            OperationResult<UpdateCheckResult>.Success(
+                new UpdateCheckResult("1.2.2", true, release, false)));
+        var updateDialogs = new FakeUpdateDialogs();
+        using var fixture = new ViewModelFixture(
+            0,
+            updateService: updates,
+            updateDialogs: updateDialogs);
+
+        fixture.ViewModel.CheckUpdatesCommand.Execute(null);
+        await WaitUntilAsync(() => updateDialogs.ShowCalls == 1);
+
+        Assert.True(fixture.ViewModel.IsUpdateAvailable);
+        Assert.Equal(1, updates.CheckCalls);
+        fixture.ViewModel.NavigateToUpdateCommand.Execute(null);
+        Assert.Equal(LibraryPage.Settings, fixture.ViewModel.CurrentPage);
+        Assert.Equal(SettingsSection.About, fixture.ViewModel.SelectedSettingsSection);
+    }
+
+    [Fact]
+    public async Task CheckUpdates_NoNewReleaseUsesTemporaryNotification()
+    {
+        var updates = new FakeUpdateService(
+            OperationResult<UpdateCheckResult>.Success(
+                new UpdateCheckResult("1.2.2", false, null, false)));
+        using var fixture = new ViewModelFixture(0, updateService: updates);
+
+        fixture.ViewModel.CheckUpdatesCommand.Execute(null);
+        await WaitUntilAsync(() => fixture.ViewModel.IsNotificationVisible);
+
+        Assert.Equal("已是最新版本", fixture.ViewModel.NotificationMessage);
+        Assert.False(fixture.ViewModel.IsUpdateAvailable);
+    }
+
     private readonly ITestOutputHelper output;
 
     public MainWindowViewModelTests(ITestOutputHelper output)
@@ -1104,7 +1142,9 @@ internal sealed class ViewModelFixture : IDisposable
         int themeCount,
         bool externalThemeActive = false,
         bool managedPersistenceEnabled = false,
-        bool enablePresenceDiscovery = false)
+        bool enablePresenceDiscovery = false,
+        IUpdateService? updateService = null,
+        IUpdateDialogService? updateDialogs = null)
     {
         Repository = new FakeThemeRepository(themeCount);
         Runtime = new FakeRuntimeService();
@@ -1178,7 +1218,9 @@ internal sealed class ViewModelFixture : IDisposable
             appVersion: "1.1.7",
             diagnosticSessionId: Guid.Parse("11111111-1111-1111-1111-111111111111"),
             openExternalUrl: url => OpenedExternalUrl = url,
-            codexDiscovery: enablePresenceDiscovery ? Discovery : null);
+            codexDiscovery: enablePresenceDiscovery ? Discovery : null,
+            updateService: updateService,
+            updateDialogs: updateDialogs);
     }
 
     public FakeThemeRepository Repository { get; }
@@ -1897,4 +1939,52 @@ internal sealed class FakeThemePackageService : IThemePackageService
             OperationResult<ThemePackageImportResult>.Failure(
                 OperationErrorCode.NotImplemented,
                 "测试导入未启用。"));
+}
+
+internal sealed class FakeUpdateService(
+    OperationResult<UpdateCheckResult> checkResult) : IUpdateService
+{
+    public int CheckCalls { get; private set; }
+
+    public Task<OperationResult<UpdateCheckResult>> CheckAsync(
+        bool forceRefresh,
+        CancellationToken cancellationToken)
+    {
+        CheckCalls++;
+        return Task.FromResult(checkResult);
+    }
+
+    public Task<OperationResult<StagedUpdate>> DownloadAndStageAsync(
+        UpdateReleaseInfo release,
+        IProgress<UpdateDownloadProgress>? progress,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(OperationResult<StagedUpdate>.Failure(
+            OperationErrorCode.NotImplemented,
+            "测试下载未启用。"));
+
+    internal static UpdateReleaseInfo CreateRelease(string version) =>
+        new(
+            version,
+            $"v{version}",
+            new Uri($"https://github.com/Aenvo/Codex-Theme-Studio/releases/tag/v{version}"),
+            DateTimeOffset.UtcNow,
+            "release notes",
+            []);
+}
+
+internal sealed class FakeUpdateDialogs : IUpdateDialogService
+{
+    public int ShowCalls { get; private set; }
+
+    public Task ShowReleaseAsync(
+        string currentVersion,
+        UpdateReleaseInfo release,
+        Action openGitHub,
+        Func<IProgress<UpdateDownloadProgress>, CancellationToken,
+            Task<OperationResult<UpdateInstallResult>>> downloadAndInstall,
+        CancellationToken cancellationToken)
+    {
+        ShowCalls++;
+        return Task.CompletedTask;
+    }
 }
