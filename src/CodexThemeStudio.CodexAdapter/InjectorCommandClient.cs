@@ -544,7 +544,8 @@ internal sealed class InspectorOperationLease : IDisposable
 
     public static async Task<OperationResult<InspectorOperationLease>> AcquireAsync(
         string command,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? semaphoreName = null)
     {
         if (command is "discover" or "prepare" or "self-test" ||
             !OperatingSystem.IsWindows())
@@ -556,7 +557,7 @@ internal sealed class InspectorOperationLease : IDisposable
         var semaphore = new Semaphore(
             initialCount: 1,
             maximumCount: 1,
-            SemaphoreName);
+            semaphoreName ?? SemaphoreName);
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
         try
         {

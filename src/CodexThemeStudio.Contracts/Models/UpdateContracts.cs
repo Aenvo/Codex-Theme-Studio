@@ -51,6 +51,7 @@ public enum UpdateInstallOutcome
     RolledBack,
     RollbackIncomplete,
     CleanupIncomplete,
+    CleanupCompleted,
     Failed,
 }
 
@@ -60,7 +61,8 @@ public sealed record UpdateInstallResult(
     string NewVersion,
     string UserMessage,
     string? PreservedDirectory = null,
-    string? BackupDirectory = null);
+    string? BackupDirectory = null,
+    string? Token = null);
 
 public sealed record AgentUpgradeResult(
     bool WasRequired,

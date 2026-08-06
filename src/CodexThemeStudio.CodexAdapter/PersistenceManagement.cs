@@ -1303,6 +1303,153 @@ public sealed class PersistenceService : IPersistenceService
                 "持久化已启用。"));
     }
 
+    public async Task<OperationResult<AgentUpgradeResult>> UpgradeAgentAsync(
+        CancellationToken cancellationToken)
+    {
+        if (!await writeLock.WaitAsync(0, cancellationToken))
+        {
+            return OperationResult<AgentUpgradeResult>.Failure(
+                OperationErrorCode.Conflict,
+                "另一个持久化写操作正在执行。",
+                "persistence.upgrade.busy");
+        }
+
+        try
+        {
+            var previousResult = await configurationStore.ReadAsync(cancellationToken);
+            if (!previousResult.IsSuccess)
+            {
+                if (previousResult.Error!.Code == OperationErrorCode.NotFound)
+                {
+                    return OperationResult<AgentUpgradeResult>.Success(
+                        new AgentUpgradeResult(false, false, "持久化服务未启用。"));
+                }
+
+                return OperationResult<AgentUpgradeResult>.Failure(previousResult.Error);
+            }
+
+            var previous = previousResult.Value!;
+            if (!previous.Enabled)
+            {
+                return OperationResult<AgentUpgradeResult>.Success(
+                    new AgentUpgradeResult(false, false, "持久化服务未启用。"));
+            }
+
+            var installation = await installer.InstallAsync(
+                sourceBundleDirectory,
+                Path.Combine(stableRoot, "Agent"),
+                cancellationToken);
+            if (!installation.IsSuccess)
+            {
+                return OperationResult<AgentUpgradeResult>.Failure(installation.Error!);
+            }
+
+            if (string.Equals(
+                Path.GetFullPath(previous.AgentExecutablePath),
+                Path.GetFullPath(installation.Value!.AgentExecutablePath),
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return OperationResult<AgentUpgradeResult>.Success(
+                    new AgentUpgradeResult(false, false, "持久化服务已是当前版本。"));
+            }
+
+            var upgraded = CreateConfiguration(
+                previous.StorageMode,
+                previous.SnapshotRoot,
+                installation.Value,
+                enabled: true,
+                suspended: true) with
+            {
+                PollIntervalSeconds = previous.PollIntervalSeconds,
+                VerifyIntervalSeconds = previous.VerifyIntervalSeconds,
+            };
+
+            var stop = await processController.SignalStopAsync(cancellationToken);
+            if (!stop.IsSuccess)
+            {
+                return OperationResult<AgentUpgradeResult>.Failure(stop.Error!);
+            }
+
+            var prepare = await configurationStore.WriteAsync(upgraded, cancellationToken);
+            if (!prepare.IsSuccess)
+            {
+                await processController.StartAsync(
+                    previous.AgentExecutablePath,
+                    configurationPath,
+                    CancellationToken.None);
+                return OperationResult<AgentUpgradeResult>.Failure(prepare.Error!);
+            }
+
+            var startup = await startupManager.InstallAsync(
+                installation.Value.AgentExecutablePath,
+                configurationPath,
+                cancellationToken);
+            var commit = startup.IsSuccess
+                ? await configurationStore.WriteAsync(
+                    upgraded with { Suspended = false },
+                    cancellationToken)
+                : OperationResult.Failure(startup.Error!);
+            var start = commit.IsSuccess
+                ? await processController.StartAsync(
+                    installation.Value.AgentExecutablePath,
+                    configurationPath,
+                    cancellationToken)
+                : OperationResult.Failure(commit.Error!);
+            if (!startup.IsSuccess || !commit.IsSuccess || !start.IsSuccess)
+            {
+                await startupManager.InstallAsync(
+                    previous.AgentExecutablePath,
+                    configurationPath,
+                    CancellationToken.None);
+                await configurationStore.WriteAsync(previous, CancellationToken.None);
+                await processController.StartAsync(
+                    previous.AgentExecutablePath,
+                    configurationPath,
+                    CancellationToken.None);
+                return OperationResult<AgentUpgradeResult>.Failure(
+                    OperationErrorCode.ExternalToolFailure,
+                    "新版持久化服务未能启动；已继续保留并运行旧版。",
+                    "persistence.upgrade.rolled_back");
+            }
+
+            RemoveUnreferencedAgentVersions(installation.Value.VersionDirectory);
+            return OperationResult<AgentUpgradeResult>.Success(
+                new AgentUpgradeResult(true, true, "持久化服务已升级。"));
+        }
+        finally
+        {
+            writeLock.Release();
+        }
+    }
+
+    private void RemoveUnreferencedAgentVersions(string activeVersionDirectory)
+    {
+        var versionsRoot = Path.GetFullPath(Path.Combine(stableRoot, "Agent", "versions"));
+        if (!Directory.Exists(versionsRoot) ||
+            (File.GetAttributes(versionsRoot) & FileAttributes.ReparsePoint) != 0)
+        {
+            return;
+        }
+
+        var active = Path.GetFullPath(activeVersionDirectory);
+        foreach (var directory in Directory.EnumerateDirectories(versionsRoot))
+        {
+            try
+            {
+                var candidate = Path.GetFullPath(directory);
+                if (string.Equals(candidate, active, StringComparison.OrdinalIgnoreCase) ||
+                    (File.GetAttributes(candidate) & FileAttributes.ReparsePoint) != 0)
+                {
+                    continue;
+                }
+
+                Directory.Delete(candidate, recursive: true);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
     private async Task<OperationResult<ThemeRuntimeStatus>>
         FailSwitchWithRollbackAsync(
             OperationError originalError,

@@ -83,6 +83,29 @@ internal partial class AppDialogWindow : Window
         return dialog;
     }
 
+    internal static AppDialogWindow CreateAction(
+        string title,
+        string message,
+        string secondaryText,
+        string primaryText,
+        Window? owner)
+    {
+        var dialog = new AppDialogWindow(
+            title,
+            message,
+            AppDialogKind.Confirmation,
+            owner);
+        dialog.CancelButton.Content = secondaryText;
+        dialog.CancelButton.SetValue(
+            System.Windows.Automation.AutomationProperties.NameProperty,
+            secondaryText);
+        dialog.ConfirmButton.Content = primaryText;
+        dialog.ConfirmButton.SetValue(
+            System.Windows.Automation.AutomationProperties.NameProperty,
+            primaryText);
+        return dialog;
+    }
+
     private void ConfigureKind(AppDialogKind kind)
     {
         switch (kind)

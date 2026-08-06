@@ -1144,7 +1144,8 @@ internal sealed class ViewModelFixture : IDisposable
         bool managedPersistenceEnabled = false,
         bool enablePresenceDiscovery = false,
         IUpdateService? updateService = null,
-        IUpdateDialogService? updateDialogs = null)
+        IUpdateDialogService? updateDialogs = null,
+        string appVersion = "1.1.7")
     {
         Repository = new FakeThemeRepository(themeCount);
         Runtime = new FakeRuntimeService();
@@ -1215,7 +1216,7 @@ internal sealed class ViewModelFixture : IDisposable
             diagnosticQuery: Diagnostics,
             diagnosticBundle: Diagnostics,
             copyText: text => CopiedText = text,
-            appVersion: "1.1.7",
+            appVersion: appVersion,
             diagnosticSessionId: Guid.Parse("11111111-1111-1111-1111-111111111111"),
             openExternalUrl: url => OpenedExternalUrl = url,
             codexDiscovery: enablePresenceDiscovery ? Discovery : null,

@@ -109,7 +109,7 @@
       "codexthemestudio.update": {
         "type": "Project",
         "dependencies": {
-          "CodexThemeStudio.Contracts": "[1.2.2, )"
+          "CodexThemeStudio.Contracts": "[1.3.0, )"
         }
       }
     },

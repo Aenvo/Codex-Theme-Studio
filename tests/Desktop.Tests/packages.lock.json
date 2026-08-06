@@ -150,8 +150,8 @@
       "codexthemestudio.codexadapter": {
         "type": "Project",
         "dependencies": {
-          "CodexThemeStudio.Contracts": "[1.2.2, )",
-          "CodexThemeStudio.ThemeCore": "[1.2.2, )"
+          "CodexThemeStudio.Contracts": "[1.3.0, )",
+          "CodexThemeStudio.ThemeCore": "[1.3.0, )"
         }
       },
       "codexthemestudio.contracts": {
@@ -160,18 +160,18 @@
       "codexthemestudio.desktop": {
         "type": "Project",
         "dependencies": {
-          "CodexThemeStudio.CodexAdapter": "[1.2.2, )",
-          "CodexThemeStudio.Contracts": "[1.2.2, )",
-          "CodexThemeStudio.Storage": "[1.2.2, )",
-          "CodexThemeStudio.ThemeCore": "[1.2.2, )",
-          "CodexThemeStudio.Update": "[1.2.2, )"
+          "CodexThemeStudio.CodexAdapter": "[1.3.0, )",
+          "CodexThemeStudio.Contracts": "[1.3.0, )",
+          "CodexThemeStudio.Storage": "[1.3.0, )",
+          "CodexThemeStudio.ThemeCore": "[1.3.0, )",
+          "CodexThemeStudio.Update": "[1.3.0, )"
         }
       },
       "codexthemestudio.storage": {
         "type": "Project",
         "dependencies": {
-          "CodexThemeStudio.Contracts": "[1.2.2, )",
-          "CodexThemeStudio.ThemeCore": "[1.2.2, )",
+          "CodexThemeStudio.Contracts": "[1.3.0, )",
+          "CodexThemeStudio.ThemeCore": "[1.3.0, )",
           "Microsoft.Data.Sqlite": "[8.0.29, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.3, )",
           "SkiaSharp": "[4.150.1, )"
@@ -180,13 +180,13 @@
       "codexthemestudio.themecore": {
         "type": "Project",
         "dependencies": {
-          "CodexThemeStudio.Contracts": "[1.2.2, )"
+          "CodexThemeStudio.Contracts": "[1.3.0, )"
         }
       },
       "codexthemestudio.update": {
         "type": "Project",
         "dependencies": {
-          "CodexThemeStudio.Contracts": "[1.2.2, )"
+          "CodexThemeStudio.Contracts": "[1.3.0, )"
         }
       },
       "Microsoft.Data.Sqlite": {

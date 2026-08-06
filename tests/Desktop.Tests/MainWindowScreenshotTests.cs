@@ -207,7 +207,99 @@ public sealed class MainWindowScreenshotTests
                 620,
                 120,
                 Environment.GetEnvironmentVariable("CTS_EMPTY_TRASH_SCREENSHOT_PATH"));
+
+            var updateRelease = FakeUpdateService.CreateRelease("1.3.0");
+            using var updateFixture = new ViewModelFixture(
+                3,
+                updateService: new FakeUpdateService(
+                    Contracts.Results.OperationResult<Contracts.Models.UpdateCheckResult>.Success(
+                        new Contracts.Models.UpdateCheckResult(
+                            "1.2.2",
+                            true,
+                            updateRelease,
+                            false))),
+                updateDialogs: new FakeUpdateDialogs(),
+                appVersion: "1.3.0");
+            updateFixture.ViewModel.CheckUpdatesCommand.Execute(null);
+            Assert.True(updateFixture.ViewModel.IsUpdateAvailable);
+            updateFixture.ViewModel.NavigateToUpdateCommand.Execute(null);
+            RenderWindow(
+                updateFixture.ViewModel,
+                1240,
+                780,
+                96,
+                Environment.GetEnvironmentVariable("CTS_UPDATE_ABOUT_SCREENSHOT_PATH"));
+            RenderWindow(
+                updateFixture.ViewModel,
+                960,
+                620,
+                96,
+                Environment.GetEnvironmentVariable("CTS_UPDATE_ABOUT_MIN_SCREENSHOT_PATH"));
         });
+    }
+
+    [Fact]
+    public void UpdateDialog_RendersReleaseNotesAndDownloadProgress()
+    {
+        WpfTestHost.Invoke(() =>
+        {
+            var release = FakeUpdateService.CreateRelease("1.3.0") with
+            {
+                ReleaseNotes = string.Join('\n', Enumerable.Range(1, 40).Select(
+                    index => $"{index}. 安全更新说明与回滚验证内容。")),
+            };
+            var dialog = new UpdateDialogWindow(
+                "1.2.2",
+                release,
+                () => { },
+                (progress, _) =>
+                {
+                    progress.Report(new Contracts.Models.UpdateDownloadProgress(
+                        42,
+                        100,
+                        42,
+                        "正在下载更新"));
+                    return Task.FromResult(
+                        Contracts.Results.OperationResult<Contracts.Models.UpdateInstallResult>.Failure(
+                            Contracts.Results.OperationErrorCode.InvalidResponse,
+                            "测试校验失败。"));
+                },
+                CancellationToken.None);
+            try
+            {
+                dialog.Show();
+                dialog.UpdateLayout();
+                CaptureElement(
+                    Assert.IsAssignableFrom<FrameworkElement>(dialog.Content),
+                    Environment.GetEnvironmentVariable("CTS_UPDATE_DIALOG_SCREENSHOT_PATH"));
+                var download = FindVisualChildren<Button>(dialog)
+                    .Single(button => Equals(button.Content, "下载更新"));
+                download.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                dialog.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.Background);
+                dialog.UpdateLayout();
+                CaptureElement(
+                    Assert.IsAssignableFrom<FrameworkElement>(dialog.Content),
+                    Environment.GetEnvironmentVariable("CTS_UPDATE_PROGRESS_SCREENSHOT_PATH"));
+            }
+            finally
+            {
+                dialog.Close();
+            }
+        });
+    }
+
+    private static void CaptureElement(FrameworkElement element, string? screenshotPath)
+    {
+        if (string.IsNullOrWhiteSpace(screenshotPath)) return;
+        var width = Math.Max(1, (int)Math.Ceiling(element.ActualWidth));
+        var height = Math.Max(1, (int)Math.Ceiling(element.ActualHeight));
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(element);
+        Directory.CreateDirectory(Path.GetDirectoryName(screenshotPath)!);
+        using var stream = File.Create(screenshotPath);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        encoder.Save(stream);
     }
 
     private static void RenderWindow(
@@ -234,6 +326,21 @@ public sealed class MainWindowScreenshotTests
         root.UpdateLayout();
 
         Assert.NotNull(window.Icon);
+        var updateButtons = FindVisualChildren<Button>(root)
+            .Where(button => AutomationProperties.GetName(button) == "有新的更新可用")
+            .ToArray();
+        Assert.Equal(4, updateButtons.Length);
+        Assert.All(updateButtons, button =>
+        {
+            Assert.Equal(36, button.Width);
+            Assert.Equal(36, button.Height);
+            Assert.Equal("有新的更新可用", button.ToolTip);
+            Assert.True(button.Focusable);
+            Assert.Same(viewModel.NavigateToUpdateCommand, button.Command);
+            Assert.Equal(
+                viewModel.IsUpdateAvailable ? Visibility.Visible : Visibility.Collapsed,
+                button.Visibility);
+        });
         var productIcon = Assert.Single(
             FindVisualChildren<Image>(root),
             image => AutomationProperties.GetName(image) == "Codex Theme Studio 产品图标");

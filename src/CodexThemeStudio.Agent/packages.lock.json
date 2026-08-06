@@ -5,8 +5,8 @@
       "codexthemestudio.codexadapter": {
         "type": "Project",
         "dependencies": {
-          "CodexThemeStudio.Contracts": "[1.2.0, )",
-          "CodexThemeStudio.ThemeCore": "[1.2.0, )"
+          "CodexThemeStudio.Contracts": "[1.3.0, )",
+          "CodexThemeStudio.ThemeCore": "[1.3.0, )"
         }
       },
       "codexthemestudio.contracts": {
@@ -15,7 +15,7 @@
       "codexthemestudio.themecore": {
         "type": "Project",
         "dependencies": {
-          "CodexThemeStudio.Contracts": "[1.2.0, )"
+          "CodexThemeStudio.Contracts": "[1.3.0, )"
         }
       }
     },

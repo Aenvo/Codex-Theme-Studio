@@ -82,7 +82,7 @@
       "codexthemestudio.themecore": {
         "type": "Project",
         "dependencies": {
-          "CodexThemeStudio.Contracts": "[1.0.0, )"
+          "CodexThemeStudio.Contracts": "[1.3.0, )"
         }
       }
     },

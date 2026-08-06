@@ -1437,7 +1437,6 @@
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock FontSize="17"
                                                        FontWeight="SemiBold"
@@ -3107,6 +3106,7 @@
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <StackPanel>
                                                 <TextBlock FontSize="20"
@@ -3145,7 +3145,7 @@
                                         <TextBlock Margin="0,6,0,0"
                                                    Foreground="{DynamicResource MutedTextBrush}"
                                                    TextWrapping="Wrap"
-                                                   Text="非 OpenAI 官方产品。应用默认离线运行，不自动上传主题、日志或诊断材料。" />
+                                                   Text="非 OpenAI 官方产品。除公开 GitHub 更新检查外，应用不自动上传主题、日志或诊断材料。" />
                                         <Border Margin="0,20,0,18"
                                                 Height="1"
                                                 Background="{DynamicResource BorderBrush}" />

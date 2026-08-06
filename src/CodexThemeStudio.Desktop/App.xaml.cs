@@ -1,8 +1,10 @@
+using System.IO;
 using System.Windows;
 using CodexThemeStudio.CodexAdapter;
 using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Desktop.Controls;
 using CodexThemeStudio.Desktop.Services;
+using CodexThemeStudio.Update;
 
 namespace CodexThemeStudio.Desktop;
 
@@ -79,6 +81,30 @@ public partial class App : Application
                     "desktop.ready",
                     DiagnosticOutcome.Succeeded),
                 CancellationToken.None);
+            var updateToken = UpdateStartupCoordinator.GetToken(e.Args);
+            if (updateToken is not null)
+            {
+                try
+                {
+                    await services.MainWindowViewModel
+                        .WaitForBackgroundInitializationAsync();
+                    var updateResult = await new UpdateStartupCoordinator()
+                        .MarkHealthyAndWaitForResultAsync(
+                            updateToken,
+                            CancellationToken.None);
+                    if (updateResult is not null)
+                    {
+                        await services.MainWindowViewModel
+                            .HandleUpdateInstallResultAsync(updateResult);
+                    }
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException or
+                    System.Text.Json.JsonException)
+                {
+                    services.MainWindowViewModel.ReportUpdateResultReadFailure();
+                }
+            }
         }
         catch (Exception exception)
         {

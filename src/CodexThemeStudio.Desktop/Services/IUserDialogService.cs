@@ -31,4 +31,16 @@ public interface IUserDialogService
         CancellationToken cancellationToken);
 
     void ShowInformation(string title, string message);
+
+    Task<bool> ChooseActionAsync(
+        string title,
+        string message,
+        string secondaryText,
+        string primaryText,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ShowInformation(title, message);
+        return Task.FromResult(false);
+    }
 }
