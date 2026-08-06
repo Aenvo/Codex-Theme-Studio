@@ -7,10 +7,10 @@ set "DOTNET=%LOCALAPPDATA%\CodexThemeStudio\devtools\dotnet-8.0.423\dotnet.exe"
 set "PROJECT=%~dp0src\CodexThemeStudio.Desktop\CodexThemeStudio.Desktop.csproj"
 set "APP=%~dp0src\CodexThemeStudio.Desktop\bin\Release\net8.0-windows\win-x64\CodexThemeStudio.Desktop.exe"
 
-powershell.exe -NoProfile -NonInteractive -Command "if (Get-Process -Name 'CodexThemeManager' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
+powershell.exe -NoProfile -NonInteractive -Command "if (Get-Process -Name 'CodexThemeManager','CodexThemeStudio.Desktop' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
 if not errorlevel 1 (
-    echo An older packaged Codex Theme Studio is still running.
-    echo Close CodexThemeManager.exe, then run this launcher again.
+    echo Another Codex Theme Studio instance is still running.
+    echo Close CodexThemeManager.exe or CodexThemeStudio.Desktop.exe, then run this launcher again.
     pause
     exit /b 2
 )

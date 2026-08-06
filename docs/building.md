@@ -130,7 +130,7 @@ Injector 的目标发现明确由系统 `powershell.exe` 执行，因此运行�
 
 `Start-CodexThemeStudio.cmd` 是仓库内的开发辅助入口，不属于便携发布包。它使用 `%LOCALAPPDATA%\CodexThemeStudio\devtools\dotnet-8.0.423\dotnet.exe` 构建 `win-x64` Desktop Release，并启动 `src/CodexThemeStudio.Desktop/bin/Release/net8.0-windows/win-x64/CodexThemeStudio.Desktop.exe`；不会修改或覆盖 `artifacts/release` 中的历史便携发布。
 
-运行前应关闭旧便携版 `CodexThemeManager.exe`。脚本检测到旧进程时会停止启动并给出提示，避免同时看到旧发布界面和当前源码界面。正式用户仍应从经过验收的便携目录启动 `CodexThemeManager.exe`。
+运行前应关闭现有的便携版 `CodexThemeManager.exe` 或开发版 `CodexThemeStudio.Desktop.exe`。脚本检测到任一进程时会停止构建并给出提示，避免旧进程锁定 Release 输出，或同时看到旧发布界面和当前源码界面。正式用户仍应从经过验收的便携目录启动 `CodexThemeManager.exe`。
 
 ## 当前边界
 
