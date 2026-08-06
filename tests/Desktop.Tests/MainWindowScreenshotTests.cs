@@ -820,6 +820,11 @@ public sealed class MainWindowScreenshotTests
                 Assert.Contains(
                     FindVisualChildren<ContentControl>(gitHubButton),
                     contentControl => contentControl.Content is GeometryGroup);
+                Assert.InRange(gitHubButton.ActualHeight, 36, 40);
+                var checkUpdateButton = Assert.Single(
+                    FindVisualChildren<Button>(root),
+                    button => AutomationProperties.GetName(button) == "检查更新");
+                Assert.InRange(checkUpdateButton.ActualHeight, 36, 40);
             }
         }
 

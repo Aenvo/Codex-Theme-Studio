@@ -64,6 +64,63 @@ public sealed class GitHubUpdateServiceTests : IDisposable
         Assert.False(result.IsSuccess);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task CheckAsync_UsesStableReleaseFeedWhenApiIsRateLimited(
+        HttpStatusCode statusCode)
+    {
+        var handler = new RouteHandler(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/repos/Aenvo/Codex-Theme-Studio/releases/latest" =>
+                new HttpResponseMessage(statusCode),
+            "/Aenvo/Codex-Theme-Studio/releases.atom" => AtomResponse(
+                ("v1.4.0-rc.1", "preview"),
+                ("v1.3.0", "<p>stable &amp; safe</p>")),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        });
+        using var service = CreateService(handler, "1.2.2");
+
+        var result = await service.CheckAsync(true, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error?.DiagnosticCode);
+        Assert.True(result.Value!.IsUpdateAvailable);
+        Assert.Equal("1.3.0", result.Value.Release!.Version);
+        Assert.Equal("stable & safe", result.Value.Release.ReleaseNotes);
+        Assert.Empty(result.Value.Release.Assets);
+        Assert.Equal(2, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task CheckAsync_AcceptsMissingAssetDigestForDiscovery()
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            draft = false,
+            prerelease = false,
+            tag_name = "v1.3.0",
+            html_url = "https://github.com/Aenvo/Codex-Theme-Studio/releases/tag/v1.3.0",
+            published_at = DateTimeOffset.UtcNow,
+            body = "notes",
+            assets = new[]
+            {
+                new
+                {
+                    name = "release-manifest.json",
+                    browser_download_url = "https://github.com/manifest",
+                    size = 100,
+                    digest = (string?)null,
+                },
+            },
+        });
+        using var service = CreateService(new RouteHandler(_ => JsonResponse(json)), "1.2.2");
+
+        var result = await service.CheckAsync(true, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error?.DiagnosticCode);
+        Assert.Equal(string.Empty, Assert.Single(result.Value!.Release!.Assets).Sha256Digest);
+    }
+
     [Fact]
     public async Task DownloadAndStageAsync_VerifiesThreeHashesAndExtracts()
     {
@@ -183,6 +240,29 @@ public sealed class GitHubUpdateServiceTests : IDisposable
 
     private static HttpResponseMessage JsonResponse(string json) =>
         new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+
+    private static HttpResponseMessage AtomResponse(params (string Tag, string Notes)[] releases)
+    {
+        var entries = string.Join(string.Empty, releases.Select(release => $"""
+          <entry>
+            <id>tag:github.com,2008:Repository/1/{release.Tag}</id>
+            <updated>2026-08-07T00:00:00Z</updated>
+            <link rel="alternate" type="text/html" href="https://github.com/Aenvo/Codex-Theme-Studio/releases/tag/{release.Tag}" />
+            <title>{release.Tag}</title>
+            <content type="html"><![CDATA[{release.Notes}]]></content>
+          </entry>
+        """));
+        var xml = $"""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          {entries}
+        </feed>
+        """;
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(xml, Encoding.UTF8, "application/atom+xml"),
+        };
+    }
 
     private static HttpResponseMessage BytesResponse(byte[] bytes)
     {

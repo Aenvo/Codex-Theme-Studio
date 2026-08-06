@@ -7,6 +7,9 @@ public sealed record GitHubUpdateServiceOptions
     public Uri LatestReleaseApi { get; init; } = new(
         "https://api.github.com/repos/Aenvo/Codex-Theme-Studio/releases/latest");
 
+    public Uri ReleasesFeed { get; init; } = new(
+        "https://github.com/Aenvo/Codex-Theme-Studio/releases.atom");
+
     public string ProductAssetPrefix { get; init; } = "Codex-Theme-Studio";
 
     public TimeSpan CacheDuration { get; init; } = TimeSpan.FromHours(12);

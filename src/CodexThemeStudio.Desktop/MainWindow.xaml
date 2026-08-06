@@ -3117,8 +3117,8 @@
                                                            Text="{Binding AppVersion, StringFormat=版本 {0}}" />
                                             </StackPanel>
                                             <Button Grid.Column="1"
-                                                    MinWidth="112"
                                                     Margin="16,0,0,0"
+                                                    VerticalAlignment="Center"
                                                     Command="{Binding OpenGitHubRepositoryCommand}"
                                                     ToolTip="在默认浏览器中打开 GitHub 仓库"
                                                     AutomationProperties.Name="打开 GitHub 仓库">
@@ -3131,8 +3131,8 @@
                                                 </StackPanel>
                                             </Button>
                                             <Button Grid.Column="2"
-                                                    MinWidth="116"
                                                     Margin="8,0,0,0"
+                                                    VerticalAlignment="Center"
                                                     Style="{StaticResource PrimaryButtonStyle}"
                                                     Command="{Binding CheckUpdatesCommand}"
                                                     Content="{Binding CheckUpdateButtonText}"

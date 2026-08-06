@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Globalization;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
@@ -6,6 +7,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml;
+using System.Xml.Linq;
 using CodexThemeStudio.Contracts.Interfaces;
 using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Contracts.Results;
@@ -85,10 +88,11 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
                 if (response.StatusCode is HttpStatusCode.Forbidden or
                     HttpStatusCode.TooManyRequests)
                 {
-                    return Failure<UpdateCheckResult>(
-                        OperationErrorCode.ExternalToolFailure,
-                        "GitHub 暂时限制了更新检查，请稍后重试。",
-                        $"update.github.{(int)response.StatusCode}");
+                    var fallbackRelease = await FetchLatestStableReleaseFromFeedAsync(timeout.Token);
+                    var fallbackResult = CreateCheckResult(fallbackRelease);
+                    cachedResult = fallbackResult;
+                    cachedAt = now;
+                    return OperationResult<UpdateCheckResult>.Success(fallbackResult);
                 }
 
                 if (response.StatusCode == HttpStatusCode.NotFound)
@@ -106,13 +110,7 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
                     new JsonDocumentOptions { MaxDepth = 32 },
                     timeout.Token);
                 var release = ParseRelease(document.RootElement);
-                var current = ParseVersion(options.CurrentVersion, "current version");
-                var latest = ParseVersion(release.Version, "release version");
-                var result = new UpdateCheckResult(
-                    current.ToString(),
-                    latest.CompareTo(current) > 0,
-                    latest.CompareTo(current) > 0 ? release : null,
-                    false);
+                var result = CreateCheckResult(release);
                 cachedResult = result;
                 cachedAt = now;
                 return OperationResult<UpdateCheckResult>.Success(result);
@@ -132,7 +130,8 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
                     "update.check.cancelled");
             }
             catch (Exception exception) when (
-                exception is HttpRequestException or JsonException or InvalidDataException)
+                exception is HttpRequestException or JsonException or
+                    InvalidDataException or XmlException)
             {
                 return Failure<UpdateCheckResult>(
                     OperationErrorCode.InvalidResponse,
@@ -157,6 +156,7 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
         var partialPath = Path.Combine(workRoot, "package.zip.partial");
         try
         {
+            release = await ResolveReleaseAssetsAsync(release, cancellationToken);
             var expectedZipName =
                 $"{options.ProductAssetPrefix}-{release.Version}-win-x64-portable.zip";
             var zipAsset = GetUniqueAsset(release.Assets, expectedZipName);
@@ -292,7 +292,7 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
                 RequiredString(asset, "name"),
                 ParseHttpsUri(RequiredString(asset, "browser_download_url")),
                 asset.GetProperty("size").GetInt64(),
-                RequiredString(asset, "digest")));
+                OptionalString(asset, "digest")));
         }
 
         var notes = SanitizeReleaseNotes(root.TryGetProperty("body", out var body)
@@ -305,6 +305,109 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
             root.GetProperty("published_at").GetDateTimeOffset(),
             notes,
             assets);
+    }
+
+    private UpdateCheckResult CreateCheckResult(UpdateReleaseInfo release)
+    {
+        var current = ParseVersion(options.CurrentVersion, "current version");
+        var latest = ParseVersion(release.Version, "release version");
+        var isUpdateAvailable = latest.CompareTo(current) > 0;
+        return new UpdateCheckResult(
+            current.ToString(),
+            isUpdateAvailable,
+            isUpdateAvailable ? release : null,
+            false);
+    }
+
+    private async Task<UpdateReleaseInfo> FetchLatestStableReleaseFromFeedAsync(
+        CancellationToken cancellationToken)
+    {
+        var bytes = await DownloadBytesAsync(
+            options.ReleasesFeed,
+            MaximumMetadataBytes,
+            cancellationToken);
+        using var stream = new MemoryStream(bytes, writable: false);
+        var settings = new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null,
+            MaxCharactersInDocument = MaximumMetadataBytes,
+        };
+        using var reader = XmlReader.Create(stream, settings);
+        var document = XDocument.Load(reader, LoadOptions.None);
+        XNamespace atom = "http://www.w3.org/2005/Atom";
+        foreach (var entry in document.Root?.Elements(atom + "entry") ?? [])
+        {
+            var link = entry.Elements(atom + "link")
+                .FirstOrDefault(element =>
+                    string.Equals((string?)element.Attribute("rel"), "alternate", StringComparison.Ordinal));
+            var href = (string?)link?.Attribute("href");
+            if (!Uri.TryCreate(href, UriKind.Absolute, out var releaseUri) ||
+                releaseUri.Scheme != Uri.UriSchemeHttps ||
+                !string.Equals(releaseUri.Host, "github.com", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            const string releasePathPrefix = "/Aenvo/Codex-Theme-Studio/releases/tag/";
+            if (!releaseUri.AbsolutePath.StartsWith(releasePathPrefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var tag = Uri.UnescapeDataString(releaseUri.AbsolutePath[releasePathPrefix.Length..]);
+            if (!SemanticVersion.TryParse(tag, out var version) || version.PreRelease is not null)
+            {
+                continue;
+            }
+
+            if (!DateTimeOffset.TryParse(
+                    entry.Element(atom + "updated")?.Value,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal,
+                    out var publishedAt))
+            {
+                throw new InvalidDataException("Release feed date is invalid.");
+            }
+
+            var htmlNotes = entry.Element(atom + "content")?.Value;
+            var textNotes = WebUtility.HtmlDecode(
+                HtmlTagRegex().Replace(HtmlBreakRegex().Replace(htmlNotes ?? string.Empty, "\n"), " "));
+            return new UpdateReleaseInfo(
+                version.ToString(),
+                tag,
+                releaseUri,
+                publishedAt,
+                SanitizeReleaseNotes(textNotes),
+                []);
+        }
+
+        throw new InvalidDataException("Release feed has no stable release.");
+    }
+
+    private async Task<UpdateReleaseInfo> ResolveReleaseAssetsAsync(
+        UpdateReleaseInfo release,
+        CancellationToken cancellationToken)
+    {
+        if (release.Assets.Count > 0) return release;
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(options.CheckTimeout);
+        using var response = await SendFollowingRedirectsAsync(options.LatestReleaseApi, timeout.Token);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
+        using var document = await JsonDocument.ParseAsync(
+            stream,
+            new JsonDocumentOptions { MaxDepth = 32 },
+            timeout.Token);
+        var resolved = ParseRelease(document.RootElement);
+        if (!string.Equals(resolved.Version, release.Version, StringComparison.Ordinal) ||
+            !string.Equals(resolved.TagName, release.TagName, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Latest release changed before download.");
+        }
+
+        return resolved;
     }
 
     private static string SanitizeReleaseNotes(string? notes)
@@ -611,6 +714,12 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
         return property.GetString()!;
     }
 
+    private static string OptionalString(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) &&
+        property.ValueKind == JsonValueKind.String
+            ? property.GetString() ?? string.Empty
+            : string.Empty;
+
     private static string NormalizeDigest(string value)
     {
         var digest = value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
@@ -662,6 +771,14 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
 
     [GeneratedRegex("^([0-9a-fA-F]{64})\\s+\\*?(.+)$", RegexOptions.CultureInvariant)]
     private static partial Regex ChecksumLineRegex();
+
+    [GeneratedRegex(
+        "<(?:br\\s*/?|/p|/li|/h[1-6])\\s*>",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
+    private static partial Regex HtmlBreakRegex();
+
+    [GeneratedRegex("<[^>]*>", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
+    private static partial Regex HtmlTagRegex();
 
     private sealed record ReleaseManifest(string ZipSha256, string InstallManifestSha256);
 }
