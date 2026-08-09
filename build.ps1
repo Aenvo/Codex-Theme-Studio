@@ -130,6 +130,7 @@ try {
         '--configuration', $Configuration,
         "-p:CodexRuntimeIdentifier=$runtimeIdentifier",
         '-p:SelfContained=false',
+        '-m:1',
         '--no-build',
         '--no-restore'
     )
@@ -172,10 +173,11 @@ try {
         'runtime\injector\security.test.mjs',
         'runtime\injector\renderer-payload.test.mjs',
         'runtime\injector\renderer-runtime.test.mjs',
-        'runtime\injector\main-runtime.test.mjs'
+        'runtime\injector\main-runtime.test.mjs',
+        'runtime\updater\apply-update.test.mjs'
     )
 
-    Write-Host 'Build, tests, formatting, Agent self-test, Injector self-test, and Injector tests passed.'
+    Write-Host 'Build, tests, formatting, Agent self-test, Injector self-test, and runtime tests passed.'
 }
 finally {
     Pop-Location

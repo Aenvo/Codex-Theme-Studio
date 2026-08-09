@@ -7,7 +7,8 @@ public sealed class InspectorOperationLeaseTests
     {
         var result = await InspectorOperationLease.AcquireAsync(
             "probe",
-            CancellationToken.None);
+            CancellationToken.None,
+            $@"Local\CodexThemeStudio.InspectorOperationSemaphore.Tests.{Guid.NewGuid():N}");
 
         Assert.True(result.IsSuccess);
 

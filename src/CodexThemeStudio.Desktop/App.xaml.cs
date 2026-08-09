@@ -1,8 +1,10 @@
+using System.IO;
 using System.Windows;
 using CodexThemeStudio.CodexAdapter;
 using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Desktop.Controls;
 using CodexThemeStudio.Desktop.Services;
+using CodexThemeStudio.Update;
 
 namespace CodexThemeStudio.Desktop;
 
@@ -79,6 +81,54 @@ public partial class App : Application
                     "desktop.ready",
                     DiagnosticOutcome.Succeeded),
                 CancellationToken.None);
+            var updateCoordinator = new UpdateStartupCoordinator();
+            var updateToken = UpdateStartupCoordinator.GetToken(e.Args);
+            var previousCleanup = await updateCoordinator
+                .RetryTerminalArtifactCleanupAsync(updateToken, CancellationToken.None);
+            if (!previousCleanup.IsSuccess)
+            {
+                services.MainWindowViewModel
+                    .ReportUpdateArtifactCleanupFailure(previousCleanup.Error!);
+            }
+            var expiredCleanup = await updateCoordinator.CleanupExpiredDownloadsAsync(
+                TimeSpan.FromDays(7),
+                CancellationToken.None);
+            if (!expiredCleanup.IsSuccess)
+            {
+                services.MainWindowViewModel
+                    .ReportUpdateArtifactCleanupFailure(expiredCleanup.Error!);
+            }
+            if (updateToken is not null)
+            {
+                try
+                {
+                    await services.MainWindowViewModel
+                        .WaitForBackgroundInitializationAsync();
+                    var updateResult = await updateCoordinator.MarkHealthyAndWaitForResultAsync(
+                            updateToken,
+                            CancellationToken.None);
+                    if (updateResult is not null)
+                    {
+                        var handledResult = await services.MainWindowViewModel
+                            .HandleUpdateInstallResultAsync(updateResult);
+                        var cleanupResult = await updateCoordinator
+                            .CleanupTerminalArtifactsAsync(
+                                handledResult,
+                                CancellationToken.None);
+                        if (!cleanupResult.IsSuccess)
+                        {
+                            services.MainWindowViewModel
+                                .ReportUpdateArtifactCleanupFailure(cleanupResult.Error!);
+                        }
+                    }
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException or
+                    System.Text.Json.JsonException or InvalidDataException)
+                {
+                    services.MainWindowViewModel.ReportUpdateResultReadFailure();
+                }
+            }
         }
         catch (Exception exception)
         {

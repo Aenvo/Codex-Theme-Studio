@@ -23,4 +23,11 @@ public interface IPersistenceService
 
     Task<OperationResult<ThemeRuntimeStatus>> GetStatusAsync(
         CancellationToken cancellationToken);
+
+    Task<OperationResult<AgentUpgradeResult>> UpgradeAgentAsync(
+        CancellationToken cancellationToken) =>
+        Task.FromResult(OperationResult<AgentUpgradeResult>.Failure(
+            OperationErrorCode.NotImplemented,
+            "当前持久化服务不支持升级。",
+            "persistence.upgrade.not_supported"));
 }

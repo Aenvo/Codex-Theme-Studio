@@ -22,6 +22,23 @@
         SnapsToDevicePixels="True">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <Style x:Key="UpdateAvailableButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource GhostButtonStyle}">
+            <Setter Property="Width" Value="36" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="8" />
+            <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+            <Setter Property="ToolTip" Value="有新的更新可用" />
+            <Setter Property="AutomationProperties.Name" Value="有新的更新可用" />
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsUpdateAvailable}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
 
         <Style x:Key="EditorOverlayScrollBarStyle"
                TargetType="ScrollBar"
@@ -1143,9 +1160,17 @@
 
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Left">
-                        <TextBlock FontSize="27"
-                                   FontWeight="SemiBold"
-                                   Text="{Binding PageTitle}" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock VerticalAlignment="Center" FontSize="27"
+                                       FontWeight="SemiBold" Text="{Binding PageTitle}" />
+                            <Button Margin="8,0,0,0"
+                                    Style="{StaticResource UpdateAvailableButtonStyle}"
+                                    Command="{Binding CheckUpdatesCommand}">
+                                <ContentControl Width="20" Height="20"
+                                                Style="{StaticResource LucideIconStyle}"
+                                                Content="{StaticResource LucideCircleArrowUpGeometry}" />
+                            </Button>
+                        </StackPanel>
                         <TextBlock Margin="0,5,0,0"
                                    Foreground="{DynamicResource MutedTextBrush}"
                                    Text="{Binding ThemeCountText}" />
@@ -1696,9 +1721,17 @@
 
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Left">
-                        <TextBlock FontSize="27"
-                                   FontWeight="SemiBold"
-                                   Text="回收站" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock VerticalAlignment="Center" FontSize="27"
+                                       FontWeight="SemiBold" Text="回收站" />
+                            <Button Margin="8,0,0,0"
+                                    Style="{StaticResource UpdateAvailableButtonStyle}"
+                                    Command="{Binding CheckUpdatesCommand}">
+                                <ContentControl Width="20" Height="20"
+                                                Style="{StaticResource LucideIconStyle}"
+                                                Content="{StaticResource LucideCircleArrowUpGeometry}" />
+                            </Button>
+                        </StackPanel>
                         <TextBlock Margin="0,5,0,0"
                                    Foreground="{DynamicResource MutedTextBrush}"
                                    Text="{Binding ThemeCountText}" />
@@ -2032,6 +2065,13 @@
                                    TextTrimming="CharacterEllipsis"
                                    ToolTip="{Binding Editor.Name}" />
                     </StackPanel>
+                    <Button DockPanel.Dock="Right" Margin="8,0,0,0"
+                            Style="{StaticResource UpdateAvailableButtonStyle}"
+                            Command="{Binding CheckUpdatesCommand}">
+                        <ContentControl Width="20" Height="20"
+                                        Style="{StaticResource LucideIconStyle}"
+                                        Content="{StaticResource LucideCircleArrowUpGeometry}" />
+                    </Button>
                 </DockPanel>
 
                 <Grid Grid.Row="1">
@@ -2821,7 +2861,17 @@
                           Visibility="{Binding IsSettingsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid>
                     <StackPanel>
-                        <TextBlock FontSize="27" FontWeight="SemiBold" Text="设置" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock VerticalAlignment="Center" FontSize="27"
+                                       FontWeight="SemiBold" Text="设置" />
+                            <Button Margin="8,0,0,0"
+                                    Style="{StaticResource UpdateAvailableButtonStyle}"
+                                    Command="{Binding CheckUpdatesCommand}">
+                                <ContentControl Width="20" Height="20"
+                                                Style="{StaticResource LucideIconStyle}"
+                                                Content="{StaticResource LucideCircleArrowUpGeometry}" />
+                            </Button>
+                        </StackPanel>
                         <TextBlock Margin="0,5,0,22"
                                    Foreground="{DynamicResource MutedTextBrush}"
                                    TextWrapping="Wrap"
@@ -3056,6 +3106,7 @@
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <StackPanel>
                                                 <TextBlock FontSize="20"
@@ -3066,8 +3117,8 @@
                                                            Text="{Binding AppVersion, StringFormat=版本 {0}}" />
                                             </StackPanel>
                                             <Button Grid.Column="1"
-                                                    MinWidth="112"
                                                     Margin="16,0,0,0"
+                                                    VerticalAlignment="Center"
                                                     Command="{Binding OpenGitHubRepositoryCommand}"
                                                     ToolTip="在默认浏览器中打开 GitHub 仓库"
                                                     AutomationProperties.Name="打开 GitHub 仓库">
@@ -3079,6 +3130,14 @@
                                                                Text="GitHub" />
                                                 </StackPanel>
                                             </Button>
+                                            <Button Grid.Column="2"
+                                                    Margin="8,0,0,0"
+                                                    VerticalAlignment="Center"
+                                                    Style="{StaticResource PrimaryButtonStyle}"
+                                                    Command="{Binding CheckUpdatesCommand}"
+                                                    Content="{Binding CheckUpdateButtonText}"
+                                                    ToolTip="检查 GitHub 上的最新稳定版本"
+                                                    AutomationProperties.Name="检查更新" />
                                         </Grid>
                                         <TextBlock Margin="0,18,0,0"
                                                    Text="Windows 本地主题管理器"
@@ -3086,7 +3145,7 @@
                                         <TextBlock Margin="0,6,0,0"
                                                    Foreground="{DynamicResource MutedTextBrush}"
                                                    TextWrapping="Wrap"
-                                                   Text="非 OpenAI 官方产品。应用默认离线运行，不自动上传主题、日志或诊断材料。" />
+                                                   Text="非 OpenAI 官方产品。除公开 GitHub 更新检查外，应用不自动上传主题、日志或诊断材料。" />
                                         <Border Margin="0,20,0,18"
                                                 Height="1"
                                                 Background="{DynamicResource BorderBrush}" />

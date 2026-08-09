@@ -405,6 +405,51 @@ public sealed class PersistenceManagementTests
     }
 
     [Fact]
+    public async Task UpgradeAgent_UpgradesEnabledAgentWithoutChangingTheme()
+    {
+        var fixture = new ServiceFixture();
+        Assert.True((await fixture.Service.EnableAsync(
+            fixture.Theme,
+            CancellationToken.None)).IsSuccess);
+        var activeSnapshot = fixture.Snapshot.Active;
+        fixture.Installer.VersionName = "1.3.0";
+
+        var result = await fixture.Service.UpgradeAgentAsync(CancellationToken.None);
+        var config = await fixture.ReadConfigurationAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value!.Upgraded);
+        Assert.Contains(Path.Combine("versions", "1.3.0"), config.AgentExecutablePath);
+        Assert.False(config.Suspended);
+        Assert.Equal(activeSnapshot, fixture.Snapshot.Active);
+        Assert.Equal(fixture.Theme.Id, fixture.Repository.CurrentPersistent);
+    }
+
+    [Fact]
+    public async Task UpgradeAgent_WhenNewAgentFailsRestoresOldAgent()
+    {
+        var fixture = new ServiceFixture();
+        Assert.True((await fixture.Service.EnableAsync(
+            fixture.Theme,
+            CancellationToken.None)).IsSuccess);
+        var oldAgent = fixture.Startup.AgentExecutablePath;
+        fixture.Installer.VersionName = "1.3.0";
+        fixture.Controller.StartErrorOnce = new OperationError(
+            OperationErrorCode.ExternalToolFailure,
+            "新版 Agent 启动失败。",
+            "test.agent.start_failed");
+
+        var result = await fixture.Service.UpgradeAgentAsync(CancellationToken.None);
+        var config = await fixture.ReadConfigurationAsync();
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(oldAgent, config.AgentExecutablePath);
+        Assert.Equal(oldAgent, fixture.Startup.AgentExecutablePath);
+        Assert.Equal(oldAgent, fixture.Controller.LastStartedAgentPath);
+        Assert.False(config.Suspended);
+    }
+
+    [Fact]
     public async Task Switch_SameAgentVersionRemainsSuccessful()
     {
         var fixture = new ServiceFixture();

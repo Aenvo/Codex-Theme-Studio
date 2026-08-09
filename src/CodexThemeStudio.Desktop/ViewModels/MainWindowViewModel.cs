@@ -81,6 +81,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly Guid diagnosticSessionId;
     private readonly ExternalThemeCatalogService? externalThemeCatalog;
     private readonly ICodexDiscoveryService? codexDiscovery;
+    private readonly IUpdateService? updateService;
+    private readonly IUpdateDialogService? updateDialogs;
+    private readonly IUpdateInstaller? updateInstaller;
+    private readonly Func<long, OperationResult>? updatePreflight;
+    private readonly Action? requestApplicationShutdown;
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim presenceCheckLock = new(1, 1);
     private readonly object presenceMonitorSync = new();
@@ -143,6 +148,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private bool isBackgroundInitializationComplete;
     private int statusRefreshGeneration;
     private int isDisposed;
+    private bool isCheckingForUpdates;
+    private UpdateReleaseInfo? availableUpdate;
+    private Task updateCheckTask = Task.CompletedTask;
 
     public MainWindowViewModel(
         IThemeRepository repository,
@@ -164,7 +172,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         Guid? diagnosticSessionId = null,
         ExternalThemeCatalogService? externalThemeCatalog = null,
         Action<string>? openExternalUrl = null,
-        ICodexDiscoveryService? codexDiscovery = null)
+        ICodexDiscoveryService? codexDiscovery = null,
+        IUpdateService? updateService = null,
+        IUpdateDialogService? updateDialogs = null,
+        IUpdateInstaller? updateInstaller = null,
+        Func<long, OperationResult>? updatePreflight = null,
+        Action? requestApplicationShutdown = null)
     {
         this.repository = repository;
         this.runtime = runtime;
@@ -185,6 +198,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         this.diagnosticSessionId = diagnosticSessionId ?? Guid.NewGuid();
         this.externalThemeCatalog = externalThemeCatalog;
         this.codexDiscovery = codexDiscovery;
+        this.updateService = updateService;
+        this.updateDialogs = updateDialogs;
+        this.updateInstaller = updateInstaller;
+        this.updatePreflight = updatePreflight;
+        this.requestApplicationShutdown = requestApplicationShutdown;
         Editor = editor;
 
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsBusy);
@@ -254,6 +272,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ExportDiagnosticBundleCommand = new AsyncRelayCommand(
             ExportDiagnosticBundleAsync,
             () => !IsBusy && diagnosticBundle is not null);
+        CheckUpdatesCommand = new AsyncRelayCommand(
+            () => CheckForUpdatesAsync(userInitiated: true),
+            () => !IsCheckingForUpdates && updateService is not null);
     }
 
     public ReadOnlyObservableCollection<ThemeCardViewModel> Themes =>
@@ -547,6 +568,24 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string AppVersion => appVersion;
 
+    public bool IsCheckingForUpdates
+    {
+        get => isCheckingForUpdates;
+        private set
+        {
+            if (SetProperty(ref isCheckingForUpdates, value))
+            {
+                OnPropertyChanged(nameof(CheckUpdateButtonText));
+                CheckUpdatesCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public string CheckUpdateButtonText =>
+        IsCheckingForUpdates ? "正在检查" : "检查更新";
+
+    public bool IsUpdateAvailable => availableUpdate is not null;
+
     public DiagnosticHealth DiagnosticHealth
     {
         get => diagnosticHealth;
@@ -645,6 +684,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public AsyncRelayCommand ExportDiagnosticBundleCommand { get; }
 
+    public AsyncRelayCommand CheckUpdatesCommand { get; }
+
     public async Task InitializeAsync()
     {
         await ApplyCachedCompatibilityAsync(lifetime.Token);
@@ -663,10 +704,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             "desktop.theme_load",
             correlationId);
         backgroundInitialization = CompleteBackgroundInitializationAsync(lifetime.Token);
+        updateCheckTask = CheckForUpdatesAfterStartupAsync(lifetime.Token);
         isInitialized = true;
     }
 
     internal Task WaitForBackgroundInitializationAsync() => backgroundInitialization;
+
+    internal Task WaitForUpdateCheckAsync() => updateCheckTask;
 
     internal Task WaitForPresenceMonitorAsync()
     {
@@ -701,6 +745,154 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         lifetime.Cancel();
         CancelPresenceMonitor();
         lifetime.Dispose();
+    }
+
+    public async Task<UpdateInstallResult> HandleUpdateInstallResultAsync(
+        UpdateInstallResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (result.Outcome == UpdateInstallOutcome.Succeeded)
+        {
+            var agent = await persistence.UpgradeAgentAsync(lifetime.Token);
+            if (!agent.IsSuccess)
+            {
+                var retry = await dialogs.ChooseActionAsync(
+                    "持久化服务升级失败",
+                    "应用已更新，但持久化服务升级失败；旧服务已保留并继续运行。",
+                    "关闭",
+                    "重试升级",
+                    lifetime.Token);
+                if (retry)
+                {
+                    agent = await persistence.UpgradeAgentAsync(lifetime.Token);
+                    if (!agent.IsSuccess)
+                    {
+                        dialogs.ShowInformation(
+                            "持久化服务仍未升级",
+                            "应用保持新版，旧持久化服务继续保留并运行。请检查诊断日志后再试。");
+                    }
+                }
+            }
+
+            Notify($"更新成功，已升级至 v{result.NewVersion}", "Success");
+            if (!string.IsNullOrWhiteSpace(result.PreservedDirectory))
+            {
+                dialogs.ShowInformation(
+                    "已保留旧目录中的文件",
+                    $"未知或被修改的旧文件未被删除，已移动到：\n{result.PreservedDirectory}");
+            }
+            return result;
+        }
+
+        if (result.Outcome == UpdateInstallOutcome.CleanupCompleted)
+        {
+            Notify("旧文件清理已完成", "Success");
+            if (!string.IsNullOrWhiteSpace(result.PreservedDirectory))
+            {
+                dialogs.ShowInformation(
+                    "已保留旧目录中的文件",
+                    $"未知或被修改的旧文件已移动到：\n{result.PreservedDirectory}");
+            }
+            return result;
+        }
+
+        if (result.Outcome == UpdateInstallOutcome.CleanupIncomplete)
+        {
+            var retryCleanup = await dialogs.ChooseActionAsync(
+                "旧文件清理未完成",
+                $"{result.UserMessage}\n\n旧目录仍保留在：\n{result.BackupDirectory}",
+                "打开旧目录",
+                "重试清理",
+                lifetime.Token);
+            if (retryCleanup && updateInstaller is not null && result.Token is not null)
+            {
+                var retried = await updateInstaller.RetryCleanupAsync(
+                    result.Token,
+                    lifetime.Token);
+                if (retried.IsSuccess)
+                {
+                    return await HandleUpdateInstallResultAsync(retried.Value!);
+                }
+                else
+                {
+                    dialogs.ShowInformation("重试清理失败", retried.Error!.UserMessage);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(result.BackupDirectory))
+            {
+                OpenDirectory(result.BackupDirectory);
+            }
+            return result;
+        }
+
+        if (result.Outcome == UpdateInstallOutcome.RollbackIncomplete)
+        {
+            var openGitHub = await dialogs.ChooseActionAsync(
+                "更新失败且回滚未完成",
+                $"{result.UserMessage}\n\n备份目录：\n{result.BackupDirectory}",
+                "打开备份目录",
+                "前往 GitHub",
+                lifetime.Token);
+            if (openGitHub) openExternalUrl(GitHubRepositoryUrl);
+            else if (!string.IsNullOrWhiteSpace(result.BackupDirectory))
+                OpenDirectory(result.BackupDirectory);
+            return result;
+        }
+
+        if (result.Outcome == UpdateInstallOutcome.RolledBack)
+        {
+            var retry = await dialogs.ChooseActionAsync(
+                "更新已回滚",
+                result.UserMessage,
+                "前往 GitHub",
+                "重试",
+                lifetime.Token);
+            if (retry)
+            {
+                NavigateToUpdate();
+                CheckUpdatesCommand.Execute(null);
+            }
+            else
+            {
+                openExternalUrl(GitHubRepositoryUrl);
+            }
+            return result;
+        }
+
+        dialogs.ShowInformation(
+            "更新失败",
+            string.IsNullOrWhiteSpace(result.BackupDirectory)
+                ? result.UserMessage
+                : $"{result.UserMessage}\n\n备份目录：\n{result.BackupDirectory}");
+        return result;
+    }
+
+    public void ReportUpdateResultReadFailure() =>
+        dialogs.ShowInformation(
+            "无法读取更新结果",
+            "应用已启动，但无法验证更新清理结果。请前往 GitHub 获取帮助，并保留 Updates 目录。");
+
+    public void ReportUpdateArtifactCleanupFailure(OperationError error) =>
+        dialogs.ShowInformation(
+            "更新临时文件清理未完成",
+            $"{error.UserMessage}\n\n应用和需要恢复的文件未被删除。请保留 Updates 目录后重试启动。");
+
+    private static void OpenDirectory(string path)
+    {
+        try
+        {
+            if (!Directory.Exists(path)) return;
+            _ = Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                ArgumentList = { path },
+                UseShellExecute = false,
+            });
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+        }
     }
 
     private void StartPresenceMonitor()
@@ -2468,6 +2660,132 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
         ApplyFilter();
         SelectedTheme = null;
+    }
+
+    private void NavigateToUpdate()
+    {
+        CurrentPage = LibraryPage.Settings;
+        SelectedSettingsSection = SettingsSection.About;
+        SelectedTheme = null;
+    }
+
+    private async Task CheckForUpdatesAfterStartupAsync(
+        CancellationToken cancellationToken)
+    {
+        if (updateService is null) return;
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+            await CheckForUpdatesAsync(userInitiated: false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task CheckForUpdatesAsync(bool userInitiated)
+    {
+        if (updateService is null || IsCheckingForUpdates) return;
+        IsCheckingForUpdates = true;
+        try
+        {
+            var result = await updateService.CheckAsync(
+                forceRefresh: userInitiated,
+                lifetime.Token);
+            if (!result.IsSuccess)
+            {
+                if (userInitiated) Notify("检查失败，请重试", "Error");
+                return;
+            }
+
+            availableUpdate = result.Value!.IsUpdateAvailable
+                ? result.Value.Release
+                : null;
+            OnPropertyChanged(nameof(IsUpdateAvailable));
+            if (availableUpdate is null)
+            {
+                if (userInitiated) Notify("已是最新版本", "Success");
+                return;
+            }
+
+            if (userInitiated && updateDialogs is not null)
+            {
+                await updateDialogs.ShowReleaseAsync(
+                    appVersion,
+                    availableUpdate,
+                    () => openExternalUrl(availableUpdate.ReleaseUri.AbsoluteUri),
+                    DownloadVerifiedUpdateAsync,
+                    lifetime.Token);
+            }
+        }
+        finally
+        {
+            IsCheckingForUpdates = false;
+        }
+    }
+
+    private async Task<OperationResult<UpdateInstallResult>>
+        DownloadVerifiedUpdateAsync(
+            IProgress<UpdateDownloadProgress> progress,
+            CancellationToken cancellationToken)
+    {
+        if (updateService is null || availableUpdate is null)
+        {
+            return OperationResult<UpdateInstallResult>.Failure(
+                OperationErrorCode.Conflict,
+                "更新信息已失效，请重新检查。",
+                "update.release.missing");
+        }
+
+        if (IsBusy)
+        {
+            return OperationResult<UpdateInstallResult>.Failure(
+                OperationErrorCode.Conflict,
+                "当前有操作正在进行，请完成后重试。",
+                "update.preflight.busy");
+        }
+
+        if (Editor?.HasDraft == true)
+        {
+            return OperationResult<UpdateInstallResult>.Failure(
+                OperationErrorCode.Conflict,
+                "存在未保存的编辑草稿，请先保存或取消。",
+                "update.preflight.unsaved_draft");
+        }
+
+        var zipBytes = availableUpdate.Assets
+            .FirstOrDefault(static asset => asset.Name.EndsWith(".zip", StringComparison.Ordinal))
+            ?.Size ?? 0;
+        var preflight = updatePreflight?.Invoke(zipBytes) ?? OperationResult.Success();
+        if (!preflight.IsSuccess)
+        {
+            return OperationResult<UpdateInstallResult>.Failure(preflight.Error!);
+        }
+
+        var staged = await updateService.DownloadAndStageAsync(
+            availableUpdate,
+            progress,
+            cancellationToken);
+        if (!staged.IsSuccess)
+        {
+            return OperationResult<UpdateInstallResult>.Failure(staged.Error!);
+        }
+
+        if (updateInstaller is null)
+        {
+            return OperationResult<UpdateInstallResult>.Failure(
+                OperationErrorCode.NotImplemented,
+                "自动安装组件当前不可用；未修改任何程序文件。",
+                "update.installer.unavailable");
+        }
+
+        var install = await updateInstaller.StartAsync(staged.Value!, cancellationToken);
+        if (install.IsSuccess && install.Value!.Outcome == UpdateInstallOutcome.Started)
+        {
+            requestApplicationShutdown?.Invoke();
+        }
+
+        return install;
     }
 
     private async Task RunOperationAsync(

@@ -5,6 +5,7 @@ using CodexThemeStudio.Contracts.Interfaces;
 using CodexThemeStudio.Desktop.Services;
 using CodexThemeStudio.Desktop.ViewModels;
 using CodexThemeStudio.Storage;
+using CodexThemeStudio.Update;
 
 namespace CodexThemeStudio.Desktop;
 
@@ -147,7 +148,16 @@ public sealed class AppServices
             appVersion,
             diagnosticSessionId,
             externalThemeCatalog,
-            codexDiscovery: injector);
+            codexDiscovery: injector,
+            updateService: new GitHubUpdateService(
+                new GitHubUpdateServiceOptions { CurrentVersion = appVersion }),
+            updateDialogs: new WpfUpdateDialogService(),
+            updateInstaller: CreateUpdateInstaller(appVersion),
+            updatePreflight: zipBytes => UpdatePreflightValidator.Check(
+                AppContext.BaseDirectory,
+                GetUpdatesRoot(),
+                zipBytes),
+            requestApplicationShutdown: RequestApplicationShutdown);
         return new AppServices(viewModel, colorHistory);
     }
 
@@ -171,6 +181,39 @@ public sealed class AppServices
             diagnosticSink: diagnostics,
             diagnosticSessionId: diagnosticSessionId,
             diagnosticAppVersion: appVersion);
+    }
+
+    private static IUpdateInstaller CreateUpdateInstaller(string appVersion)
+    {
+        var runtimeRoot = FindRuntimeRoot();
+        var applicationRoot = Path.GetFullPath(AppContext.BaseDirectory);
+        var executable = File.Exists(Path.Combine(applicationRoot, "CodexThemeManager.exe"))
+            ? "CodexThemeManager.exe"
+            : "CodexThemeStudio.Desktop.exe";
+        return new TransactionalUpdateInstaller(
+            new TransactionalUpdateInstallerOptions
+            {
+                CurrentVersion = appVersion,
+                ApplicationRoot = applicationRoot,
+                NodeExecutablePath = Path.Combine(runtimeRoot, "node", "node.exe"),
+                UpdaterScriptPath = Path.Combine(runtimeRoot, "updater", "apply-update.mjs"),
+                ExecutableRelativePath = executable,
+                UpdatesRoot = GetUpdatesRoot(),
+            });
+    }
+
+    private static string GetUpdatesRoot() => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "CodexThemeStudio",
+        "Updates");
+
+    private static void RequestApplicationShutdown()
+    {
+        _ = Application.Current.Dispatcher.InvokeAsync(async () =>
+        {
+            await Task.Delay(350);
+            Application.Current.Shutdown();
+        });
     }
 
     private static string FindRuntimeRoot()

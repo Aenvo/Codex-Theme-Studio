@@ -110,8 +110,8 @@ function Copy-TreeWithoutOverwriteConflict {
         New-Item -ItemType Directory -Force -Path $destinationParent | Out-Null
 
         if (Test-Path -LiteralPath $destinationPath) {
-            $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash
-            $destinationHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destinationPath).Hash
+            $sourceHash = Get-Sha256Lower $file.FullName
+            $destinationHash = Get-Sha256Lower $destinationPath
             if ($sourceHash -ne $destinationHash) {
                 throw "Publish outputs conflict at $relativePath."
             }
@@ -164,7 +164,20 @@ function Get-RelativePublishPath {
 function Get-Sha256Lower {
     param([Parameter(Mandatory = $true)][string]$Path)
 
-    return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        $algorithm = [Security.Cryptography.SHA256]::Create()
+        try {
+            return ([BitConverter]::ToString(
+                $algorithm.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+        }
+        finally {
+            $algorithm.Dispose()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
 }
 
 function Assert-NoPrivateThemeAssets {
@@ -246,7 +259,7 @@ if (-not (Test-Path -LiteralPath $nodeArchive)) {
         -OutFile $nodeArchive
 }
 
-$archiveHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $nodeArchive).Hash.ToLowerInvariant()
+$archiveHash = Get-Sha256Lower $nodeArchive
 if ($archiveHash -ne $nodeArchiveSha256) {
     throw "Node.js archive SHA-256 mismatch. Expected $nodeArchiveSha256, got $archiveHash."
 }
@@ -361,8 +374,12 @@ Move-Item -LiteralPath $publishedDesktopExecutable -Destination $renamedDesktopE
 $runtimeRoot = Join-Path $packageDirectory 'runtime'
 $injectorRoot = Join-Path $runtimeRoot 'injector'
 $nodeRoot = Join-Path $runtimeRoot 'node'
-New-Item -ItemType Directory -Force -Path $injectorRoot, $nodeRoot | Out-Null
+$updaterRoot = Join-Path $runtimeRoot 'updater'
+New-Item -ItemType Directory -Force -Path $injectorRoot, $nodeRoot, $updaterRoot | Out-Null
 Copy-RequiredFile $nodeExecutable (Join-Path $nodeRoot 'node.exe')
+Copy-RequiredFile `
+    (Join-Path $projectRoot 'runtime\updater\apply-update.mjs') `
+    (Join-Path $updaterRoot 'apply-update.mjs')
 
 $injectorFiles = @(
     'index.mjs',
@@ -506,6 +523,30 @@ $buildInfo = @"
 
 Assert-NoPrivateThemeAssets -PackageRoot $packageDirectory
 
+$installManifestFiles = @(
+    foreach ($file in Get-ChildItem -LiteralPath $packageDirectory -Recurse -File |
+        Sort-Object FullName) {
+        [pscustomobject][ordered]@{
+            path = (Get-RelativePublishPath `
+                -Root $packageDirectory `
+                -Path $file.FullName).Replace('\', '/')
+            bytes = [int64]$file.Length
+            sha256 = Get-Sha256Lower $file.FullName
+        }
+    })
+$installManifest = [ordered]@{
+    schemaVersion = 1
+    product = 'Codex Theme Studio'
+    version = $Version
+    files = $installManifestFiles
+}
+$installManifestPath = Join-Path $packageDirectory 'app-install-manifest.json'
+[IO.File]::WriteAllText(
+    $installManifestPath,
+    ($installManifest | ConvertTo-Json -Depth 5),
+    [Text.UTF8Encoding]::new($false))
+$installManifestHash = Get-Sha256Lower $installManifestPath
+
 New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
 Compress-Archive -LiteralPath $packageDirectory -DestinationPath $zipPath -CompressionLevel Optimal
 
@@ -564,9 +605,9 @@ $nodeBytes = (
 $injectorBytes = (
     Get-ChildItem -LiteralPath $injectorRoot -Recurse -File |
         Measure-Object -Property Length -Sum).Sum
-$zipHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
-$mainHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $mainExecutable).Hash.ToLowerInvariant()
-$agentHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $agentExecutable).Hash.ToLowerInvariant()
+$zipHash = Get-Sha256Lower $zipPath
+$mainHash = Get-Sha256Lower $mainExecutable
+$agentHash = Get-Sha256Lower $agentExecutable
 $checksums = @(
     "$zipHash *$([IO.Path]::GetFileName($zipPath))",
     "$mainHash *$packageName/CodexThemeManager.exe",
@@ -578,7 +619,7 @@ $checksums = @(
     [Text.UTF8Encoding]::new($false))
 
 $metadata = [ordered]@{
-    schemaVersion = 2
+    schemaVersion = 3
     product = 'Codex Theme Studio'
     version = $Version
     packageName = $packageName
@@ -590,6 +631,7 @@ $metadata = [ordered]@{
     preferredZipBytes = $targetZipBytes
     maximumZipBytes = $maximumZipBytes
     zipSha256 = $zipHash
+    installManifestSha256 = $installManifestHash
     mainExecutableSha256 = $mainHash
     agentExecutableSha256 = $agentHash
     components = [ordered]@{

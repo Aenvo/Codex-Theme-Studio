@@ -5,7 +5,7 @@
 - 正式产品名是 **Codex Theme Studio**；发布入口 `CodexThemeManager.exe` 是兼容文件名，不代表另一个产品。
 - 本项目是非 OpenAI 官方的 Windows 本地桌面应用，不得使用暗示官方背书的名称、图标或发布文案。
 - 除另有说明外，第一方源码采用 Apache License 2.0；第三方组件和素材继续适用各自许可证。该许可证不授予 OpenAI、Codex 或其他第三方商标使用权。
-- 当前维护基线为 `1.2.0`：Windows 10/11 x64、.NET 8 WPF、SQLite、固定 Node.js Runtime、self-contained 便携目录和 ZIP。
+- 当前维护基线为 `1.3.0`：Windows 10/11 x64、.NET 8 WPF、SQLite、固定 Node.js Runtime、self-contained 便携目录和 ZIP。
 - 本文件适用于仓库根目录及全部子目录。更深目录的 `AGENTS.override.md` 或 `AGENTS.md` 可增加局部约束。
 
 ## 2. 真相源与修改前检查
@@ -29,6 +29,7 @@ src/
 ├─ CodexThemeStudio.Storage/       SQLite、文件存储、图片与迁移
 ├─ CodexThemeStudio.CodexAdapter/  Codex 发现、Inspector、运行时与持久化
 ├─ CodexThemeStudio.Agent/         无 WPF 的持久化 Agent
+├─ CodexThemeStudio.Update/        无 WPF 的更新发现、校验、暂存与事务安装
 └─ CodexThemeStudio.Contracts/     跨模块 DTO、接口和结构化结果
 ```
 
@@ -99,7 +100,7 @@ src/
 - 发布包不得包含 PDB、测试夹具、截图、日志、数据库、主题包、私人素材、凭证或开发机绝对路径。
 - 发布包根目录必须包含第一方 `LICENSE`，并包含 README、用户指南、Build Info、`THIRD-PARTY-NOTICES.md`、`LICENSES/` 下对应的第三方许可证、SHA256SUMS 和 release manifest。
 - 仅重命名发布后的 Desktop apphost 为 `CodexThemeManager.exe`；不要改变内部程序集名。
-- 未签名必须如实披露。`workflow_dispatch` 可以上传私有 Actions 验证产物；与项目版本精确匹配、由维护者显式创建并推送的 tag 可以触发 Draft Release。不得自动签名、自动创建或推送 tag、自动发布 Release、自动公开仓库、启用自动更新或绕过人工发布门禁。
+- 未签名必须如实披露。允许用户在界面中主动检查并下载更新，且只可在 GitHub 三重摘要校验、危险 ZIP 检查、同盘事务替换、健康检查和可回滚条件全部满足后安装；不得后台静默安装。`workflow_dispatch` 可以上传私有 Actions 验证产物；与项目版本精确匹配、由维护者显式创建并推送的 tag 可以触发 Draft Release。不得自动签名、自动创建或推送 tag、自动发布 Release、自动公开仓库或绕过人工发布门禁。
 
 ## 9. 本地生成物、清理、Git 与文档
 

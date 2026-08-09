@@ -66,6 +66,11 @@
         <PathGeometry Figures="M5,21 L19,21 A2,2 0 0 0 21,19 L21,17 M3,17 L3,19 A2,2 0 0 0 5,21" />
     </GeometryGroup>
 
+    <GeometryGroup x:Key="LucideCircleArrowUpGeometry">
+        <EllipseGeometry Center="12,12" RadiusX="10" RadiusY="10" />
+        <PathGeometry Figures="M16,12 L12,8 L8,12 M12,16 L12,8" />
+    </GeometryGroup>
+
     <GeometryGroup x:Key="LucideImageOffGeometry">
         <PathGeometry Figures="M2,2 L22,22 M10.41,10.41 A2,2 0 1 1 7.58,7.58 M13.5,13.5 L6,21 M18,12 L21,15" />
         <PathGeometry Figures="M3.59,3.59 A2,2 0 0 0 3,5 L3,19 A2,2 0 0 0 5,21 L19,21 A2,2 0 0 0 20.41,20.41 M21,15 L21,5 A2,2 0 0 0 19,3 L9,3" />

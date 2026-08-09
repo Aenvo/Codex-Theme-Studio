@@ -111,6 +111,25 @@ public sealed class WpfUserDialogService : IUserDialogService
         _ = ShowWithBackdrop(owner, dialog.ShowDialog);
     }
 
+    public Task<bool> ChooseActionAsync(
+        string title,
+        string message,
+        string secondaryText,
+        string primaryText,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var owner = Application.Current.MainWindow;
+        var dialog = AppDialogWindow.CreateAction(
+            title,
+            message,
+            secondaryText,
+            primaryText,
+            owner);
+        _ = ShowWithBackdrop(owner, dialog.ShowDialog);
+        return Task.FromResult(dialog.Accepted);
+    }
+
     private static T ShowWithBackdrop<T>(Window? owner, Func<T> showDialog)
     {
         using var backdrop = (owner as MainWindow)?.EnterDialogBackdrop();

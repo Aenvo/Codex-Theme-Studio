@@ -79,13 +79,40 @@ jobs:
           $agentManifest = Get-Content -Raw (
             Join-Path $packageRoot 'agent\agent-bundle-manifest.json') |
               ConvertFrom-Json
+          $installManifestPath = Join-Path $packageRoot 'app-install-manifest.json'
+          $installManifest = Get-Content -Raw $installManifestPath | ConvertFrom-Json
 
-          if ($manifest.schemaVersion -ne 2 -or
+          if ($manifest.schemaVersion -ne 3 -or
               $manifest.version -ne $version -or
               $manifest.signed -ne $false -or
               $manifest.zipBytes -gt 120000000 -or
-              $agentManifest.schemaVersion -ne 1) {
+              $agentManifest.schemaVersion -ne 1 -or
+              $installManifest.schemaVersion -ne 1 -or
+              $installManifest.version -ne $version) {
             throw 'Release manifest validation failed.'
+          }
+
+          $installManifestHash = (
+            Get-FileHash $installManifestPath -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          if ($installManifestHash -ne $manifest.installManifestSha256) {
+            throw 'Install manifest hash does not match release manifest.'
+          }
+          $installEntries = @($installManifest.files)
+          $expectedInstallFiles = @(
+            Get-ChildItem $packageRoot -Recurse -File |
+              Where-Object Name -ne 'app-install-manifest.json')
+          if ($installEntries.Count -ne $expectedInstallFiles.Count) {
+            throw 'Install manifest file count does not match package content.'
+          }
+          foreach ($entry in $installEntries) {
+            $candidate = Join-Path $packageRoot ([string]$entry.path)
+            if (-not (Test-Path -LiteralPath $candidate -PathType Leaf) -or
+                (Get-Item -LiteralPath $candidate).Length -ne [int64]$entry.bytes -or
+                (Get-FileHash $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+                  [string]$entry.sha256) {
+              throw "Install manifest entry failed validation: $($entry.path)"
+            }
           }
 
           $actualHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -207,4 +234,4 @@ jobs:
             --fail-on-no-commits `
             --generate-notes `
             --title "Codex Theme Studio v$version" `
-            --notes "Unsigned Windows x64 portable build. Verify SHA256SUMS.txt before use. This project is not an official OpenAI product."
+            --notes "Unsigned Windows x64 portable early release. Verify SHA256SUMS.txt and keep a recoverable copy before use. v1.3.0 was not validated in a clean Windows VM or with active Microsoft Defender, and real updater termination/power-loss boundaries remain unverified. This project is not an official OpenAI product."
