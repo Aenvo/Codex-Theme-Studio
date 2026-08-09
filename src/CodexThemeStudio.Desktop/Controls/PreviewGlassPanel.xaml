@@ -1,0 +1,27 @@
+<UserControl x:Class="CodexThemeStudio.Desktop.Controls.PreviewGlassPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Name="Root"
+             Background="Transparent">
+    <Grid x:Name="ClipRoot">
+        <Canvas IsHitTestVisible="False">
+            <Rectangle x:Name="BackdropRectangle">
+                <Rectangle.Effect>
+                    <BlurEffect x:Name="BackdropBlur"
+                                KernelType="Gaussian"
+                                RenderingBias="Quality" />
+                </Rectangle.Effect>
+            </Rectangle>
+        </Canvas>
+        <Border Background="{Binding Background, ElementName=Root}"
+                CornerRadius="{Binding CornerRadius, ElementName=Root}"
+                IsHitTestVisible="False"
+                Opacity="{Binding SurfaceOpacity, ElementName=Root}" />
+        <Border BorderBrush="{Binding BorderBrush, ElementName=Root}"
+                BorderThickness="{Binding BorderThickness, ElementName=Root}"
+                CornerRadius="{Binding CornerRadius, ElementName=Root}"
+                IsHitTestVisible="False" />
+        <ContentPresenter Margin="{Binding Padding, ElementName=Root}"
+                          Content="{Binding PanelContent, ElementName=Root}" />
+    </Grid>
+</UserControl>

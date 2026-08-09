@@ -1086,19 +1086,36 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(10, fixture.Editor.PanelBlur);
     }
 
-    [Fact]
-    public void Editor_PanelBlur_IsClampedAndUpdatesGlassPreviewOpacity()
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(10, 0.972)]
+    [InlineData(32, 0.9104)]
+    [InlineData(64, 0.8208)]
+    public void Editor_PanelBlur_UpdatesRuntimeMatchedSurfaceOpacity(
+        double panelBlur,
+        double expectedOpacity)
     {
         using var fixture = new ViewModelFixture(themeCount: 1);
         var theme = fixture.Repository.Themes[fixture.Repository.Summaries[0].ThemeId];
         fixture.Editor.Begin(theme, newTheme: false);
 
-        fixture.Editor.PanelBlur = 32;
+        fixture.Editor.PanelBlur = panelBlur;
 
-        Assert.Equal(32, fixture.Editor.PanelBlur);
-        Assert.Equal(0.225, fixture.Editor.PanelGlassOpacity, precision: 3);
+        Assert.Equal(panelBlur, fixture.Editor.PanelBlur);
+        Assert.Equal(expectedOpacity, fixture.Editor.PanelSurfaceOpacity, precision: 4);
+    }
+
+    [Fact]
+    public void Editor_PanelBlur_IsClampedToContractRange()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        var theme = fixture.Repository.Themes[fixture.Repository.Summaries[0].ThemeId];
+        fixture.Editor.Begin(theme, newTheme: false);
+
         fixture.Editor.PanelBlur = 100;
+
         Assert.Equal(64, fixture.Editor.PanelBlur);
+        Assert.Equal(0.8208, fixture.Editor.PanelSurfaceOpacity, precision: 4);
     }
 
     [Fact]

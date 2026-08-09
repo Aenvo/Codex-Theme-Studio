@@ -11,6 +11,7 @@ namespace CodexThemeStudio.Desktop.ViewModels;
 
 public sealed class ThemeEditorViewModel : ObservableObject
 {
+    private const double PanelOpacityReductionPerPixel = 0.0028;
     private static readonly ThemePalette DefaultPalette = new(
         "#111111",
         "#1C1C1CE6",
@@ -219,7 +220,10 @@ public sealed class ThemeEditorViewModel : ObservableObject
         set => SetArt(draft is null ? null : draft.Art with { PanelBlur = Math.Clamp(value, 0, 64) });
     }
 
-    public double PanelGlassOpacity => PanelBlur / ThemePackageContractValidator.MaximumBlur * 0.45;
+    public double PanelSurfaceOpacity => Math.Clamp(
+        1 - (PanelBlur * PanelOpacityReductionPerPixel),
+        0,
+        1);
 
     public string? PreviewImagePath
     {
@@ -542,7 +546,7 @@ public sealed class ThemeEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(TaskOverlay));
         OnPropertyChanged(nameof(Blur));
         OnPropertyChanged(nameof(PanelBlur));
-        OnPropertyChanged(nameof(PanelGlassOpacity));
+        OnPropertyChanged(nameof(PanelSurfaceOpacity));
         OnPropertyChanged(nameof(PreviewOpacity));
         OnPropertyChanged(nameof(PreviewOverlay));
         OnPropertyChanged(nameof(TaskContentOverlay));

@@ -220,7 +220,7 @@ public partial class MainWindow : Window
             new Action(UpdatePreviewImageLayout));
     }
 
-    private void UpdatePreviewImageLayout()
+    internal void UpdatePreviewImageLayout()
     {
         if (DataContext is not MainWindowViewModel { Editor: { } editor } ||
             PreviewBackgroundImage.Source is not { } imageSource ||

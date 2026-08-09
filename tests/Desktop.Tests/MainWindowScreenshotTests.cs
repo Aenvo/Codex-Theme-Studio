@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using CodexThemeStudio.Desktop.Controls;
 using CodexThemeStudio.Desktop.ViewModels;
 
@@ -148,6 +149,7 @@ public sealed class MainWindowScreenshotTests
                 780,
                 96,
                 Environment.GetEnvironmentVariable("CTS_EDITOR_SCREENSHOT_PATH"));
+            CaptureEditorGlassMatrix(fixture.ViewModel, fixture.Editor);
             RenderWindow(fixture.ViewModel, 2560, 1440, 96, screenshotPath: null);
             fixture.ViewModel.NavigateCommand.Execute("Settings");
             RenderWindow(
@@ -379,6 +381,49 @@ public sealed class MainWindowScreenshotTests
         encoder.Save(stream);
     }
 
+    private static void CaptureEditorGlassMatrix(
+        MainWindowViewModel viewModel,
+        ThemeEditorViewModel editor)
+    {
+        var outputDirectory = Environment.GetEnvironmentVariable(
+            "CTS_EDITOR_GLASS_SCREENSHOT_DIRECTORY");
+        if (string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            return;
+        }
+
+        var originalBlur = editor.PanelBlur;
+        var originalPreviewMode = editor.IsTaskPreview;
+        try
+        {
+            foreach (var (width, height, dpi) in new[]
+                     {
+                         (1240, 780, 96d),
+                         (960, 620, 144d),
+                     })
+            {
+                foreach (var isTaskPreview in new[] { false, true })
+                {
+                    editor.IsTaskPreview = isTaskPreview;
+                    foreach (var panelBlur in new[] { 0d, 10d, 32d, 64d })
+                    {
+                        editor.PanelBlur = panelBlur;
+                        var mode = isTaskPreview ? "task" : "home";
+                        var path = Path.Combine(
+                            outputDirectory,
+                            $"editor-glass-{width}x{height}-{dpi:F0}dpi-{mode}-{panelBlur:F0}px.png");
+                        RenderWindow(viewModel, width, height, dpi, path);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            editor.PanelBlur = originalBlur;
+            editor.IsTaskPreview = originalPreviewMode;
+        }
+    }
+
     private static void RenderWindow(
         MainWindowViewModel viewModel,
         int width,
@@ -400,6 +445,9 @@ public sealed class MainWindowScreenshotTests
         }
         root.Measure(new Size(width, height));
         root.Arrange(new Rect(0, 0, width, height));
+        root.UpdateLayout();
+        root.Dispatcher.Invoke(() => { }, DispatcherPriority.Render);
+        window.UpdatePreviewImageLayout();
         root.UpdateLayout();
 
         Assert.NotNull(window.Icon);
@@ -654,13 +702,26 @@ public sealed class MainWindowScreenshotTests
                 var before = Assert.IsType<TranslateTransform>(
                     previewImage.RenderTransform);
                 var previousOffsetY = before.Y;
+                var originalFocusY = editor.FocusY;
                 editor.FocusY = editor.FocusY < 0.5 ? 0.8 : 0.2;
                 root.UpdateLayout();
                 var after = Assert.IsType<TranslateTransform>(
                     previewImage.RenderTransform);
                 Assert.NotEqual(previousOffsetY, after.Y);
+                editor.FocusY = originalFocusY;
+                window.UpdatePreviewImageLayout();
+                root.UpdateLayout();
             }
             Assert.Contains("主题编辑器", editorText);
+            var previewGlassPanels = FindVisualChildren<PreviewGlassPanel>(root).ToArray();
+            Assert.Equal(5, previewGlassPanels.Length);
+            Assert.All(previewGlassPanels, panel =>
+            {
+                Assert.Equal(1, panel.Opacity);
+                Assert.Equal(editor.PanelBlur, panel.BlurRadius);
+                Assert.Equal(editor.PanelSurfaceOpacity, panel.SurfaceOpacity, precision: 4);
+                Assert.NotNull(panel.BackdropSource);
+            });
             Assert.DoesNotContain(
                 "所有修改先进入草稿；模拟预览不等同于真实 Codex 渲染验证。",
                 editorText);
@@ -730,8 +791,8 @@ public sealed class MainWindowScreenshotTests
                 FindVisualChildren<Border>(root),
                 border => AutomationProperties.GetName(border) == "模拟预览");
             var previewSidebar = Assert.Single(
-                FindVisualChildren<Border>(root),
-                border => AutomationProperties.GetName(border) == "模拟预览侧栏");
+                FindVisualChildren<PreviewGlassPanel>(root),
+                panel => AutomationProperties.GetName(panel) == "模拟预览侧栏");
             var previewRegion = Assert.Single(
                 FindVisualChildren<Grid>(root),
                 grid => AutomationProperties.GetName(grid) == "模拟预览区域");
@@ -757,7 +818,7 @@ public sealed class MainWindowScreenshotTests
             Assert.DoesNotContain(
                 FindVisualChildren<ScrollViewer>(root),
                 scrollViewer => AutomationProperties.GetName(scrollViewer) == "模拟预览滚动区域");
-            Assert.True(preview.ActualWidth > 600);
+            Assert.True(preview.ActualWidth > (width >= 1240 ? 600 : 300));
             Assert.Equal(Visibility.Visible, previewSidebar.Visibility);
             var homePreview = Assert.Single(
                 FindVisualChildren<Grid>(root),
@@ -788,8 +849,8 @@ public sealed class MainWindowScreenshotTests
                     0,
                     1);
                 var taskInput = Assert.Single(
-                    FindVisualChildren<Border>(taskPreview),
-                    border => AutomationProperties.GetName(border) == "Codex 任务页模拟输入框");
+                    FindVisualChildren<PreviewGlassPanel>(taskPreview),
+                    panel => AutomationProperties.GetName(panel) == "Codex 任务页模拟输入框");
                 Assert.InRange(
                     Math.Abs(taskInput.ActualWidth - Math.Min(taskContentHost.ActualWidth, 760)),
                     0,
