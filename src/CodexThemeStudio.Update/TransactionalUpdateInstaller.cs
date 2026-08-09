@@ -40,9 +40,11 @@ public sealed class TransactionalUpdateInstaller(
         var results = Path.Combine(options.UpdatesRoot, "results");
         var health = Path.Combine(options.UpdatesRoot, "health");
         var preserved = Path.Combine(options.UpdatesRoot, "Preserved");
+        var requestPath = Path.Combine(requests, $"{token}.json");
 
         try
         {
+            var downloadWorkingDirectory = ValidateDownloadWorkingDirectory(stagedUpdate);
             if (Directory.Exists(sameVolumeStaging) || Directory.Exists(backup))
             {
                 throw new IOException("Updater target already exists.");
@@ -60,7 +62,6 @@ public sealed class TransactionalUpdateInstaller(
             File.Copy(options.NodeExecutablePath, Path.Combine(runner, "node.exe"), overwrite: false);
             File.Copy(options.UpdaterScriptPath, Path.Combine(runner, "apply-update.mjs"), overwrite: false);
 
-            var requestPath = Path.Combine(requests, $"{token}.json");
             var request = new
             {
                 schemaVersion = 1,
@@ -83,6 +84,9 @@ public sealed class TransactionalUpdateInstaller(
                 JsonSerializer.Serialize(request, JsonOptions),
                 cancellationToken);
 
+            EnsureNoReparsePoints(downloadWorkingDirectory);
+            Directory.Delete(downloadWorkingDirectory, recursive: true);
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = Path.Combine(runner, "node.exe"),
@@ -103,10 +107,11 @@ public sealed class TransactionalUpdateInstaller(
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or
-            InvalidOperationException or JsonException)
+            InvalidOperationException or JsonException or InvalidDataException)
         {
             TryDeleteDirectory(sameVolumeStaging);
             TryDeleteDirectory(runner);
+            TryDeleteFile(requestPath);
             return OperationResult<UpdateInstallResult>.Failure(
                 OperationErrorCode.ExternalToolFailure,
                 "无法启动外部更新程序；未修改任何程序文件。",
@@ -201,9 +206,63 @@ public sealed class TransactionalUpdateInstaller(
     private static bool IsReparsePoint(string path) =>
         (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
 
+    private string ValidateDownloadWorkingDirectory(StagedUpdate stagedUpdate)
+    {
+        var stagingRoot = Path.GetFullPath(stagedUpdate.StagingRoot)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var workingDirectory = Directory.GetParent(stagingRoot)?.FullName ?? string.Empty;
+        var expectedBase = Path.GetFullPath(Path.Combine(options.UpdatesRoot, "staging"))
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var actualBase = Directory.GetParent(workingDirectory)?.FullName ?? string.Empty;
+        var workingName = Path.GetFileName(workingDirectory);
+        if (!string.Equals(actualBase, expectedBase, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(Path.GetFileName(stagingRoot), "app", StringComparison.Ordinal) ||
+            !IsToken(workingName) ||
+            !string.Equals(
+                Path.GetDirectoryName(Path.GetFullPath(stagedUpdate.ZipPath)),
+                workingDirectory,
+                StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(
+                Path.GetFullPath(stagedUpdate.InstallManifestPath),
+                Path.Combine(stagingRoot, "app-install-manifest.json"),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("Downloaded update is outside the owned staging boundary.");
+        }
+
+        return workingDirectory;
+    }
+
+    private static bool IsToken(string value) =>
+        value.Length == 32 && value.All(static character =>
+            character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
+    private static void EnsureNoReparsePoints(string root)
+    {
+        if (IsReparsePoint(root))
+        {
+            throw new InvalidDataException("Downloaded update root cannot be a reparse point.");
+        }
+
+        foreach (var path in Directory.EnumerateFileSystemEntries(root, "*", SearchOption.AllDirectories))
+        {
+            if (IsReparsePoint(path))
+            {
+                throw new InvalidDataException("Downloaded update cannot contain reparse points.");
+            }
+        }
+    }
+
     private static void TryDeleteDirectory(string path)
     {
         try { if (Directory.Exists(path)) Directory.Delete(path, recursive: true); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
     }

@@ -49,6 +49,26 @@ test('restores the old directory when health check times out', async () => {
   }
 });
 
+test('keeps the old root when cleanup cannot validate its manifest', async () => {
+  const fixture = await createFixture();
+  try {
+    await writeFile(
+      path.join(fixture.appRoot, 'app-install-manifest.json'),
+      JSON.stringify({ schemaVersion: 99, files: [] }),
+    );
+    await mkdir(path.dirname(fixture.request.healthPath), { recursive: true });
+    await writeFile(fixture.request.healthPath, '{}');
+    await runUpdater(fixture);
+
+    const result = JSON.parse(await readFile(fixture.request.resultPath, 'utf8'));
+    assert.equal(result.outcome, 'CleanupIncomplete');
+    assert.equal(await readFile(path.join(fixture.appRoot, 'new-version.txt'), 'utf8'), 'new');
+    assert.equal(await readFile(path.join(fixture.request.backupDirectory, 'user.txt'), 'utf8'), 'keep');
+  } finally {
+    await removeFixture(fixture.root);
+  }
+});
+
 async function createFixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'cts-updater-'));
   const localAppData = path.join(root, 'local');
@@ -89,7 +109,7 @@ async function createFixture() {
     applicationRoot: appRoot,
     stagingRoot,
     backupDirectory: path.join(root, '.CodexThemeStudio.backup-test'),
-    failedDirectory: path.join(root, '.CodexThemeStudio.failed-test'),
+    failedDirectory: path.join(root, `.CodexThemeStudio.failed-${token}`),
     executableRelativePath: 'TestApp.exe',
     zipSha256: 'a'.repeat(64),
     currentProcessId: 2_147_483_647,

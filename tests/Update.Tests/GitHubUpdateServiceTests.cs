@@ -136,6 +136,7 @@ public sealed class GitHubUpdateServiceTests : IDisposable
             packageName = "Codex-Theme-Studio-1.3.0-win-x64-portable",
             zipSha256 = zipHash,
             installManifestSha256 = installHash,
+            uncompressedBytes = installManifest.Length + 3,
         }));
         var sums = Encoding.UTF8.GetBytes($"{zipHash} *{zipName}\n");
         var handler = new RouteHandler(request => request.RequestUri!.AbsolutePath switch
@@ -162,7 +163,7 @@ public sealed class GitHubUpdateServiceTests : IDisposable
         var zip = CreateZip(("package/app-install-manifest.json", Encoding.UTF8.GetBytes("{}")));
         var zipHash = Hash(zip);
         var wrongHash = new string('0', 64);
-        var manifest = Encoding.UTF8.GetBytes($"{{\"schemaVersion\":3,\"version\":\"1.3.0\",\"packageName\":\"Codex-Theme-Studio-1.3.0-win-x64-portable\",\"zipSha256\":\"{wrongHash}\",\"installManifestSha256\":\"{wrongHash}\"}}");
+        var manifest = Encoding.UTF8.GetBytes($"{{\"schemaVersion\":3,\"version\":\"1.3.0\",\"packageName\":\"Codex-Theme-Studio-1.3.0-win-x64-portable\",\"zipSha256\":\"{wrongHash}\",\"installManifestSha256\":\"{wrongHash}\",\"uncompressedBytes\":2}}");
         var handler = new RouteHandler(request => request.RequestUri!.AbsolutePath switch
         {
             "/manifest" => BytesResponse(manifest),

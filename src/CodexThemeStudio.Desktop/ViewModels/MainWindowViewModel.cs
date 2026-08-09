@@ -750,7 +750,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         lifetime.Dispose();
     }
 
-    public async Task HandleUpdateInstallResultAsync(UpdateInstallResult result)
+    public async Task<UpdateInstallResult> HandleUpdateInstallResultAsync(
+        UpdateInstallResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
         if (result.Outcome == UpdateInstallOutcome.Succeeded)
@@ -783,7 +784,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     "已保留旧目录中的文件",
                     $"未知或被修改的旧文件未被删除，已移动到：\n{result.PreservedDirectory}");
             }
-            return;
+            return result;
         }
 
         if (result.Outcome == UpdateInstallOutcome.CleanupCompleted)
@@ -795,7 +796,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     "已保留旧目录中的文件",
                     $"未知或被修改的旧文件已移动到：\n{result.PreservedDirectory}");
             }
-            return;
+            return result;
         }
 
         if (result.Outcome == UpdateInstallOutcome.CleanupIncomplete)
@@ -813,7 +814,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     lifetime.Token);
                 if (retried.IsSuccess)
                 {
-                    await HandleUpdateInstallResultAsync(retried.Value!);
+                    return await HandleUpdateInstallResultAsync(retried.Value!);
                 }
                 else
                 {
@@ -824,7 +825,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             {
                 OpenDirectory(result.BackupDirectory);
             }
-            return;
+            return result;
         }
 
         if (result.Outcome == UpdateInstallOutcome.RollbackIncomplete)
@@ -838,7 +839,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             if (openGitHub) openExternalUrl(GitHubRepositoryUrl);
             else if (!string.IsNullOrWhiteSpace(result.BackupDirectory))
                 OpenDirectory(result.BackupDirectory);
-            return;
+            return result;
         }
 
         if (result.Outcome == UpdateInstallOutcome.RolledBack)
@@ -858,7 +859,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             {
                 openExternalUrl(GitHubRepositoryUrl);
             }
-            return;
+            return result;
         }
 
         dialogs.ShowInformation(
@@ -866,12 +867,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             string.IsNullOrWhiteSpace(result.BackupDirectory)
                 ? result.UserMessage
                 : $"{result.UserMessage}\n\n备份目录：\n{result.BackupDirectory}");
+        return result;
     }
 
     public void ReportUpdateResultReadFailure() =>
         dialogs.ShowInformation(
             "无法读取更新结果",
             "应用已启动，但无法验证更新清理结果。请前往 GitHub 获取帮助，并保留 Updates 目录。");
+
+    public void ReportUpdateArtifactCleanupFailure(OperationError error) =>
+        dialogs.ShowInformation(
+            "更新临时文件清理未完成",
+            $"{error.UserMessage}\n\n应用和需要恢复的文件未被删除。请保留 Updates 目录后重试启动。");
 
     private static void OpenDirectory(string path)
     {

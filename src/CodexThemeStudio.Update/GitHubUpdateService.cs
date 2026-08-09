@@ -22,6 +22,7 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
     private const int MaximumEntries = 5_000;
     private const int MaximumReleaseNotesCharacters = 65_536;
     private const long MaximumMetadataBytes = 1_048_576;
+    private const long CacheReserveBytes = 67_108_864;
     private const int MaximumRedirects = 5;
     private static readonly HashSet<string> AllowedDownloadHosts = new(
         StringComparer.OrdinalIgnoreCase)
@@ -188,6 +189,8 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
             {
                 throw new InvalidDataException("Release hashes do not agree.");
             }
+
+            EnsureStagingSpace(workRoot, zipAsset.Size, manifest.UncompressedBytes);
 
             progress?.Report(new UpdateDownloadProgress(0, zipAsset.Size, 0, "正在下载更新"));
             await DownloadFileAsync(
@@ -643,9 +646,16 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
             throw new InvalidDataException("Release manifest identity is invalid.");
         }
 
+        var uncompressedBytes = root.GetProperty("uncompressedBytes").GetInt64();
+        if (uncompressedBytes <= 0 || uncompressedBytes > MaximumExpandedBytes)
+        {
+            throw new InvalidDataException("Release manifest expanded size is invalid.");
+        }
+
         return new ReleaseManifest(
             NormalizeDigest(RequiredString(root, "zipSha256")),
-            NormalizeDigest(RequiredString(root, "installManifestSha256")));
+            NormalizeDigest(RequiredString(root, "installManifestSha256")),
+            uncompressedBytes);
     }
 
     private static string ParseChecksum(byte[] bytes, string expectedZipName)
@@ -733,6 +743,20 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
         return digest.ToLowerInvariant();
     }
 
+    private static void EnsureStagingSpace(
+        string workRoot,
+        long zipBytes,
+        long uncompressedBytes)
+    {
+        var root = Path.GetPathRoot(Path.GetFullPath(workRoot)) ??
+            throw new InvalidDataException("Update staging drive is invalid.");
+        var required = checked(zipBytes + uncompressedBytes + CacheReserveBytes);
+        if (new DriveInfo(root).AvailableFreeSpace < required)
+        {
+            throw new IOException("Update staging drive has insufficient free space.");
+        }
+    }
+
     private static bool FixedEquals(string left, string right) =>
         CryptographicOperations.FixedTimeEquals(
             Convert.FromHexString(left),
@@ -780,5 +804,8 @@ public sealed partial class GitHubUpdateService : IUpdateService, IDisposable
     [GeneratedRegex("<[^>]*>", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex HtmlTagRegex();
 
-    private sealed record ReleaseManifest(string ZipSha256, string InstallManifestSha256);
+    private sealed record ReleaseManifest(
+        string ZipSha256,
+        string InstallManifestSha256,
+        long UncompressedBytes);
 }
