@@ -95,7 +95,10 @@ Release。同一分支的新 CI 会取消尚未完成的旧运行。
    14 天的私有 Actions Artifact，不创建 Release。
 3. 下载 Artifact，复核 ZIP、`SHA256SUMS.txt`、Schema v3 `release-manifest.json`、包内 Schema v1 `app-install-manifest.json`、120 MB 上限和 `NotSigned` 状态。
 4. 完成有效 Defender 扫描和干净 Windows 验收后，人工创建并推送与
-   `Directory.Build.props` 精确匹配的带注释 tag：
+   `Directory.Build.props` 精确匹配的带注释 tag。`v1.3.0` 因维护者当前没有
+   VM 条件，经明确风险接受后作为一次性例外继续 Draft 流程；对应验收记录、
+   README 与 Release Notes 必须保留未完成 Defender、干净 Windows 和真实
+   中断边界的披露。该例外不代表门禁已通过，也不自动适用于后续版本：
 
 ```powershell
 git tag -a v1.3.0 -m 'release: Codex Theme Studio v1.3.0'
@@ -112,7 +115,9 @@ GitHub 自动生成，并附带未签名、哈希校验和非 OpenAI 官方产�
 
 仓库公开后应立即启用 GitHub Private Vulnerability Reporting、Secret Scanning
 和 Push Protection。确认 Draft 的 tag、提交、三项产品资产、两个源码归档、
-哈希、未签名披露和干净机证据均正确后，才由维护者人工发布 Draft。
+哈希、未签名披露和干净机证据均正确后，才由维护者人工发布 Draft。使用上述
+`v1.3.0` 一次性例外时，维护者必须改为复核三项未覆盖风险的公开披露，并自行
+决定是否人工发布；Codex 仍不得自动公开。
 
 ## 最终场景
 

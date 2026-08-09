@@ -10,3 +10,17 @@ condition = "AND"
 paths = ['''^src/CodexThemeStudio\.Desktop/Themes/Icons\.xaml$''']
 regexTarget = "line"
 regexes = ['''x:Key="LucideTrash2Geometry"''']
+
+[[allowlists]]
+description = "Deterministic updater transaction tokens used only by tests."
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^tests/Update\.Tests/TransactionalUpdateInstallerTests\.cs$''',
+  '''^runtime/updater/apply-update\.test\.mjs$'''
+]
+regexTarget = "secret"
+regexes = [
+  '''^0123456789abcdef0123456789abcdef$''',
+  '''^abcdefabcdefabcdefabcdefabcdefab$'''
+]
