@@ -1165,7 +1165,7 @@
                                        FontWeight="SemiBold" Text="{Binding PageTitle}" />
                             <Button Margin="8,0,0,0"
                                     Style="{StaticResource UpdateAvailableButtonStyle}"
-                                    Command="{Binding NavigateToUpdateCommand}">
+                                    Command="{Binding CheckUpdatesCommand}">
                                 <ContentControl Width="20" Height="20"
                                                 Style="{StaticResource LucideIconStyle}"
                                                 Content="{StaticResource LucideCircleArrowUpGeometry}" />
@@ -1726,7 +1726,7 @@
                                        FontWeight="SemiBold" Text="回收站" />
                             <Button Margin="8,0,0,0"
                                     Style="{StaticResource UpdateAvailableButtonStyle}"
-                                    Command="{Binding NavigateToUpdateCommand}">
+                                    Command="{Binding CheckUpdatesCommand}">
                                 <ContentControl Width="20" Height="20"
                                                 Style="{StaticResource LucideIconStyle}"
                                                 Content="{StaticResource LucideCircleArrowUpGeometry}" />
@@ -2067,7 +2067,7 @@
                     </StackPanel>
                     <Button DockPanel.Dock="Right" Margin="8,0,0,0"
                             Style="{StaticResource UpdateAvailableButtonStyle}"
-                            Command="{Binding NavigateToUpdateCommand}">
+                            Command="{Binding CheckUpdatesCommand}">
                         <ContentControl Width="20" Height="20"
                                         Style="{StaticResource LucideIconStyle}"
                                         Content="{StaticResource LucideCircleArrowUpGeometry}" />
@@ -2866,7 +2866,7 @@
                                        FontWeight="SemiBold" Text="设置" />
                             <Button Margin="8,0,0,0"
                                     Style="{StaticResource UpdateAvailableButtonStyle}"
-                                    Command="{Binding NavigateToUpdateCommand}">
+                                    Command="{Binding CheckUpdatesCommand}">
                                 <ContentControl Width="20" Height="20"
                                                 Style="{StaticResource LucideIconStyle}"
                                                 Content="{StaticResource LucideCircleArrowUpGeometry}" />

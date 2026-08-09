@@ -275,7 +275,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         CheckUpdatesCommand = new AsyncRelayCommand(
             () => CheckForUpdatesAsync(userInitiated: true),
             () => !IsCheckingForUpdates && updateService is not null);
-        NavigateToUpdateCommand = new RelayCommand(_ => NavigateToUpdate());
     }
 
     public ReadOnlyObservableCollection<ThemeCardViewModel> Themes =>
@@ -686,8 +685,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand ExportDiagnosticBundleCommand { get; }
 
     public AsyncRelayCommand CheckUpdatesCommand { get; }
-
-    public RelayCommand NavigateToUpdateCommand { get; }
 
     public async Task InitializeAsync()
     {

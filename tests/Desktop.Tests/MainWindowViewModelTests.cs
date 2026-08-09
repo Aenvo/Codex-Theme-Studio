@@ -11,7 +11,31 @@ namespace CodexThemeStudio.Desktop.Tests;
 public sealed class MainWindowViewModelTests
 {
     [Fact]
-    public async Task CheckUpdates_OffersNewReleaseAndShowsGlobalIndicator()
+    public async Task UpdateIndicator_ChecksWithoutLeavingCurrentPage()
+    {
+        var release = FakeUpdateService.CreateRelease("1.3.0");
+        var updates = new FakeUpdateService(
+            OperationResult<UpdateCheckResult>.Success(
+                new UpdateCheckResult("1.2.2", true, release, false)));
+        var updateDialogs = new FakeUpdateDialogs();
+        using var fixture = new ViewModelFixture(
+            0,
+            updateService: updates,
+            updateDialogs: updateDialogs);
+        fixture.ViewModel.NavigateCommand.Execute("Favorites");
+
+        fixture.ViewModel.CheckUpdatesCommand.Execute(null);
+        await WaitUntilAsync(() => updateDialogs.ShowCalls == 1);
+
+        Assert.True(fixture.ViewModel.IsUpdateAvailable);
+        Assert.Equal(1, updates.CheckCalls);
+        Assert.True(updates.LastForceRefresh);
+        Assert.Equal(LibraryPage.Favorites, fixture.ViewModel.CurrentPage);
+        Assert.NotEqual(SettingsSection.About, fixture.ViewModel.SelectedSettingsSection);
+    }
+
+    [Fact]
+    public async Task UpdateIndicator_FailureKeepsIndicatorAndCanRetry()
     {
         var release = FakeUpdateService.CreateRelease("1.3.0");
         var updates = new FakeUpdateService(
@@ -25,12 +49,23 @@ public sealed class MainWindowViewModelTests
 
         fixture.ViewModel.CheckUpdatesCommand.Execute(null);
         await WaitUntilAsync(() => updateDialogs.ShowCalls == 1);
+        updates.SetCheckResult(OperationResult<UpdateCheckResult>.Failure(
+            OperationErrorCode.InvalidResponse,
+            "check failed"));
+
+        fixture.ViewModel.CheckUpdatesCommand.Execute(null);
+        await WaitUntilAsync(() =>
+            fixture.ViewModel.NotificationMessage == "检查失败，请重试");
 
         Assert.True(fixture.ViewModel.IsUpdateAvailable);
-        Assert.Equal(1, updates.CheckCalls);
-        fixture.ViewModel.NavigateToUpdateCommand.Execute(null);
-        Assert.Equal(LibraryPage.Settings, fixture.ViewModel.CurrentPage);
-        Assert.Equal(SettingsSection.About, fixture.ViewModel.SelectedSettingsSection);
+        Assert.True(fixture.ViewModel.CheckUpdatesCommand.CanExecute(null));
+        updates.SetCheckResult(OperationResult<UpdateCheckResult>.Success(
+            new UpdateCheckResult("1.2.2", true, release, false)));
+        fixture.ViewModel.CheckUpdatesCommand.Execute(null);
+        await WaitUntilAsync(() => updateDialogs.ShowCalls == 2);
+
+        Assert.Equal(3, updates.CheckCalls);
+        Assert.All(updates.ForceRefreshArguments, Assert.True);
     }
 
     [Fact]
@@ -1945,14 +1980,25 @@ internal sealed class FakeThemePackageService : IThemePackageService
 internal sealed class FakeUpdateService(
     OperationResult<UpdateCheckResult> checkResult) : IUpdateService
 {
+    private OperationResult<UpdateCheckResult> currentCheckResult = checkResult;
+
     public int CheckCalls { get; private set; }
+
+    public bool LastForceRefresh { get; private set; }
+
+    public List<bool> ForceRefreshArguments { get; } = [];
+
+    public void SetCheckResult(OperationResult<UpdateCheckResult> result) =>
+        currentCheckResult = result;
 
     public Task<OperationResult<UpdateCheckResult>> CheckAsync(
         bool forceRefresh,
         CancellationToken cancellationToken)
     {
         CheckCalls++;
-        return Task.FromResult(checkResult);
+        LastForceRefresh = forceRefresh;
+        ForceRefreshArguments.Add(forceRefresh);
+        return Task.FromResult(currentCheckResult);
     }
 
     public Task<OperationResult<StagedUpdate>> DownloadAndStageAsync(
