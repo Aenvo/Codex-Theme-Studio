@@ -3,6 +3,13 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Name="Root"
              Background="Transparent">
+    <UserControl.Template>
+        <ControlTemplate TargetType="{x:Type UserControl}">
+            <ContentPresenter Content="{TemplateBinding Content}"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch" />
+        </ControlTemplate>
+    </UserControl.Template>
     <Grid x:Name="ClipRoot">
         <Canvas IsHitTestVisible="False">
             <Rectangle x:Name="BackdropRectangle">

@@ -93,6 +93,15 @@ public partial class PreviewGlassPanel : UserControl
         ? 0
         : lastEffectiveBlur;
 
+    internal Rect CurrentLayerBounds
+    {
+        get
+        {
+            var origin = ClipRoot.TranslatePoint(new Point(0, 0), this);
+            return new Rect(origin, ClipRoot.RenderSize);
+        }
+    }
+
     private static void OnBackdropSourceChanged(
         DependencyObject dependencyObject,
         DependencyPropertyChangedEventArgs args)

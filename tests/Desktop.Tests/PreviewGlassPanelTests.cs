@@ -67,6 +67,8 @@ public sealed class PreviewGlassPanelTests
                 Assert.Equal(
                     0xE8,
                     Assert.IsType<SolidColorBrush>(panel.Background).Color.A);
+                Assert.Equal(new Rect(0, 0, 200, 100), panel.CurrentLayerBounds);
+                Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(panel, 0));
             }
             finally
             {
