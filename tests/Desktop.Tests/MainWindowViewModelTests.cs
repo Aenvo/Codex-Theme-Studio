@@ -332,6 +332,29 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task CompatibilityStatus_ShowsDetectedAndVerifiedVersions()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        fixture.Runtime.Status = Status(
+            ThemeRuntimeState.Persistent,
+            themeId: Guid.NewGuid(),
+            persistenceEnabled: true) with
+        {
+            CodexVersion = "26.803.10989.0",
+            CompatibilityLevel = CodexCompatibilityLevel.Verified,
+        };
+
+        await fixture.ViewModel.InitializeAsync();
+
+        Assert.Equal(
+            "已检测到 ChatGPT (Codex) 26.803.10989.0",
+            fixture.ViewModel.CodexStatusText);
+        Assert.Equal(
+            "已验证版本 · 能力探测通过",
+            fixture.ViewModel.CodexCompatibilityText);
+    }
+
+    [Fact]
     public async Task Initialize_WithOneHundredThemes_FiltersChineseEmojiAndTags()
     {
         using var fixture = new ViewModelFixture(themeCount: 100);

@@ -234,4 +234,4 @@ jobs:
             --fail-on-no-commits `
             --generate-notes `
             --title "Codex Theme Studio v$version" `
-            --notes "Unsigned Windows x64 portable early release. Verify SHA256SUMS.txt and keep a recoverable copy before use. v1.3.0 was not validated in a clean Windows VM or with active Microsoft Defender, and real updater termination/power-loss boundaries remain unverified. This project is not an official OpenAI product."
+            --notes "Unsigned Windows x64 portable release. Verify SHA256SUMS.txt and keep a recoverable copy before use. This release was not validated in a clean Windows VM or with active Microsoft Defender, and real updater termination/power-loss boundaries remain unverified. This project is not an official OpenAI product."

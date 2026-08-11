@@ -14,8 +14,8 @@ public sealed class GitHubUpdateServiceTests : IDisposable
     [Fact]
     public async Task CheckAsync_ReturnsNewStableReleaseAndSanitizesNotes()
     {
-        var handler = new RouteHandler(_ => JsonResponse(CreateReleaseJson("v1.3.0", "notes\u0001")));
-        using var service = CreateService(handler, "1.2.2");
+        var handler = new RouteHandler(_ => JsonResponse(CreateReleaseJson("v1.3.1", "notes\u0001")));
+        using var service = CreateService(handler, "1.3.0");
 
         var result = await service.CheckAsync(true, CancellationToken.None);
 
@@ -28,8 +28,8 @@ public sealed class GitHubUpdateServiceTests : IDisposable
     [Fact]
     public async Task CheckAsync_CachesSuccessfulResult()
     {
-        var handler = new RouteHandler(_ => JsonResponse(CreateReleaseJson("v1.3.0", "notes")));
-        using var service = CreateService(handler, "1.2.2");
+        var handler = new RouteHandler(_ => JsonResponse(CreateReleaseJson("v1.3.1", "notes")));
+        using var service = CreateService(handler, "1.3.0");
 
         Assert.True((await service.CheckAsync(false, CancellationToken.None)).IsSuccess);
         var cached = await service.CheckAsync(false, CancellationToken.None);
@@ -39,12 +39,12 @@ public sealed class GitHubUpdateServiceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("v1.2.2")]
-    [InlineData("v1.2.1")]
+    [InlineData("v1.3.1")]
+    [InlineData("v1.3.0")]
     public async Task CheckAsync_DoesNotOfferSameOrOlderRelease(string tag)
     {
         var handler = new RouteHandler(_ => JsonResponse(CreateReleaseJson(tag, "notes")));
-        using var service = CreateService(handler, "1.2.2");
+        using var service = CreateService(handler, "1.3.1");
 
         var result = await service.CheckAsync(true, CancellationToken.None);
 
@@ -56,8 +56,8 @@ public sealed class GitHubUpdateServiceTests : IDisposable
     [Fact]
     public async Task CheckAsync_RejectsPrerelease()
     {
-        var json = CreateReleaseJson("v1.3.0-rc.1", "notes", prerelease: true);
-        using var service = CreateService(new RouteHandler(_ => JsonResponse(json)), "1.2.2");
+        var json = CreateReleaseJson("v1.3.1-rc.1", "notes", prerelease: true);
+        using var service = CreateService(new RouteHandler(_ => JsonResponse(json)), "1.3.0");
 
         var result = await service.CheckAsync(true, CancellationToken.None);
 
@@ -76,16 +76,16 @@ public sealed class GitHubUpdateServiceTests : IDisposable
                 new HttpResponseMessage(statusCode),
             "/Aenvo/Codex-Theme-Studio/releases.atom" => AtomResponse(
                 ("v1.4.0-rc.1", "preview"),
-                ("v1.3.0", "<p>stable &amp; safe</p>")),
+                ("v1.3.1", "<p>stable &amp; safe</p>")),
             _ => new HttpResponseMessage(HttpStatusCode.NotFound),
         });
-        using var service = CreateService(handler, "1.2.2");
+        using var service = CreateService(handler, "1.3.0");
 
         var result = await service.CheckAsync(true, CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error?.DiagnosticCode);
         Assert.True(result.Value!.IsUpdateAvailable);
-        Assert.Equal("1.3.0", result.Value.Release!.Version);
+        Assert.Equal("1.3.1", result.Value.Release!.Version);
         Assert.Equal("stable & safe", result.Value.Release.ReleaseNotes);
         Assert.Empty(result.Value.Release.Assets);
         Assert.Equal(2, handler.RequestCount);
@@ -98,8 +98,8 @@ public sealed class GitHubUpdateServiceTests : IDisposable
         {
             draft = false,
             prerelease = false,
-            tag_name = "v1.3.0",
-            html_url = "https://github.com/Aenvo/Codex-Theme-Studio/releases/tag/v1.3.0",
+            tag_name = "v1.3.1",
+            html_url = "https://github.com/Aenvo/Codex-Theme-Studio/releases/tag/v1.3.1",
             published_at = DateTimeOffset.UtcNow,
             body = "notes",
             assets = new[]
@@ -113,7 +113,7 @@ public sealed class GitHubUpdateServiceTests : IDisposable
                 },
             },
         });
-        using var service = CreateService(new RouteHandler(_ => JsonResponse(json)), "1.2.2");
+        using var service = CreateService(new RouteHandler(_ => JsonResponse(json)), "1.3.0");
 
         var result = await service.CheckAsync(true, CancellationToken.None);
 
@@ -128,12 +128,12 @@ public sealed class GitHubUpdateServiceTests : IDisposable
         var zip = CreateZip(("package/app-install-manifest.json", installManifest), ("package/CodexThemeManager.exe", [1, 2, 3]));
         var zipHash = Hash(zip);
         var installHash = Hash(installManifest);
-        var zipName = "Codex-Theme-Studio-1.3.0-win-x64-portable.zip";
+        var zipName = "Codex-Theme-Studio-1.3.1-win-x64-portable.zip";
         var manifest = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
         {
             schemaVersion = 3,
-            version = "1.3.0",
-            packageName = "Codex-Theme-Studio-1.3.0-win-x64-portable",
+            version = "1.3.1",
+            packageName = "Codex-Theme-Studio-1.3.1-win-x64-portable",
             zipSha256 = zipHash,
             installManifestSha256 = installHash,
             uncompressedBytes = installManifest.Length + 3,
@@ -146,7 +146,7 @@ public sealed class GitHubUpdateServiceTests : IDisposable
             "/sums" => BytesResponse(sums),
             _ => new HttpResponseMessage(HttpStatusCode.NotFound),
         });
-        using var service = CreateService(handler, "1.2.2");
+        using var service = CreateService(handler, "1.3.0");
         var release = CreateRelease(zipName, zip.Length, zipHash);
 
         var result = await service.DownloadAndStageAsync(release, null, CancellationToken.None);
@@ -159,18 +159,18 @@ public sealed class GitHubUpdateServiceTests : IDisposable
     [Fact]
     public async Task DownloadAndStageAsync_FailsClosedWhenHashesDisagree()
     {
-        var zipName = "Codex-Theme-Studio-1.3.0-win-x64-portable.zip";
+        var zipName = "Codex-Theme-Studio-1.3.1-win-x64-portable.zip";
         var zip = CreateZip(("package/app-install-manifest.json", Encoding.UTF8.GetBytes("{}")));
         var zipHash = Hash(zip);
         var wrongHash = new string('0', 64);
-        var manifest = Encoding.UTF8.GetBytes($"{{\"schemaVersion\":3,\"version\":\"1.3.0\",\"packageName\":\"Codex-Theme-Studio-1.3.0-win-x64-portable\",\"zipSha256\":\"{wrongHash}\",\"installManifestSha256\":\"{wrongHash}\",\"uncompressedBytes\":2}}");
+        var manifest = Encoding.UTF8.GetBytes($"{{\"schemaVersion\":3,\"version\":\"1.3.1\",\"packageName\":\"Codex-Theme-Studio-1.3.1-win-x64-portable\",\"zipSha256\":\"{wrongHash}\",\"installManifestSha256\":\"{wrongHash}\",\"uncompressedBytes\":2}}");
         var handler = new RouteHandler(request => request.RequestUri!.AbsolutePath switch
         {
             "/manifest" => BytesResponse(manifest),
             "/sums" => BytesResponse(Encoding.UTF8.GetBytes($"{zipHash} *{zipName}\n")),
             _ => BytesResponse(zip),
         });
-        using var service = CreateService(handler, "1.2.2");
+        using var service = CreateService(handler, "1.3.0");
 
         var result = await service.DownloadAndStageAsync(
             CreateRelease(zipName, zip.Length, zipHash),
@@ -197,9 +197,9 @@ public sealed class GitHubUpdateServiceTests : IDisposable
 
     private static UpdateReleaseInfo CreateRelease(string zipName, long zipSize, string zipHash) =>
         new(
-            "1.3.0",
-            "v1.3.0",
-            new Uri("https://github.com/Aenvo/Codex-Theme-Studio/releases/tag/v1.3.0"),
+            "1.3.1",
+            "v1.3.1",
+            new Uri("https://github.com/Aenvo/Codex-Theme-Studio/releases/tag/v1.3.1"),
             DateTimeOffset.UtcNow,
             "notes",
             [

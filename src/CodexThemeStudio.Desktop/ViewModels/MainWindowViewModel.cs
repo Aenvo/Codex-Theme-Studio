@@ -1105,7 +1105,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var status = cached.Value;
         CodexStatusPhase = CodexDetectionPhase.Cached;
         IsCodexDetected = true;
-        CodexStatusText = "上次检测到 ChatGPT (Codex)";
+        CodexStatusText = FormatCodexStatusText(
+            "上次检测到 ChatGPT (Codex)",
+            status.CodexVersion);
         CodexStatusDetail =
             $"上次于 {status.ProbedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss} 完成兼容验证，正在后台确认当前安装与进程。";
         CodexCompatibilityText = status.CompatibilityLevel switch
@@ -2431,7 +2433,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         IsPersistenceEnabled = status.IsPersistenceEnabled;
         IsCodexDetected = status.State != ThemeRuntimeState.NotInstalled;
         CodexStatusText = IsCodexDetected
-            ? "已检测到 ChatGPT (Codex)"
+            ? FormatCodexStatusText(
+                "已检测到 ChatGPT (Codex)",
+                status.CodexVersion)
             : "未检测到 ChatGPT (Codex)";
         CodexStatusDetail = status.UserMessage;
         IsPersistenceEligible = status.IsPersistenceEligible;
@@ -2455,6 +2459,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             : "首次使用此 Codex 构建，请先临时应用；程序将自动验证应用、清理和重新应用，成功后即可持久化。";
         NotifyCommands();
     }
+
+    private static string FormatCodexStatusText(string prefix, string? version) =>
+        string.IsNullOrWhiteSpace(version)
+            ? prefix
+            : $"{prefix} {version}";
 
     private async Task SelectCodexExecutableAsync()
     {
