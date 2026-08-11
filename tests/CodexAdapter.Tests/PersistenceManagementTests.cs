@@ -10,6 +10,131 @@ namespace CodexThemeStudio.CodexAdapter.Tests;
 public sealed class PersistenceManagementTests
 {
     [Fact]
+    public async Task AgentController_StopWaitsForMutexRelease()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var mutexName = $@"Local\CodexThemeStudio.Tests.Controller.{suffix}";
+        var stopEventName =
+            $@"Local\CodexThemeStudio.Tests.Controller.Stop.{suffix}";
+        var ready = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var worker = Task.Run(() =>
+        {
+            using var mutex = new Mutex(
+                initiallyOwned: true,
+                mutexName,
+                out var createdNew);
+            using var stopEvent = new EventWaitHandle(
+                false,
+                EventResetMode.ManualReset,
+                stopEventName);
+            Assert.True(createdNew);
+            ready.TrySetResult();
+            Assert.True(stopEvent.WaitOne(TimeSpan.FromSeconds(2)));
+            Thread.Sleep(250);
+        });
+        await ready.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var controller = new AgentProcessController(
+            mutexName,
+            stopEventName,
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromMilliseconds(10),
+            static _ => null);
+
+        var result = await controller.SignalStopAsync(CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        await worker.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task AgentController_StartRejectsProcessThatExitsBeforeMutex()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var controller = new AgentProcessController(
+            $@"Local\CodexThemeStudio.Tests.Controller.{suffix}",
+            $@"Local\CodexThemeStudio.Tests.Controller.Stop.{suffix}",
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromMilliseconds(10),
+            static _ => Process.Start(new ProcessStartInfo("cmd.exe")
+            {
+                ArgumentList = { "/d", "/c", "exit", "7" },
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            }));
+
+        var result = await controller.StartAsync(
+            @"C:\Agent\CodexThemeStudio.Agent.exe",
+            @"C:\Agent\config.json",
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("persistence.agent.start_exited", result.Error!.DiagnosticCode);
+    }
+
+    [Fact]
+    public async Task AgentController_StartWaitsForStableMutexOwnership()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var mutexName = $@"Local\CodexThemeStudio.Tests.Controller.{suffix}";
+        var stopEventName =
+            $@"Local\CodexThemeStudio.Tests.Controller.Stop.{suffix}";
+        using var release = new ManualResetEventSlim();
+        Task worker = Task.CompletedTask;
+        var controller = new AgentProcessController(
+            mutexName,
+            stopEventName,
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromMilliseconds(10),
+            _ =>
+            {
+                worker = Task.Run(() =>
+                {
+                    using var mutex = new Mutex(
+                        initiallyOwned: true,
+                        mutexName,
+                        out var createdNew);
+                    Assert.True(createdNew);
+                    Assert.True(release.Wait(TimeSpan.FromSeconds(2)));
+                });
+                return Process.GetCurrentProcess();
+            });
+
+        try
+        {
+            var result = await controller.StartAsync(
+                @"C:\Agent\CodexThemeStudio.Agent.exe",
+                @"C:\Agent\config.json",
+                CancellationToken.None);
+
+            Assert.True(result.IsSuccess);
+        }
+        finally
+        {
+            release.Set();
+            await worker.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+    }
+
+    [Fact]
     public void StartupCommand_QuotesPathsWithSpacesAndChinese()
     {
         var command = WindowsRunStartupManager.BuildCommand(
@@ -496,6 +621,35 @@ public sealed class PersistenceManagementTests
         Assert.Equal(oldAgentPath, config.AgentExecutablePath);
         Assert.False(config.Suspended);
         Assert.Equal(1, fixture.Snapshot.CreateCount);
+    }
+
+    [Fact]
+    public async Task Switch_WhenStopAndRecoveryFailReportsIncompleteRecovery()
+    {
+        var fixture = new ServiceFixture();
+        Assert.True(
+            (await fixture.Service.EnableAsync(
+                fixture.Theme,
+                CancellationToken.None)).IsSuccess);
+        fixture.Installer.VersionName = "1.2.2";
+        fixture.Controller.StopError = new OperationError(
+            OperationErrorCode.Timeout,
+            "Agent 未退出。",
+            "persistence.agent.stop_timeout");
+        fixture.Controller.StartErrorOnce = new OperationError(
+            OperationErrorCode.ExternalToolFailure,
+            "旧 Agent 未能恢复。",
+            "test.agent.recovery_failed");
+
+        var result = await fixture.Service.SwitchAsync(
+            CreateTheme(Guid.NewGuid()),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(
+            "persistence.switch.stop_recovery_failed",
+            result.Error!.DiagnosticCode);
+        Assert.Contains("停止重试", result.Error.UserMessage);
     }
 
     [Fact]

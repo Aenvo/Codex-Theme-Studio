@@ -196,6 +196,106 @@ public sealed class PersistenceAgentTests
     }
 
     [Fact]
+    public async Task Agent_SamePidTemporaryThemeAfterVerifyIntervalYieldsUntilRestart()
+    {
+        var time = new MutableTimeProvider(
+            new DateTimeOffset(2026, 7, 20, 12, 0, 0, TimeSpan.Zero));
+        var fixture = new AgentFixture(time);
+        Assert.True(
+            (await fixture.Engine.RunCycleAsync(
+                fixture.Configuration,
+                CancellationToken.None)).IsSuccess);
+        Assert.Equal(1, fixture.Renderer.ApplyCount);
+
+        var temporaryThemeId = Guid.NewGuid();
+        time.UtcNow = time.UtcNow.AddMinutes(2);
+        fixture.Renderer.StatusResult =
+            OperationResult<RendererRuntimeResult>.Success(
+                new RendererRuntimeResult(
+                    1,
+                    true,
+                    2,
+                    temporaryThemeId,
+                    1,
+                    1,
+                    1,
+                    2));
+
+        var detected = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+        var statusCallsAfterDetection = fixture.Renderer.StatusCount;
+        var repeated = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+
+        Assert.True(detected.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Temporary, detected.Value!.State);
+        Assert.Equal(temporaryThemeId, fixture.State.State.SuppressedThemeId);
+        Assert.Equal(1, fixture.Renderer.ApplyCount);
+        Assert.True(repeated.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Temporary, repeated.Value!.State);
+        Assert.Equal(statusCallsAfterDetection, fixture.Renderer.StatusCount);
+
+        fixture.Discovery.Process = fixture.Discovery.Process with
+        {
+            StartedAtUtc = fixture.Discovery.Process.StartedAtUtc.AddMinutes(1),
+        };
+        fixture.Renderer.StatusResult =
+            OperationResult<RendererRuntimeResult>.Success(
+                new RendererRuntimeResult(1, false, null, null, 0, 0, 1, 0));
+        var restarted = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+
+        Assert.True(restarted.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Persistent, restarted.Value!.State);
+        Assert.Equal(2, fixture.Renderer.ApplyCount);
+    }
+
+    [Fact]
+    public async Task Agent_TargetThemeWithPendingWindowIsNotAdoptedAsComplete()
+    {
+        var fixture = new AgentFixture();
+        fixture.Renderer.StatusResult =
+            OperationResult<RendererRuntimeResult>.Success(
+                new RendererRuntimeResult(
+                    1,
+                    true,
+                    1,
+                    fixture.Snapshot.Current.Theme.Id,
+                    1,
+                    1,
+                    0,
+                    1,
+                    PendingWindows: 1));
+
+        var result = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Persistent, result.Value!.State);
+        Assert.Equal(1, fixture.Renderer.ApplyCount);
+    }
+
+    [Fact]
+    public async Task Agent_ApplyWithPendingWindowFailsVerification()
+    {
+        var fixture = new AgentFixture();
+        fixture.Renderer.ApplyPendingWindows = 1;
+
+        var result = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(
+            "persistence.agent.apply_unverified",
+            result.Error!.DiagnosticCode);
+    }
+
+    [Fact]
     public async Task Agent_FirstCycleAdoptsMatchingGuiRuntimeWithoutReapply()
     {
         var fixture = new AgentFixture();
@@ -338,6 +438,101 @@ public sealed class PersistenceAgentTests
         var exitCode = await runner.RunAsync(cancellation.Token);
 
         Assert.Equal(0, exitCode);
+    }
+
+    [Fact]
+    public async Task Runner_StopEventCancelsInFlightCycleAndReleasesMutex()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var suffix = Guid.NewGuid().ToString("N");
+            var mutexName = $@"Local\CodexThemeStudio.Tests.Agent.{suffix}";
+            var stopEventName = $@"Local\CodexThemeStudio.Tests.Agent.Stop.{suffix}";
+            var configDirectory = Path.Combine(root, "Agent");
+            var versionDirectory = Path.Combine(configDirectory, "versions", "test");
+            var nodeDirectory = Path.Combine(versionDirectory, "runtime", "node");
+            var injectorDirectory = Path.Combine(
+                versionDirectory,
+                "runtime",
+                "injector");
+            Directory.CreateDirectory(nodeDirectory);
+            Directory.CreateDirectory(injectorDirectory);
+            var agentPath = Path.Combine(
+                versionDirectory,
+                "CodexThemeStudio.Agent.exe");
+            var nodePath = Path.Combine(nodeDirectory, "node.exe");
+            var injectorPath = Path.Combine(injectorDirectory, "index.mjs");
+            File.WriteAllBytes(agentPath, [0]);
+            File.WriteAllBytes(nodePath, [0]);
+            File.WriteAllText(injectorPath, string.Empty);
+            var configurationPath = Path.Combine(configDirectory, "config.json");
+            var configuration = new PersistenceAgentConfiguration(
+                PersistenceAgentConfiguration.CurrentSchemaVersion,
+                true,
+                false,
+                PersistenceStorageMode.StableLocal,
+                Path.Combine(root, "snapshots"),
+                agentPath,
+                nodePath,
+                injectorPath,
+                Path.Combine(configDirectory, "state.json"),
+                Path.Combine(root, "Logs", "agent.jsonl"),
+                5,
+                60);
+            var write = await new PersistenceAgentConfigurationStore(
+                    configurationPath)
+                .WriteAsync(configuration, CancellationToken.None);
+            Assert.True(write.IsSuccess);
+
+            var cycleEntered = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var cycleCancelled = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var runner = new PersistenceAgentRunner(
+                configurationPath,
+                "test",
+                mutexName,
+                stopEventName,
+                async (_, cancellationToken) =>
+                {
+                    cycleEntered.TrySetResult();
+                    try
+                    {
+                        await Task.Delay(Timeout.Infinite, cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        cycleCancelled.TrySetResult();
+                        throw;
+                    }
+
+                    return OperationResult<ThemeRuntimeStatus>.Failure(
+                        OperationErrorCode.InternalError,
+                        "Unreachable.");
+                });
+
+            var run = runner.RunAsync(CancellationToken.None);
+            await cycleEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            using (var stopEvent = EventWaitHandle.OpenExisting(stopEventName))
+            {
+                Assert.True(stopEvent.Set());
+            }
+
+            Assert.Equal(0, await run.WaitAsync(TimeSpan.FromSeconds(2)));
+            await cycleCancelled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.Throws<WaitHandleCannotBeOpenedException>(
+                () => Mutex.OpenExisting(mutexName));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -545,6 +740,8 @@ public sealed class PersistenceAgentTests
 
         public int StatusCount { get; private set; }
 
+        public int ApplyPendingWindows { get; set; }
+
         public OperationResult<RendererRuntimeResult> StatusResult { get; set; } =
             OperationResult<RendererRuntimeResult>.Success(
                 new RendererRuntimeResult(1, false, null, null, 0, 0, 1, 0));
@@ -560,17 +757,20 @@ public sealed class PersistenceAgentTests
                 .GetProperty("theme")
                 .GetProperty("id")
                 .GetGuid();
+            var renderer = new RendererRuntimeResult(
+                1,
+                true,
+                ApplyCount,
+                themeId,
+                1,
+                1,
+                1,
+                2) with
+            {
+                PendingWindows = ApplyPendingWindows,
+            };
             return Task.FromResult(
-                OperationResult<RendererRuntimeResult>.Success(
-                    new RendererRuntimeResult(
-                        1,
-                        true,
-                        ApplyCount,
-                        themeId,
-                        1,
-                        1,
-                        1,
-                        2)));
+                OperationResult<RendererRuntimeResult>.Success(renderer));
         }
 
         public Task<OperationResult<RendererRuntimeResult>> GetStatusAsync(

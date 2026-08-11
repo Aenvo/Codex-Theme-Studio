@@ -900,6 +900,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         if (codexDiscovery is null ||
             !isWindowActive ||
             !isBackgroundInitializationComplete ||
+            IsBusy ||
             Volatile.Read(ref isDisposed) != 0)
         {
             return;
@@ -931,6 +932,23 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         cancellation?.Cancel();
+    }
+
+    private async Task WaitForPresenceMonitorToStopAsync()
+    {
+        Task monitor;
+        lock (presenceMonitorSync)
+        {
+            monitor = presenceMonitorTask;
+        }
+
+        try
+        {
+            await monitor;
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private async Task MonitorCodexPresenceAsync(
@@ -2802,14 +2820,20 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         activeDiagnosticOperation = GetDiagnosticOperation(operation);
         activeDiagnosticCorrelationId = Guid.NewGuid();
         activeDiagnosticOperationFailed = false;
-        await WriteDiagnosticAsync(
-            DiagnosticLevel.Information,
-            "desktop.operation.started",
-            DiagnosticOutcome.Started,
-            activeDiagnosticOperation,
-            activeDiagnosticCorrelationId);
+        var presenceLockHeld = false;
         try
         {
+            CancelPresenceMonitor();
+            await backgroundInitialization;
+            await WaitForPresenceMonitorToStopAsync();
+            await presenceCheckLock.WaitAsync(lifetime.Token);
+            presenceLockHeld = true;
+            await WriteDiagnosticAsync(
+                DiagnosticLevel.Information,
+                "desktop.operation.started",
+                DiagnosticOutcome.Started,
+                activeDiagnosticOperation,
+                activeDiagnosticCorrelationId);
             await action(lifetime.Token);
             if (!activeDiagnosticOperationFailed)
             {
@@ -2827,6 +2851,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            if (presenceLockHeld)
+            {
+                presenceCheckLock.Release();
+            }
+
             activeDiagnosticOperation = "desktop.background";
             activeDiagnosticCorrelationId = null;
             activeDiagnosticOperationFailed = false;

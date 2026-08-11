@@ -598,6 +598,28 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task SetPersistent_CancelsPresenceProbeBeforeStartingWriteOperation()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 1,
+            enablePresenceDiscovery: true);
+        await fixture.ViewModel.InitializeAsync();
+        await fixture.ViewModel.WaitForBackgroundInitializationAsync();
+        fixture.Discovery.Gate = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.ViewModel.OnWindowActivated();
+        await fixture.Discovery.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+
+        fixture.ViewModel.SetPersistentCommand.Execute(null);
+
+        await WaitUntilAsync(() => fixture.Discovery.CancelledCalls == 1);
+        await WaitUntilAsync(() => fixture.Persistence.EnableCalls == 1);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+        Assert.True(fixture.ViewModel.IsPersistenceEnabled);
+    }
+
+    [Fact]
     public async Task WindowActivationDetectsCodexStartedAfterThemeStudio()
     {
         using var fixture = new ViewModelFixture(
@@ -1634,21 +1656,41 @@ internal sealed class FakeCodexDiscoveryService : ICodexDiscoveryService
 
     public int DiscoverCalls { get; private set; }
 
-    public Task<OperationResult<CodexDiscoverySnapshot>> DiscoverAsync(
+    public int CancelledCalls { get; private set; }
+
+    public TaskCompletionSource Entered { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public TaskCompletionSource? Gate { get; set; }
+
+    public async Task<OperationResult<CodexDiscoverySnapshot>> DiscoverAsync(
         CancellationToken cancellationToken)
     {
         DiscoverCalls++;
-        return Task.FromResult(
-            OperationResult<CodexDiscoverySnapshot>.Success(
-                new CodexDiscoverySnapshot(
-                    new CodexInstallationInfo(
-                        "OpenAI.Codex_2p2nqsd0c76g0",
-                        "OpenAI.Codex_26.721.3404.0_x64__2p2nqsd0c76g0",
-                        "26.721.3404.0",
-                        ExecutablePath,
-                        ExecutableSha256: new string('a', 64)),
-                    Processes,
-                    DateTimeOffset.UtcNow)));
+        Entered.TrySetResult();
+        if (Gate is not null)
+        {
+            try
+            {
+                await Gate.Task.WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                CancelledCalls++;
+                throw;
+            }
+        }
+
+        return OperationResult<CodexDiscoverySnapshot>.Success(
+            new CodexDiscoverySnapshot(
+                new CodexInstallationInfo(
+                    "OpenAI.Codex_2p2nqsd0c76g0",
+                    "OpenAI.Codex_26.721.3404.0_x64__2p2nqsd0c76g0",
+                    "26.721.3404.0",
+                    ExecutablePath,
+                    ExecutableSha256: new string('a', 64)),
+                Processes,
+                DateTimeOffset.UtcNow));
     }
 }
 
