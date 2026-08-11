@@ -60,6 +60,26 @@
       "electronVersion": "151.0.7922.71",
       "rendererCompatibilityVersion": 1,
       "notes": "使用 1.2.2-rc.1 完成首次应用、清理、重新应用闭环及人工可见效果确认；随后从 1.2.0 Agent 原子升级并切换持久主题。Codex 重启后新版 Agent 对新主 PID 完成重注入，配置、Run 项、快照指针和持久主题一致，唯一 Agent 进程，最终端口 9229 无监听。"
+    },
+    {
+      "version": "26.803.5235.0",
+      "architecture": "x64",
+      "packageFamilyName": "OpenAI.Codex_2p2nqsd0c76g0",
+      "status": "verified",
+      "verifiedAtUtc": "2026-08-11T16:57:17Z",
+      "electronVersion": null,
+      "rendererCompatibilityVersion": 1,
+      "notes": "完成主题应用生命周期修复的真实 Codex 验收：持久主题正常、临时主题保持且 Agent 对同进程让行；最终状态无错误码。Electron 精确版本为 To be confirmed。"
+    },
+    {
+      "version": "26.803.10989.0",
+      "architecture": "x64",
+      "packageFamilyName": "OpenAI.Codex_2p2nqsd0c76g0",
+      "status": "verified",
+      "verifiedAtUtc": "2026-08-11T17:09:26Z",
+      "electronVersion": null,
+      "rendererCompatibilityVersion": 1,
+      "notes": "使用 1.3.1-rc.1 完成临时主题至少保持 70 秒、Codex 重启后持久主题恢复、持久主题切换及再次重启恢复。最终 miku 持久主题、Agent、Run 项和配置一致，9229 无监听。Electron 精确版本为 To be confirmed。"
     }
   ]
 }

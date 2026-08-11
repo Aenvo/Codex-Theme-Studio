@@ -80,6 +80,7 @@ export function createMainOperationExpression(operation) {
         themeId: null,
         eligibleWindows: 0,
         appliedWindows: 0,
+        pendingWindows: 0,
         auxiliaryWindows: 0,
         hookCount: 0,
         knownExternalThemeActive: false,
@@ -93,6 +94,7 @@ export function createMainOperationExpression(operation) {
         themeId: null,
         eligibleWindows: 0,
         appliedWindows: 0,
+        pendingWindows: 0,
         auxiliaryWindows: 0,
         hookCount: 0,
         knownExternalThemeActive: await hasKnownOkkSkinRuntime(),
@@ -159,6 +161,8 @@ export function createMainProbeExpression() {
 
 export async function mainRuntimeBootstrap(request) {
   const stateKey = "__CODEX_THEME_STUDIO_MAIN_V1__";
+  const pendingRetryAttempts = 20;
+  const pendingRetryDelayMs = 250;
   const electron = process.mainModule.require("electron");
   const { app, BrowserWindow } = electron;
   // A known OkkSkin runtime may be active while its user-level persistence remains
@@ -209,10 +213,12 @@ export async function mainRuntimeBootstrap(request) {
   const hooks = new Map();
   const appliedWindowIds = new Set();
   const eligibleWindowIds = new Set();
+  const pendingWindowIds = new Set();
   const auxiliaryWindowIds = new Set();
   const pageModes = new Map();
   let enabled = true;
   let failures = 0;
+  let pendingRetryPromise = null;
 
   const state = {
     runtimeVersion: request.runtimeVersion,
@@ -229,7 +235,7 @@ export async function mainRuntimeBootstrap(request) {
       return;
     }
     attachWindow(window);
-    void applyWindow(window).catch(() => {
+    void applyWindowAndRetry(window).catch(() => {
       failures += 1;
     });
   };
@@ -242,12 +248,17 @@ export async function mainRuntimeBootstrap(request) {
     if (!enabled || globalThis[stateKey] !== state) {
       return snapshot();
     }
+    await ensureOnce();
+    await retryPendingWindows();
+    return snapshot();
+  }
+
+  async function ensureOnce() {
     const windows = BrowserWindow.getAllWindows();
     for (const window of windows) {
       attachWindow(window);
       await applyWindow(window);
     }
-    return snapshot();
   }
 
   function attachWindow(window) {
@@ -259,16 +270,29 @@ export async function mainRuntimeBootstrap(request) {
       if (!enabled || globalThis[stateKey] !== state) {
         return;
       }
-      void applyWindow(window).catch(() => {
+      void applyWindowAndRetry(window).catch(() => {
+        failures += 1;
+      });
+    };
+    const showHandler = () => {
+      if (!enabled || globalThis[stateKey] !== state) {
+        return;
+      }
+      void applyWindowAndRetry(window).catch(() => {
         failures += 1;
       });
     };
     const destroyedHandler = () => detachWindow(contents);
     contents.on("dom-ready", domReadyHandler);
     contents.once("destroyed", destroyedHandler);
+    if (typeof window.on === "function") {
+      window.on("show", showHandler);
+    }
     hooks.set(contents.id, {
+      window,
       contents,
       domReadyHandler,
+      showHandler,
       destroyedHandler,
     });
   }
@@ -280,11 +304,20 @@ export async function mainRuntimeBootstrap(request) {
     }
     hook.contents.removeListener("dom-ready", hook.domReadyHandler);
     hook.contents.removeListener("destroyed", hook.destroyedHandler);
+    if (typeof hook.window.removeListener === "function") {
+      hook.window.removeListener("show", hook.showHandler);
+    }
     hooks.delete(contents.id);
     appliedWindowIds.delete(contents.id);
     eligibleWindowIds.delete(contents.id);
+    pendingWindowIds.delete(contents.id);
     auxiliaryWindowIds.delete(contents.id);
     pageModes.delete(contents.id);
+  }
+
+  async function applyWindowAndRetry(window) {
+    await applyWindow(window);
+    await retryPendingWindows();
   }
 
   async function applyWindow(window) {
@@ -297,6 +330,7 @@ export async function mainRuntimeBootstrap(request) {
       auxiliaryWindowIds.add(contents.id);
       eligibleWindowIds.delete(contents.id);
       appliedWindowIds.delete(contents.id);
+      pendingWindowIds.delete(contents.id);
       pageModes.delete(contents.id);
       await safeRendererCleanup(contents);
       return;
@@ -305,6 +339,7 @@ export async function mainRuntimeBootstrap(request) {
     const result = await contents.executeJavaScript(rendererExpression, true);
     if (result?.eligible) {
       eligibleWindowIds.add(contents.id);
+      pendingWindowIds.delete(contents.id);
       auxiliaryWindowIds.delete(contents.id);
       if (result.applied || result.generation === generation) {
         appliedWindowIds.add(contents.id);
@@ -313,11 +348,65 @@ export async function mainRuntimeBootstrap(request) {
         pageModes.set(contents.id, result.pageMode);
       }
     } else {
-      auxiliaryWindowIds.add(contents.id);
       eligibleWindowIds.delete(contents.id);
       appliedWindowIds.delete(contents.id);
       pageModes.delete(contents.id);
+      if (isPendingReason(result?.reason) && isUserFacingWindow(window)) {
+        pendingWindowIds.add(contents.id);
+        auxiliaryWindowIds.delete(contents.id);
+      } else {
+        pendingWindowIds.delete(contents.id);
+        auxiliaryWindowIds.add(contents.id);
+        if (!isPendingReason(result?.reason)) {
+          failures += 1;
+        }
+      }
     }
+  }
+
+  function retryPendingWindows() {
+    if (pendingRetryPromise) {
+      return pendingRetryPromise;
+    }
+    const current = runPendingRetry().finally(() => {
+      if (pendingRetryPromise === current) {
+        pendingRetryPromise = null;
+      }
+    });
+    pendingRetryPromise = current;
+    return current;
+  }
+
+  async function runPendingRetry() {
+    for (let attempt = 0;
+         attempt < pendingRetryAttempts && pendingWindowIds.size > 0;
+         attempt += 1) {
+      await delay(pendingRetryDelayMs);
+      if (!enabled || globalThis[stateKey] !== state) {
+        return;
+      }
+      const windows = BrowserWindow.getAllWindows();
+      const existingIds = new Set();
+      for (const window of windows) {
+        const contents = window?.webContents;
+        if (!contents || contents.isDestroyed()) {
+          continue;
+        }
+        existingIds.add(contents.id);
+        if (pendingWindowIds.has(contents.id)) {
+          await applyWindow(window);
+        }
+      }
+      for (const id of [...pendingWindowIds]) {
+        if (!existingIds.has(id)) {
+          pendingWindowIds.delete(id);
+        }
+      }
+    }
+  }
+
+  function delay(milliseconds) {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
   }
 
   async function safeRendererCleanup(contents) {
@@ -339,6 +428,9 @@ export async function mainRuntimeBootstrap(request) {
     for (const hook of hooks.values()) {
       hook.contents.removeListener("dom-ready", hook.domReadyHandler);
       hook.contents.removeListener("destroyed", hook.destroyedHandler);
+      if (typeof hook.window.removeListener === "function") {
+        hook.window.removeListener("show", hook.showHandler);
+      }
     }
     hooks.clear();
 
@@ -352,6 +444,7 @@ export async function mainRuntimeBootstrap(request) {
     }
     appliedWindowIds.clear();
     eligibleWindowIds.clear();
+    pendingWindowIds.clear();
     auxiliaryWindowIds.clear();
     pageModes.clear();
     if (globalThis[stateKey] === state) {
@@ -368,6 +461,7 @@ export async function mainRuntimeBootstrap(request) {
       themeId: request.themeId,
       eligibleWindows: eligibleWindowIds.size,
       appliedWindows: appliedWindowIds.size,
+      pendingWindows: pendingWindowIds.size,
       auxiliaryWindows: auxiliaryWindowIds.size,
       hookCount: hooks.size,
       pageModes: [...new Set(pageModes.values())].sort(),
@@ -391,5 +485,17 @@ export async function mainRuntimeBootstrap(request) {
       return { eligible: false };
     }
     return { eligible: true };
+  }
+
+  function isPendingReason(reason) {
+    return reason === "dom-not-ready" || reason === "shell-features-missing";
+  }
+
+  function isUserFacingWindow(window) {
+    try {
+      return typeof window?.isVisible !== "function" || window.isVisible();
+    } catch {
+      return true;
+    }
   }
 }

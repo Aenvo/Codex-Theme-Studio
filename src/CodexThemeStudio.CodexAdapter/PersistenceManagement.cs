@@ -696,14 +696,70 @@ public sealed class WindowsRunStartupManager : IAgentStartupManager
 
 public sealed class AgentProcessController : IAgentProcessController
 {
-    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan DefaultStopTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan DefaultStartupTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan StartupStabilityDelay = TimeSpan.FromMilliseconds(250);
+    private readonly string mutexName;
+    private readonly string stopEventName;
+    private readonly TimeSpan stopTimeout;
+    private readonly TimeSpan startupTimeout;
+    private readonly TimeSpan pollInterval;
+    private readonly Func<ProcessStartInfo, Process?> startProcess;
 
-    public Task<OperationResult> StartAsync(
+    public AgentProcessController()
+        : this(
+            PersistenceAgentRunner.MutexName,
+            PersistenceAgentRunner.StopEventName,
+            DefaultStopTimeout,
+            DefaultStartupTimeout,
+            DefaultPollInterval,
+            static startInfo => Process.Start(startInfo))
+    {
+    }
+
+    internal AgentProcessController(
+        string mutexName,
+        string stopEventName,
+        TimeSpan stopTimeout,
+        TimeSpan startupTimeout,
+        TimeSpan pollInterval,
+        Func<ProcessStartInfo, Process?> startProcess)
+    {
+        this.mutexName = mutexName;
+        this.stopEventName = stopEventName;
+        this.stopTimeout = stopTimeout;
+        this.startupTimeout = startupTimeout;
+        this.pollInterval = pollInterval;
+        this.startProcess = startProcess;
+    }
+
+    public async Task<OperationResult> StartAsync(
         string agentExecutablePath,
         string configurationPath,
         CancellationToken cancellationToken)
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            return OperationResult.Failure(
+                OperationErrorCode.NotImplemented,
+                "持久化 Agent 仅支持 Windows。",
+                "persistence.agent.platform_unsupported");
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
+        var released = await WaitForMutexStateAsync(
+            expectedActive: false,
+            startupTimeout,
+            cancellationToken,
+            "旧持久化 Agent 尚未完全退出，未启动新 Agent。",
+            "persistence.agent.start_existing_timeout");
+        if (!released.IsSuccess)
+        {
+            return released;
+        }
+
+        Process? process;
         try
         {
             var startInfo = new ProcessStartInfo(agentExecutablePath)
@@ -715,59 +771,160 @@ public sealed class AgentProcessController : IAgentProcessController
             startInfo.ArgumentList.Add("run");
             startInfo.ArgumentList.Add("--config");
             startInfo.ArgumentList.Add(configurationPath);
-            Process.Start(startInfo)?.Dispose();
-            return Task.FromResult(OperationResult.Success());
+            process = startProcess(startInfo);
+            if (process is null)
+            {
+                return OperationResult.Failure(
+                    OperationErrorCode.ExternalToolFailure,
+                    "无法启动持久化 Agent。",
+                    "persistence.agent.start_failed");
+            }
         }
         catch (Exception exception)
             when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
-            return Task.FromResult(
-                OperationResult.Failure(
-                    OperationErrorCode.ExternalToolFailure,
-                    "无法启动持久化 Agent。",
-                    "persistence.agent.start_failed"));
+            return OperationResult.Failure(
+                OperationErrorCode.ExternalToolFailure,
+                "无法启动持久化 Agent。",
+                "persistence.agent.start_failed");
+        }
+
+        using (process)
+        {
+            var deadline = DateTimeOffset.UtcNow + startupTimeout;
+            DateTimeOffset? activeSince = null;
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (process.HasExited)
+                {
+                    return OperationResult.Failure(
+                        OperationErrorCode.ExternalToolFailure,
+                        "持久化 Agent 在取得单实例锁前退出。",
+                        "persistence.agent.start_exited");
+                }
+
+                var active = ProbeMutex();
+                if (!active.IsSuccess)
+                {
+                    return OperationResult.Failure(active.Error!);
+                }
+
+                if (active.Value)
+                {
+                    activeSince ??= DateTimeOffset.UtcNow;
+                    if (DateTimeOffset.UtcNow - activeSince >= StartupStabilityDelay)
+                    {
+                        return OperationResult.Success();
+                    }
+                }
+                else
+                {
+                    activeSince = null;
+                }
+
+                await Task.Delay(pollInterval, cancellationToken);
+            }
+
+            return OperationResult.Failure(
+                OperationErrorCode.Timeout,
+                "持久化 Agent 已启动，但未能确认其取得单实例锁。",
+                "persistence.agent.start_timeout");
         }
     }
 
     public async Task<OperationResult> SignalStopAsync(
         CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!PersistenceAgentRunner.SignalStop())
+        if (!OperatingSystem.IsWindows())
         {
             return OperationResult.Failure(
-                OperationErrorCode.ExternalToolFailure,
-                "无法通知持久化 Agent 退出。",
-                "persistence.agent.stop_failed");
+                OperationErrorCode.NotImplemented,
+                "持久化 Agent 仅支持 Windows。",
+                "persistence.agent.platform_unsupported");
         }
 
-        var deadline = DateTimeOffset.UtcNow + StopTimeout;
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            using var stopEvent = EventWaitHandle.OpenExisting(stopEventName);
+            if (!stopEvent.Set())
+            {
+                return OperationResult.Failure(
+                    OperationErrorCode.ExternalToolFailure,
+                    "无法通知持久化 Agent 退出。",
+                    "persistence.agent.stop_failed");
+            }
+        }
+        catch (WaitHandleCannotBeOpenedException)
+        {
+            return OperationResult.Success();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return OperationResult.Failure(
+                OperationErrorCode.AccessDenied,
+                "无法通知持久化 Agent 退出。",
+                "persistence.agent.stop_access_denied");
+        }
+
+        return await WaitForMutexStateAsync(
+            expectedActive: false,
+            stopTimeout,
+            cancellationToken,
+            "持久化 Agent 未在 10 秒内退出；未切换持久主题。",
+            "persistence.agent.stop_timeout");
+    }
+
+    private async Task<OperationResult> WaitForMutexStateAsync(
+        bool expectedActive,
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        string timeoutMessage,
+        string timeoutCode)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
         while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            try
+            var active = ProbeMutex();
+            if (!active.IsSuccess)
             {
-                using var mutex = Mutex.OpenExisting(PersistenceAgentRunner.MutexName);
+                return OperationResult.Failure(active.Error!);
             }
-            catch (WaitHandleCannotBeOpenedException)
+
+            if (active.Value == expectedActive)
             {
                 return OperationResult.Success();
             }
-            catch (UnauthorizedAccessException)
-            {
-                return OperationResult.Failure(
-                    OperationErrorCode.AccessDenied,
-                    "无法确认持久化 Agent 是否已退出。",
-                    "persistence.agent.stop_access_denied");
-            }
 
-            await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
+            await Task.Delay(pollInterval, cancellationToken);
         }
 
         return OperationResult.Failure(
             OperationErrorCode.Timeout,
-            "持久化 Agent 未在 10 秒内退出；未切换持久主题。",
-            "persistence.agent.stop_timeout");
+            timeoutMessage,
+            timeoutCode);
+    }
+
+    private OperationResult<bool> ProbeMutex()
+    {
+        try
+        {
+            using var mutex = Mutex.OpenExisting(mutexName);
+            return OperationResult<bool>.Success(true);
+        }
+        catch (WaitHandleCannotBeOpenedException)
+        {
+            return OperationResult<bool>.Success(false);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return OperationResult<bool>.Failure(
+                OperationErrorCode.AccessDenied,
+                "无法确认持久化 Agent 的单实例状态。",
+                "persistence.agent.mutex_access_denied");
+        }
     }
 }
 
@@ -1031,11 +1188,23 @@ public sealed class PersistenceService : IPersistenceService
             var stop = await processController.SignalStopAsync(cancellationToken);
             if (!stop.IsSuccess)
             {
-                await configurationStore.WriteAsync(config, CancellationToken.None);
-                await processController.StartAsync(
-                    config.AgentExecutablePath,
-                    configurationPath,
+                var restoreConfig = await configurationStore.WriteAsync(
+                    config,
                     CancellationToken.None);
+                var restoreAgent = restoreConfig.IsSuccess
+                    ? await processController.StartAsync(
+                        config.AgentExecutablePath,
+                        configurationPath,
+                        CancellationToken.None)
+                    : OperationResult.Failure(restoreConfig.Error!);
+                if (!restoreConfig.IsSuccess || !restoreAgent.IsSuccess)
+                {
+                    return OperationResult<ThemeRuntimeStatus>.Failure(
+                        OperationErrorCode.InvalidResponse,
+                        $"{stop.Error!.UserMessage} 旧持久化 Agent 未能完整恢复，请停止重试并检查诊断日志。",
+                        "persistence.switch.stop_recovery_failed");
+                }
+
                 return OperationResult<ThemeRuntimeStatus>.Failure(stop.Error!);
             }
 
@@ -1367,6 +1536,18 @@ public sealed class PersistenceService : IPersistenceService
             var stop = await processController.SignalStopAsync(cancellationToken);
             if (!stop.IsSuccess)
             {
+                var restore = await processController.StartAsync(
+                    previous.AgentExecutablePath,
+                    configurationPath,
+                    CancellationToken.None);
+                if (!restore.IsSuccess)
+                {
+                    return OperationResult<AgentUpgradeResult>.Failure(
+                        OperationErrorCode.InvalidResponse,
+                        $"{stop.Error!.UserMessage} 旧持久化 Agent 未能完整恢复，请停止重试并检查诊断日志。",
+                        "persistence.upgrade.stop_recovery_failed");
+                }
+
                 return OperationResult<AgentUpgradeResult>.Failure(stop.Error!);
             }
 

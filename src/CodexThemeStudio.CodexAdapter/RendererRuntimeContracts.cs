@@ -48,4 +48,5 @@ public sealed record RendererRuntimeResult(
     int? ProcessId = null,
     TimeSpan? InspectorOpenDuration = null,
     bool InspectorWasAlreadyOpen = false,
-    bool KnownExternalThemeActive = false);
+    bool KnownExternalThemeActive = false,
+    int PendingWindows = 0);

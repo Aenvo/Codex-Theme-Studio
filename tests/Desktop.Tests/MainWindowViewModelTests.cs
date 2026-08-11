@@ -332,6 +332,29 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task CompatibilityStatus_ShowsDetectedAndVerifiedVersions()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        fixture.Runtime.Status = Status(
+            ThemeRuntimeState.Persistent,
+            themeId: Guid.NewGuid(),
+            persistenceEnabled: true) with
+        {
+            CodexVersion = "26.803.10989.0",
+            CompatibilityLevel = CodexCompatibilityLevel.Verified,
+        };
+
+        await fixture.ViewModel.InitializeAsync();
+
+        Assert.Equal(
+            "已检测到 ChatGPT (Codex) 26.803.10989.0",
+            fixture.ViewModel.CodexStatusText);
+        Assert.Equal(
+            "已验证版本 · 能力探测通过",
+            fixture.ViewModel.CodexCompatibilityText);
+    }
+
+    [Fact]
     public async Task Initialize_WithOneHundredThemes_FiltersChineseEmojiAndTags()
     {
         using var fixture = new ViewModelFixture(themeCount: 100);
@@ -594,6 +617,28 @@ public sealed class MainWindowViewModelTests
         await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
 
         Assert.Equal(1, fixture.Persistence.EnableCalls);
+        Assert.True(fixture.ViewModel.IsPersistenceEnabled);
+    }
+
+    [Fact]
+    public async Task SetPersistent_CancelsPresenceProbeBeforeStartingWriteOperation()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 1,
+            enablePresenceDiscovery: true);
+        await fixture.ViewModel.InitializeAsync();
+        await fixture.ViewModel.WaitForBackgroundInitializationAsync();
+        fixture.Discovery.Gate = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.ViewModel.OnWindowActivated();
+        await fixture.Discovery.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+
+        fixture.ViewModel.SetPersistentCommand.Execute(null);
+
+        await WaitUntilAsync(() => fixture.Discovery.CancelledCalls == 1);
+        await WaitUntilAsync(() => fixture.Persistence.EnableCalls == 1);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
         Assert.True(fixture.ViewModel.IsPersistenceEnabled);
     }
 
@@ -1086,19 +1131,36 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(10, fixture.Editor.PanelBlur);
     }
 
-    [Fact]
-    public void Editor_PanelBlur_IsClampedAndUpdatesGlassPreviewOpacity()
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(10, 0.972)]
+    [InlineData(32, 0.9104)]
+    [InlineData(64, 0.8208)]
+    public void Editor_PanelBlur_UpdatesRuntimeMatchedSurfaceOpacity(
+        double panelBlur,
+        double expectedOpacity)
     {
         using var fixture = new ViewModelFixture(themeCount: 1);
         var theme = fixture.Repository.Themes[fixture.Repository.Summaries[0].ThemeId];
         fixture.Editor.Begin(theme, newTheme: false);
 
-        fixture.Editor.PanelBlur = 32;
+        fixture.Editor.PanelBlur = panelBlur;
 
-        Assert.Equal(32, fixture.Editor.PanelBlur);
-        Assert.Equal(0.225, fixture.Editor.PanelGlassOpacity, precision: 3);
+        Assert.Equal(panelBlur, fixture.Editor.PanelBlur);
+        Assert.Equal(expectedOpacity, fixture.Editor.PanelSurfaceOpacity, precision: 4);
+    }
+
+    [Fact]
+    public void Editor_PanelBlur_IsClampedToContractRange()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        var theme = fixture.Repository.Themes[fixture.Repository.Summaries[0].ThemeId];
+        fixture.Editor.Begin(theme, newTheme: false);
+
         fixture.Editor.PanelBlur = 100;
+
         Assert.Equal(64, fixture.Editor.PanelBlur);
+        Assert.Equal(0.8208, fixture.Editor.PanelSurfaceOpacity, precision: 4);
     }
 
     [Fact]
@@ -1617,21 +1679,41 @@ internal sealed class FakeCodexDiscoveryService : ICodexDiscoveryService
 
     public int DiscoverCalls { get; private set; }
 
-    public Task<OperationResult<CodexDiscoverySnapshot>> DiscoverAsync(
+    public int CancelledCalls { get; private set; }
+
+    public TaskCompletionSource Entered { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public TaskCompletionSource? Gate { get; set; }
+
+    public async Task<OperationResult<CodexDiscoverySnapshot>> DiscoverAsync(
         CancellationToken cancellationToken)
     {
         DiscoverCalls++;
-        return Task.FromResult(
-            OperationResult<CodexDiscoverySnapshot>.Success(
-                new CodexDiscoverySnapshot(
-                    new CodexInstallationInfo(
-                        "OpenAI.Codex_2p2nqsd0c76g0",
-                        "OpenAI.Codex_26.721.3404.0_x64__2p2nqsd0c76g0",
-                        "26.721.3404.0",
-                        ExecutablePath,
-                        ExecutableSha256: new string('a', 64)),
-                    Processes,
-                    DateTimeOffset.UtcNow)));
+        Entered.TrySetResult();
+        if (Gate is not null)
+        {
+            try
+            {
+                await Gate.Task.WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                CancelledCalls++;
+                throw;
+            }
+        }
+
+        return OperationResult<CodexDiscoverySnapshot>.Success(
+            new CodexDiscoverySnapshot(
+                new CodexInstallationInfo(
+                    "OpenAI.Codex_2p2nqsd0c76g0",
+                    "OpenAI.Codex_26.721.3404.0_x64__2p2nqsd0c76g0",
+                    "26.721.3404.0",
+                    ExecutablePath,
+                    ExecutableSha256: new string('a', 64)),
+                Processes,
+                DateTimeOffset.UtcNow));
     }
 }
 

@@ -5,9 +5,9 @@
     <LangVersion>12.0</LangVersion>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <RuntimeIdentifier Condition="'$(CodexRuntimeIdentifier)' != ''">$(CodexRuntimeIdentifier)</RuntimeIdentifier>
-    <Version>1.3.0</Version>
-    <AssemblyVersion>1.3.0.0</AssemblyVersion>
-    <FileVersion>1.3.0.0</FileVersion>
+    <Version>1.3.1</Version>
+    <AssemblyVersion>1.3.1.0</AssemblyVersion>
+    <FileVersion>1.3.1.0</FileVersion>
     <AssemblyTitle>Codex Theme Studio</AssemblyTitle>
     <Product>Codex Theme Studio</Product>
     <Description>Local Windows theme manager for the Codex desktop application.</Description>

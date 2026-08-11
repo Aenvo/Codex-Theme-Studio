@@ -12,6 +12,8 @@ public sealed class CodexVersionPolicy
             "26.721.3404.0",
             "26.727.6591.0",
             "26.730.8199.0",
+            "26.803.5235.0",
+            "26.803.10989.0",
         };
 
     private readonly IReadOnlySet<string> verifiedVersions;

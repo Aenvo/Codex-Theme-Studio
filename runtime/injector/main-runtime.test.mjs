@@ -19,6 +19,7 @@ test("main runtime isolates auxiliary windows and installs guarded hooks", async
 
   assert.equal(state.active, true);
   assert.equal(state.appliedWindows, 1);
+  assert.equal(state.pendingWindows, 0);
   assert.equal(state.auxiliaryWindows, 1);
   assert.equal(state.hookCount, 2);
   assert.equal(main.webContents.listenerCount("dom-ready"), 1);
@@ -87,6 +88,51 @@ test("late DOM, renderer refresh, and future windows are ensured", async () => {
   assert.equal(future.webContents.listenerCount("dom-ready"), 1);
 });
 
+test("visible shell completion is retried without another DOM event", async () => {
+  const main = new FakeWindow(1, "app://-/index.html", false);
+  main.webContents.rendererEligibleAfterAttempts = 3;
+  const environment = createMainEnvironment([main]);
+
+  const state = await runMain(environment);
+
+  assert.equal(state.appliedWindows, 1);
+  assert.equal(state.pendingWindows, 0);
+  assert.equal(state.auxiliaryWindows, 0);
+  assert.equal(main.webContents.rendererAttemptCount, 3);
+});
+
+test("visible incomplete shell remains pending after bounded retries", async () => {
+  const main = new FakeWindow(1, "app://-/index.html", false);
+  const environment = createMainEnvironment([main]);
+
+  const state = await runMain(environment);
+
+  assert.equal(state.appliedWindows, 0);
+  assert.equal(state.pendingWindows, 1);
+  assert.equal(state.auxiliaryWindows, 0);
+  assert.equal(main.webContents.rendererAttemptCount, 21);
+});
+
+test("hidden incomplete window does not block and is retried when shown", async () => {
+  const hidden = new FakeWindow(1, "app://-/index.html", false, false);
+  const main = new FakeWindow(2, "app://-/index.html", true);
+  const environment = createMainEnvironment([hidden, main]);
+
+  const state = await runMain(environment);
+  assert.equal(state.appliedWindows, 1);
+  assert.equal(state.pendingWindows, 0);
+  assert.equal(state.auxiliaryWindows, 1);
+
+  hidden.webContents.rendererEligible = true;
+  hidden.show();
+  await tick();
+
+  const shown = environment.context.__CODEX_THEME_STUDIO_MAIN_V1__.snapshot();
+  assert.equal(shown.appliedWindows, 2);
+  assert.equal(shown.pendingWindows, 0);
+  assert.equal(shown.auxiliaryWindows, 0);
+});
+
 test("replacement disables old hooks and stale cleanup cannot remove new generation", async () => {
   const main = new FakeWindow(1, "app://-/index.html", true);
   const environment = createMainEnvironment([main]);
@@ -102,6 +148,24 @@ test("replacement disables old hooks and stale cleanup cannot remove new generat
   assert.equal(main.webContents.listenerCount("dom-ready"), 1);
 });
 
+test("replacement clears old pending state before applying the next generation", async () => {
+  const main = new FakeWindow(1, "app://-/index.html", false);
+  const environment = createMainEnvironment([main]);
+  await runMain(environment);
+  const oldState = environment.context.__CODEX_THEME_STUDIO_MAIN_V1__;
+  assert.equal(oldState.snapshot().pendingWindows, 1);
+
+  main.webContents.rendererEligible = true;
+  const replaced = await runMain(
+    environment,
+    "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+
+  assert.equal(oldState.snapshot().pendingWindows, 0);
+  assert.equal(replaced.pendingWindows, 0);
+  assert.equal(replaced.appliedWindows, 1);
+  assert.equal(main.listenerCount("show"), 1);
+});
+
 test("cleanup removes hooks and prevents future automatic injection", async () => {
   const main = new FakeWindow(1, "app://-/index.html", true);
   const environment = createMainEnvironment([main]);
@@ -112,11 +176,27 @@ test("cleanup removes hooks and prevents future automatic injection", async () =
   assert.equal(environment.context.__CODEX_THEME_STUDIO_MAIN_V1__, undefined);
   assert.equal(environment.app.listenerCount("browser-window-created"), 0);
   assert.equal(main.webContents.listenerCount("dom-ready"), 0);
+  assert.equal(main.listenerCount("show"), 0);
 
   const future = new FakeWindow(4, "app://-/index.html", true);
   environment.app.emit("browser-window-created", {}, future);
   await tick();
   assert.equal(future.webContents.executeCount, 0);
+});
+
+test("cleanup clears pending windows and show hooks", async () => {
+  const pending = new FakeWindow(1, "app://-/index.html", false);
+  const environment = createMainEnvironment([pending]);
+  await runMain(environment);
+  const state = environment.context.__CODEX_THEME_STUDIO_MAIN_V1__;
+
+  assert.equal(state.snapshot().pendingWindows, 1);
+  assert.equal(pending.listenerCount("show"), 1);
+
+  assert.equal(await state.stop(state.generation, true), true);
+  assert.equal(state.snapshot().pendingWindows, 0);
+  assert.equal(pending.listenerCount("show"), 0);
+  assert.equal(pending.webContents.listenerCount("dom-ready"), 0);
 });
 
 async function runMain(
@@ -149,6 +229,10 @@ function createMainEnvironment(windows) {
   };
   const context = vm.createContext({
     URL,
+    setTimeout(callback) {
+      callback();
+      return 1;
+    },
     process: {
       mainModule: {
         require(name) {
@@ -161,9 +245,20 @@ function createMainEnvironment(windows) {
   return { context, app, windows };
 }
 
-class FakeWindow {
-  constructor(id, url, rendererEligible) {
+class FakeWindow extends EventEmitter {
+  constructor(id, url, rendererEligible, visible = true) {
+    super();
     this.webContents = new FakeWebContents(id, url, rendererEligible);
+    this.visible = visible;
+  }
+
+  isVisible() {
+    return this.visible;
+  }
+
+  show() {
+    this.visible = true;
+    this.emit("show");
   }
 }
 
@@ -173,6 +268,8 @@ class FakeWebContents extends EventEmitter {
     this.id = id;
     this.url = url;
     this.rendererEligible = rendererEligible;
+    this.rendererEligibleAfterAttempts = null;
+    this.rendererAttemptCount = 0;
     this.executeCount = 0;
     this.expressions = [];
     this.okkSkinActive = false;
@@ -199,10 +296,16 @@ class FakeWebContents extends EventEmitter {
     if (expression.includes("state.cleanup")) {
       return true;
     }
+    this.rendererAttemptCount += 1;
+    if (this.rendererEligibleAfterAttempts !== null &&
+        this.rendererAttemptCount >= this.rendererEligibleAfterAttempts) {
+      this.rendererEligible = true;
+    }
     return {
       eligible: this.rendererEligible,
       applied: this.rendererEligible,
       generation: 1,
+      reason: this.rendererEligible ? undefined : "shell-features-missing",
     };
   }
 }

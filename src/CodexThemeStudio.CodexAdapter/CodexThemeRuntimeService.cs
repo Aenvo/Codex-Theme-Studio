@@ -486,9 +486,10 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                     session.Value!,
                     operationId);
                 return OperationResult<ThemeRuntimeStatus>.Failure(
-                    OperationErrorCode.InvalidResponse,
-                    "渲染器未确认目标主题，已执行安全恢复。",
-                    "runtime.apply.verification_failed");
+                    CreateApplyVerificationError(
+                        renderer,
+                        "渲染器未确认目标主题，已执行安全恢复。",
+                        "runtime.apply.verification_failed"));
             }
 
             var completedCompatibilityCycle = false;
@@ -529,8 +530,8 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                         operationId);
                     return OperationResult<ThemeRuntimeStatus>.Failure(
                         reapplied.Error is null
-                            ? new OperationError(
-                                OperationErrorCode.InvalidResponse,
+                            ? CreateApplyVerificationError(
+                                reapplied.Value!,
                                 "首次兼容验证重新应用主题失败。",
                                 "compatibility.reapply_verification_failed")
                             : NormalizeDeadlineError(
@@ -785,8 +786,23 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
         renderer.Active &&
         renderer.ThemeId == themeId &&
         renderer.Failures == 0 &&
+        renderer.PendingWindows == 0 &&
         renderer.EligibleWindows > 0 &&
         renderer.AppliedWindows == renderer.EligibleWindows;
+
+    private static OperationError CreateApplyVerificationError(
+        RendererRuntimeResult renderer,
+        string fallbackMessage,
+        string fallbackDiagnosticCode) =>
+        renderer.PendingWindows > 0
+            ? new OperationError(
+                OperationErrorCode.InvalidResponse,
+                "Codex 可见窗口仍在加载，未报告应用成功；已恢复此前主题，请稍后重试。",
+                "runtime.apply.windows_pending")
+            : new OperationError(
+                OperationErrorCode.InvalidResponse,
+                fallbackMessage,
+                fallbackDiagnosticCode);
 
     private static OperationError NormalizeDeadlineError(
         OperationError error,
@@ -867,9 +883,7 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                 hasInspectorResidual: true,
                 eligibleWindows: renderer.EligibleWindows,
                 appliedWindows: renderer.AppliedWindows,
-                pendingWindows: Math.Max(
-                    0,
-                    renderer.EligibleWindows - renderer.AppliedWindows),
+                pendingWindows: CountPendingWindows(renderer),
                 codexVersion: codexVersion);
         }
 
@@ -900,13 +914,12 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
                 evidence: ThemeRuntimeEvidence.RuntimeMarkers,
                 eligibleWindows: renderer.EligibleWindows,
                 appliedWindows: renderer.AppliedWindows,
-                pendingWindows: Math.Max(
-                    0,
-                    renderer.EligibleWindows - renderer.AppliedWindows),
+                pendingWindows: CountPendingWindows(renderer),
                 codexVersion: codexVersion);
         }
 
         var partial = renderer.Failures > 0 ||
+            renderer.PendingWindows > 0 ||
             renderer.AppliedWindows == 0 ||
             renderer.AppliedWindows < renderer.EligibleWindows;
         return CreateStatus(
@@ -920,11 +933,13 @@ public sealed class CodexThemeRuntimeService : ICodexThemeRuntime
             evidence: ThemeRuntimeEvidence.RuntimeMarkers,
             eligibleWindows: renderer.EligibleWindows,
             appliedWindows: renderer.AppliedWindows,
-            pendingWindows: Math.Max(
-                0,
-                renderer.EligibleWindows - renderer.AppliedWindows),
+            pendingWindows: CountPendingWindows(renderer),
             codexVersion: codexVersion);
     }
+
+    private static int CountPendingWindows(RendererRuntimeResult renderer) =>
+        Math.Max(0, renderer.PendingWindows) +
+        Math.Max(0, renderer.EligibleWindows - renderer.AppliedWindows);
 
     private async Task<OperationResult> WriteDefaultAsync(
         Guid operationId,

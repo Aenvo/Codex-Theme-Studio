@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CodexThemeStudio.Contracts.Interfaces;
 using CodexThemeStudio.Contracts.Models;
 using CodexThemeStudio.Contracts.Results;
@@ -178,6 +179,33 @@ public sealed class CodexThemeRuntimeServiceTests
     }
 
     [Fact]
+    public async Task Switch_WithPendingVisibleWindowReappliesPreviousTheme()
+    {
+        var oldTheme = CreateTheme(Guid.NewGuid());
+        var newTheme = CreateTheme(Guid.NewGuid());
+        var fixture = new RuntimeFixture(oldTheme);
+        fixture.Session.State = AppliedSession(oldTheme.Id);
+        fixture.Renderer.ApplyResults.Enqueue(
+            OperationResult<RendererRuntimeResult>.Success(
+                ActiveRenderer(newTheme.Id, generation: 2) with
+                {
+                    PendingWindows = 1,
+                }));
+        fixture.Renderer.ApplyResults.Enqueue(
+            OperationResult<RendererRuntimeResult>.Success(
+                ActiveRenderer(oldTheme.Id, generation: 3)));
+
+        var result = await fixture.Service.SwitchTemporaryAsync(
+            newTheme,
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("runtime.apply.windows_pending", result.Error!.DiagnosticCode);
+        Assert.Equal(oldTheme.Id, fixture.Session.State.ThemeId);
+        Assert.Equal(2, fixture.Renderer.ApplyCount);
+    }
+
+    [Fact]
     public async Task Apply_WhenSessionCommitFails_CleansRuntime()
     {
         var fixture = new RuntimeFixture();
@@ -216,6 +244,26 @@ public sealed class CodexThemeRuntimeServiceTests
         Assert.Null(fixture.Session.State.ThemeId);
         Assert.Null(fixture.Repository.LastApplyResult);
         Assert.Equal(1, fixture.Discovery.CloseCount);
+    }
+
+    [Fact]
+    public async Task Apply_WithPendingVisibleWindowFailsAndCleansRuntime()
+    {
+        var fixture = new RuntimeFixture();
+        var theme = CreateTheme(Guid.NewGuid());
+        fixture.Renderer.ApplyResults.Enqueue(
+            OperationResult<RendererRuntimeResult>.Success(
+                ActiveRenderer(theme.Id) with { PendingWindows = 1 }));
+
+        var result = await fixture.Service.ApplyTemporaryAsync(
+            theme,
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OperationErrorCode.InvalidResponse, result.Error!.Code);
+        Assert.Equal("runtime.apply.windows_pending", result.Error.DiagnosticCode);
+        Assert.Equal(1, fixture.Renderer.CleanupCount);
+        Assert.Null(fixture.Session.State.ThemeId);
     }
 
     [Fact]
@@ -311,6 +359,47 @@ public sealed class CodexThemeRuntimeServiceTests
         Assert.Equal(ThemeRuntimeEvidence.RuntimeMarkers, result.Value.Evidence);
         Assert.NotEqual(ThemeRuntimeEvidence.VisibleEffect, result.Value.Evidence);
         Assert.Equal(1, result.Value.PendingWindows);
+    }
+
+    [Fact]
+    public async Task Status_ReportsExplicitRendererPendingWindows()
+    {
+        var theme = CreateTheme(Guid.NewGuid());
+        var fixture = new RuntimeFixture(theme);
+        fixture.Session.State = AppliedSession(theme.Id);
+        fixture.Renderer.StatusResult =
+            OperationResult<RendererRuntimeResult>.Success(
+                ActiveRenderer(theme.Id) with { PendingWindows = 1 });
+
+        var result = await fixture.Service.GetStatusAsync(CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Partial, result.Value!.State);
+        Assert.Equal(1, result.Value.PendingWindows);
+    }
+
+    [Fact]
+    public void RendererResult_MissingPendingWindowsDefaultsToZero()
+    {
+        const string json = """
+            {
+              "runtimeVersion": 1,
+              "active": true,
+              "generation": 2,
+              "themeId": "1296cb77-2297-4992-af72-5c3cc40b32be",
+              "eligibleWindows": 1,
+              "appliedWindows": 1,
+              "auxiliaryWindows": 0,
+              "hookCount": 1
+            }
+            """;
+
+        var result = JsonSerializer.Deserialize<RendererRuntimeResult>(
+            json,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        Assert.NotNull(result);
+        Assert.Equal(0, result.PendingWindows);
     }
 
     [Fact]

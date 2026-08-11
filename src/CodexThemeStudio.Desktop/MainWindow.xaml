@@ -2379,35 +2379,51 @@
                                      ClipToBounds="True">
                                 <Grid x:Name="PreviewArtSurface"
                                       AutomationProperties.Name="模拟预览画布">
-                                    <Canvas x:Name="PreviewImageViewport"
-                                            ClipToBounds="True"
-                                            IsHitTestVisible="False">
-                                        <Image x:Name="PreviewBackgroundImage"
-                                               HorizontalAlignment="Left"
-                                               VerticalAlignment="Top"
-                                               AutomationProperties.Name="模拟预览背景图"
-                                               Source="{Binding Editor.PreviewImagePath, NotifyOnTargetUpdated=True}"
-                                               Stretch="Fill"
-                                               TargetUpdated="OnPreviewImageTargetUpdated"
-                                               Opacity="{Binding Editor.PreviewOpacity}">
-                                            <Image.Effect>
-                                                <BlurEffect Radius="{Binding Editor.Blur}" />
-                                            </Image.Effect>
-                                        </Image>
-                                    </Canvas>
-                                    <Border Background="{Binding Editor.BackgroundColor, Converter={StaticResource CssColorBrushConverter}}"
-                                            Opacity="{Binding Editor.PreviewOverlay}" />
+                                    <Grid x:Name="PreviewBackdropSource"
+                                          IsHitTestVisible="False">
+                                        <Border Background="{Binding Editor.BackgroundColor, Converter={StaticResource CssColorBrushConverter}}" />
+                                        <Canvas x:Name="PreviewImageViewport"
+                                                ClipToBounds="True">
+                                            <Image x:Name="PreviewBackgroundImage"
+                                                   HorizontalAlignment="Left"
+                                                   VerticalAlignment="Top"
+                                                   AutomationProperties.Name="模拟预览背景图"
+                                                   Source="{Binding Editor.PreviewImagePath, NotifyOnTargetUpdated=True}"
+                                                   Stretch="Fill"
+                                                   TargetUpdated="OnPreviewImageTargetUpdated"
+                                                   Opacity="{Binding Editor.PreviewOpacity}">
+                                                <Image.Effect>
+                                                    <BlurEffect Radius="{Binding Editor.Blur}" />
+                                                </Image.Effect>
+                                            </Image>
+                                        </Canvas>
+                                        <Border Background="{Binding Editor.BackgroundColor, Converter={StaticResource CssColorBrushConverter}}"
+                                                Opacity="{Binding Editor.PreviewOverlay}" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="132" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="1"
+                                                    AutomationProperties.Name="任务内容区遮罩预览"
+                                                    Background="{Binding Editor.BackgroundColor, Converter={StaticResource CssColorBrushConverter}}"
+                                                    Opacity="{Binding Editor.TaskContentOverlay}" />
+                                        </Grid>
+                                    </Grid>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="132" />
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
 
-                                        <Border Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                                        <controls:PreviewGlassPanel
+                                                AutomationProperties.Name="模拟预览侧栏"
+                                                BackdropSource="{Binding ElementName=PreviewBackdropSource}"
+                                                Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                                                BlurRadius="{Binding Editor.PanelBlur}"
                                                 BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
                                                 BorderThickness="0,0,1,0"
-                                                Opacity="0.9"
-                                                AutomationProperties.Name="模拟预览侧栏">
+                                                SurfaceOpacity="{Binding Editor.PanelSurfaceOpacity}">
                                             <Grid Margin="12,14,10,12">
                                                 <Grid.RowDefinitions>
                                                     <RowDefinition Height="Auto" />
@@ -2415,16 +2431,6 @@
                                                     <RowDefinition Height="*" />
                                                     <RowDefinition Height="Auto" />
                                                 </Grid.RowDefinitions>
-                                                <Rectangle IsHitTestVisible="False"
-                                                           Opacity="{Binding Editor.PanelGlassOpacity}">
-                                                    <Rectangle.Fill>
-                                                        <VisualBrush Visual="{Binding ElementName=PreviewBackgroundImage}"
-                                                                     Stretch="UniformToFill" />
-                                                    </Rectangle.Fill>
-                                                    <Rectangle.Effect>
-                                                        <BlurEffect Radius="{Binding Editor.PanelBlur}" />
-                                                    </Rectangle.Effect>
-                                                </Rectangle>
                                                 <DockPanel>
                                                     <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}"
                                                                FontSize="14"
@@ -2509,33 +2515,21 @@
                                                                Text="本地预览" />
                                                 </DockPanel>
                                             </Grid>
-                                        </Border>
+                                        </controls:PreviewGlassPanel>
 
                                         <Grid Grid.Column="1">
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="38" />
                                                 <RowDefinition Height="*" />
                                             </Grid.RowDefinitions>
-                                            <Border Grid.RowSpan="2"
-                                                    AutomationProperties.Name="任务内容区遮罩预览"
-                                                    Background="{Binding Editor.BackgroundColor, Converter={StaticResource CssColorBrushConverter}}"
-                                                    IsHitTestVisible="False"
-                                                    Opacity="{Binding Editor.TaskContentOverlay}" />
-                                            <Border Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                                            <controls:PreviewGlassPanel
+                                                    BackdropSource="{Binding ElementName=PreviewBackdropSource}"
+                                                    Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                                                    BlurRadius="{Binding Editor.PanelBlur}"
                                                     BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
                                                     BorderThickness="0,0,0,1"
-                                                    Opacity="0.76">
+                                                    SurfaceOpacity="{Binding Editor.PanelSurfaceOpacity}">
                                                 <Grid Margin="12,0">
-                                                    <Rectangle IsHitTestVisible="False"
-                                                               Opacity="{Binding Editor.PanelGlassOpacity}">
-                                                        <Rectangle.Fill>
-                                                            <VisualBrush Visual="{Binding ElementName=PreviewBackgroundImage}"
-                                                                         Stretch="UniformToFill" />
-                                                        </Rectangle.Fill>
-                                                        <Rectangle.Effect>
-                                                            <BlurEffect Radius="{Binding Editor.PanelBlur}" />
-                                                        </Rectangle.Effect>
-                                                    </Rectangle>
                                                     <TextBlock VerticalAlignment="Center"
                                                                Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}"
                                                                FontSize="10">
@@ -2562,7 +2556,7 @@
                                                                    Text="打开位置  ⌄" />
                                                     </Border>
                                                 </Grid>
-                                            </Border>
+                                            </controls:PreviewGlassPanel>
 
                                             <Grid Grid.Row="1"
                                                   AutomationProperties.Name="Codex 首页模拟内容">
@@ -2616,25 +2610,18 @@
                                                                    FontSize="8"
                                                                    Text="⑂  preview" />
                                                     </StackPanel>
-                                                    <Border Height="90"
+                                                    <controls:PreviewGlassPanel
+                                                            Height="90"
                                                             Padding="12,10"
+                                                            AutomationProperties.Name="Codex 首页模拟输入框"
+                                                            BackdropSource="{Binding ElementName=PreviewBackdropSource}"
                                                             Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                                                            BlurRadius="{Binding Editor.PanelBlur}"
                                                             BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
                                                             BorderThickness="1"
                                                             CornerRadius="10"
-                                                            Opacity="0.94"
-                                                            AutomationProperties.Name="Codex 首页模拟输入框">
+                                                            SurfaceOpacity="{Binding Editor.PanelSurfaceOpacity}">
                                                         <Grid>
-                                                            <Rectangle IsHitTestVisible="False"
-                                                                       Opacity="{Binding Editor.PanelGlassOpacity}">
-                                                                <Rectangle.Fill>
-                                                                    <VisualBrush Visual="{Binding ElementName=PreviewBackgroundImage}"
-                                                                                 Stretch="UniformToFill" />
-                                                                </Rectangle.Fill>
-                                                                <Rectangle.Effect>
-                                                                    <BlurEffect Radius="{Binding Editor.PanelBlur}" />
-                                                                </Rectangle.Effect>
-                                                            </Rectangle>
                                                             <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}"
                                                                        FontSize="10"
                                                                        Text="描述你想完成的任务" />
@@ -2668,7 +2655,7 @@
                                                                            Text="↑" />
                                                             </Border>
                                                         </Grid>
-                                                    </Border>
+                                                    </controls:PreviewGlassPanel>
                                                 </StackPanel>
                                             </Grid>
 
@@ -2720,23 +2707,16 @@
                                                                        FontSize="10"
                                                                        FontWeight="SemiBold"
                                                                        Text="变更文件：" />
-                                                            <Border Padding="10,8"
+                                                            <controls:PreviewGlassPanel
+                                                                    Padding="10,8"
+                                                                    BackdropSource="{Binding ElementName=PreviewBackdropSource}"
                                                                     Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                                                                    BlurRadius="{Binding Editor.PanelBlur}"
                                                                     BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
                                                                     BorderThickness="1"
                                                                     CornerRadius="8"
-                                                                    Opacity="0.92">
+                                                                    SurfaceOpacity="{Binding Editor.PanelSurfaceOpacity}">
                                                                 <Grid>
-                                                                    <Rectangle IsHitTestVisible="False"
-                                                                               Opacity="{Binding Editor.PanelGlassOpacity}">
-                                                                        <Rectangle.Fill>
-                                                                            <VisualBrush Visual="{Binding ElementName=PreviewBackgroundImage}"
-                                                                                         Stretch="UniformToFill" />
-                                                                        </Rectangle.Fill>
-                                                                        <Rectangle.Effect>
-                                                                            <BlurEffect Radius="{Binding Editor.PanelBlur}" />
-                                                                        </Rectangle.Effect>
-                                                                    </Rectangle>
                                                                     <StackPanel>
                                                                         <DockPanel>
                                                                             <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}"
@@ -2758,29 +2738,22 @@
                                                                                    Text="ui/PreviewModel.cs            +6  -2" />
                                                                     </StackPanel>
                                                                 </Grid>
-                                                            </Border>
+                                                            </controls:PreviewGlassPanel>
                                                     </StackPanel>
-                                                    <Border x:Name="TaskPreviewInput"
+                                                    <controls:PreviewGlassPanel
+                                                            x:Name="TaskPreviewInput"
                                                             Grid.Row="2"
                                                             Padding="10,8"
                                                             HorizontalAlignment="Center"
+                                                            AutomationProperties.Name="Codex 任务页模拟输入框"
+                                                            BackdropSource="{Binding ElementName=PreviewBackdropSource}"
                                                             Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                                                            BlurRadius="{Binding Editor.PanelBlur}"
                                                             BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
                                                             BorderThickness="1"
                                                             CornerRadius="10"
-                                                            Opacity="0.94"
-                                                            AutomationProperties.Name="Codex 任务页模拟输入框">
+                                                            SurfaceOpacity="{Binding Editor.PanelSurfaceOpacity}">
                                                         <Grid>
-                                                            <Rectangle IsHitTestVisible="False"
-                                                                       Opacity="{Binding Editor.PanelGlassOpacity}">
-                                                                <Rectangle.Fill>
-                                                                    <VisualBrush Visual="{Binding ElementName=PreviewBackgroundImage}"
-                                                                                 Stretch="UniformToFill" />
-                                                                </Rectangle.Fill>
-                                                                <Rectangle.Effect>
-                                                                    <BlurEffect Radius="{Binding Editor.PanelBlur}" />
-                                                                </Rectangle.Effect>
-                                                            </Rectangle>
                                                             <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}"
                                                                        FontSize="9"
                                                                        Text="继续描述任务" />
@@ -2799,7 +2772,7 @@
                                                                        FontSize="8"
                                                                        Text="5.6  ↑" />
                                                         </Grid>
-                                                    </Border>
+                                                    </controls:PreviewGlassPanel>
                                                 </Grid>
                                                 <Border x:Name="TaskPreviewEnvironmentPanel"
                                                         Grid.Column="1"

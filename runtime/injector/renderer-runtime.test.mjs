@@ -77,6 +77,9 @@ test("applies once to a complete main window and preserves pointer interaction",
   assert.equal(
     environment.document.documentElement.style.getPropertyValue("--cts-panel-blur"),
     "12px");
+  assert.equal(
+    environment.document.documentElement.style.getPropertyValue("--cts-panel-opacity"),
+    "96.64%");
   const layer = environment.findById("codex-theme-studio-layer");
   assert.equal(layer.children[0].style.opacity, "0.82");
   assert.equal(

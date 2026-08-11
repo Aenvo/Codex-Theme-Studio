@@ -352,75 +352,65 @@ public sealed class PersistenceAgentEngine
                 installed.Version);
         }
 
-        if (identityMatches)
+        var rendererStatus = await rendererClient.GetStatusAsync(
+            process,
+            cancellationToken);
+        if (!rendererStatus.IsSuccess && !identityMatches)
         {
-            var rendererStatus = await rendererClient.GetStatusAsync(
-                process,
-                cancellationToken);
-            if (rendererStatus.IsSuccess &&
-                rendererStatus.Value!.Active &&
-                rendererStatus.Value.ThemeId == verifiedSnapshot.Theme.Id &&
-                rendererStatus.Value.AppliedWindows > 0)
-            {
-                await stateStore.WriteAsync(
-                    state.Value with { LastVerifiedAtUtc = now },
-                    cancellationToken);
-                await TryCloseInspectorAsync(process);
-                return Success(
-                    ThemeRuntimeState.Persistent,
-                    "持久主题运行时标记已复核，无需重新注入。",
-                    verifiedSnapshot.Theme.Id,
-                    process.ProcessId,
-                    ThemeRuntimeEvidence.RuntimeMarkers,
-                    installed.Version);
-            }
+            await TryCloseInspectorAsync(process);
+            return OperationResult<ThemeRuntimeStatus>.Failure(
+                rendererStatus.Error!);
         }
-        else
-        {
-            var handoffStatus = await rendererClient.GetStatusAsync(
-                process,
-                cancellationToken);
-            if (!handoffStatus.IsSuccess)
-            {
-                await TryCloseInspectorAsync(process);
-                return OperationResult<ThemeRuntimeStatus>.Failure(
-                    handoffStatus.Error!);
-            }
 
-            if (handoffStatus.Value!.Active &&
-                handoffStatus.Value.ThemeId == verifiedSnapshot.Theme.Id &&
-                handoffStatus.Value.AppliedWindows > 0)
+        if (rendererStatus.IsSuccess)
+        {
+            var renderer = rendererStatus.Value!;
+            if (IsCompleteRendererTheme(
+                    renderer,
+                    verifiedSnapshot.Theme.Id))
             {
-                var handoffWrite = await stateStore.WriteAsync(
-                    new PersistenceAgentState(
+                var verifiedState = identityMatches
+                    ? state.Value with
+                    {
+                        LastVerifiedAtUtc = now,
+                        LastDiagnosticCode = null,
+                        SuppressedProcessId = null,
+                        SuppressedProcessStartedAtUtc = null,
+                        SuppressedThemeId = null,
+                    }
+                    : new PersistenceAgentState(
                         PersistenceAgentState.CurrentSchemaVersion,
                         process.ProcessId,
                         process.StartedAtUtc,
                         verifiedSnapshot.Theme.Id,
                         verifiedSnapshot.Descriptor.Fingerprint,
                         now,
-                        null),
+                        null);
+                var verifiedWrite = await stateStore.WriteAsync(
+                    verifiedState,
                     cancellationToken);
                 await TryCloseInspectorAsync(process);
-                if (!handoffWrite.IsSuccess)
+                if (!verifiedWrite.IsSuccess)
                 {
                     return OperationResult<ThemeRuntimeStatus>.Failure(
-                        handoffWrite.Error!);
+                        verifiedWrite.Error!);
                 }
 
                 return Success(
                     ThemeRuntimeState.Persistent,
-                    "Agent 已接管 GUI 应用的当前主题，无需重复注入。",
+                    identityMatches
+                        ? "持久主题运行时标记已复核，无需重新注入。"
+                        : "Agent 已接管 GUI 应用的当前主题，无需重复注入。",
                     verifiedSnapshot.Theme.Id,
                     process.ProcessId,
                     ThemeRuntimeEvidence.RuntimeMarkers,
                     installed.Version);
             }
 
-            if (handoffStatus.Value.Active &&
-                handoffStatus.Value.ThemeId is { } temporaryThemeId &&
+            if (renderer.Active &&
+                renderer.ThemeId is { } temporaryThemeId &&
                 temporaryThemeId != verifiedSnapshot.Theme.Id &&
-                handoffStatus.Value.AppliedWindows > 0)
+                renderer.AppliedWindows > 0)
             {
                 var suppressionWrite = await stateStore.WriteAsync(
                     state.Value with
@@ -469,9 +459,9 @@ public sealed class PersistenceAgentEngine
                 return OperationResult<ThemeRuntimeStatus>.Failure(apply.Error!);
             }
 
-            if (!apply.Value!.Active ||
-                apply.Value.ThemeId != verifiedSnapshot.Theme.Id ||
-                apply.Value.AppliedWindows == 0)
+            if (!IsCompleteRendererTheme(
+                    apply.Value!,
+                    verifiedSnapshot.Theme.Id))
             {
                 return OperationResult<ThemeRuntimeStatus>.Failure(
                     OperationErrorCode.InvalidResponse,
@@ -514,6 +504,17 @@ public sealed class PersistenceAgentEngine
         await inspectorService.CloseInspectorAsync(process, source.Token);
     }
 
+    private static bool IsCompleteRendererTheme(
+        RendererRuntimeResult renderer,
+        Guid themeId) =>
+        renderer.RuntimeVersion == 1 &&
+        renderer.Active &&
+        renderer.ThemeId == themeId &&
+        renderer.Failures == 0 &&
+        renderer.PendingWindows == 0 &&
+        renderer.EligibleWindows > 0 &&
+        renderer.AppliedWindows == renderer.EligibleWindows;
+
     private OperationResult<ThemeRuntimeStatus> Success(
         ThemeRuntimeState state,
         string message,
@@ -551,6 +552,10 @@ public sealed class PersistenceAgentRunner
     private readonly string appVersion;
     private readonly string mutexName;
     private readonly string stopEventName;
+    private readonly Func<
+        PersistenceAgentConfiguration,
+        CancellationToken,
+        Task<OperationResult<ThemeRuntimeStatus>>>? cycleRunner;
 
     public PersistenceAgentRunner(
         string configurationPath,
@@ -563,7 +568,11 @@ public sealed class PersistenceAgentRunner
         string configurationPath,
         string appVersion,
         string mutexName,
-        string stopEventName)
+        string stopEventName,
+        Func<
+            PersistenceAgentConfiguration,
+            CancellationToken,
+            Task<OperationResult<ThemeRuntimeStatus>>>? cycleRunner = null)
     {
         this.configurationPath = Path.GetFullPath(configurationPath);
         this.appVersion = appVersion;
@@ -571,6 +580,7 @@ public sealed class PersistenceAgentRunner
         this.stopEventName = RequireWaitHandleName(
             stopEventName,
             nameof(stopEventName));
+        this.cycleRunner = cycleRunner;
     }
 
     internal string InstanceMutexName => mutexName;
@@ -597,6 +607,10 @@ public sealed class PersistenceAgentRunner
             false,
             EventResetMode.ManualReset,
             stopEventName);
+        using var shutdown = new StopEventCancellation(
+            stopEvent,
+            cancellationToken);
+        var operationToken = shutdown.Token;
         var configurationStore =
             new PersistenceAgentConfigurationStore(configurationPath);
         var delay = TimeSpan.FromSeconds(5);
@@ -607,31 +621,73 @@ public sealed class PersistenceAgentRunner
         var lastHeartbeatAtUtc = DateTimeOffset.MinValue;
         var previousFailed = false;
 
-        _ = await diagnostics.WriteAsync(
-            DiagnosticEventFactory.Create(
-                DiagnosticSource.Agent,
-                DiagnosticLevel.Information,
-                "agent.started",
-                DiagnosticOutcome.Started,
-                sessionId,
-                appVersion,
-                operation: "persistence.agent"),
-            cancellationToken);
-
-        while (!cancellationToken.IsCancellationRequested &&
-               !stopEvent.WaitOne(TimeSpan.Zero))
+        try
         {
-            var configuration = await configurationStore.ReadAsync(cancellationToken);
-            if (!configuration.IsSuccess)
+            _ = await diagnostics.WriteAsync(
+                DiagnosticEventFactory.Create(
+                    DiagnosticSource.Agent,
+                    DiagnosticLevel.Information,
+                    "agent.started",
+                    DiagnosticOutcome.Started,
+                    sessionId,
+                    appVersion,
+                    operation: "persistence.agent"),
+                operationToken);
+
+            while (!operationToken.IsCancellationRequested)
             {
-                var configurationSignature =
-                    $"configuration:{configuration.Error!.DiagnosticCode ?? configuration.Error.Code.ToString()}";
-                var configurationNow = DateTimeOffset.UtcNow;
-                if (!string.Equals(
-                        configurationSignature,
-                        lastSignature,
-                        StringComparison.Ordinal) ||
-                    configurationNow - lastHeartbeatAtUtc >= TimeSpan.FromMinutes(15))
+                var configuration = await configurationStore.ReadAsync(operationToken);
+                if (!configuration.IsSuccess)
+                {
+                    var configurationSignature =
+                        $"configuration:{configuration.Error!.DiagnosticCode ?? configuration.Error.Code.ToString()}";
+                    var configurationNow = DateTimeOffset.UtcNow;
+                    if (!string.Equals(
+                            configurationSignature,
+                            lastSignature,
+                            StringComparison.Ordinal) ||
+                        configurationNow - lastHeartbeatAtUtc >= TimeSpan.FromMinutes(15))
+                    {
+                        _ = await diagnostics.WriteAsync(
+                            DiagnosticEventFactory.Create(
+                                DiagnosticSource.Agent,
+                                DiagnosticLevel.Error,
+                                "agent.configuration.failed",
+                                DiagnosticOutcome.Failed,
+                                sessionId,
+                                appVersion,
+                                operation: "persistence.agent",
+                                error: configuration.Error),
+                            operationToken);
+                        lastSignature = configurationSignature;
+                        lastHeartbeatAtUtc = configurationNow;
+                    }
+
+                    previousFailed = true;
+                    delay = NextBackoff(delay);
+                    await DelayOrStopAsync(stopEvent, delay, operationToken);
+                    continue;
+                }
+
+                if (!configuration.Value!.Enabled)
+                {
+                    _ = await diagnostics.WriteAsync(
+                        DiagnosticEventFactory.Create(
+                            DiagnosticSource.Agent,
+                            DiagnosticLevel.Information,
+                            "agent.stopped",
+                            DiagnosticOutcome.Succeeded,
+                            sessionId,
+                            appVersion,
+                            operation: "persistence.agent"),
+                        CancellationToken.None);
+                    return 0;
+                }
+
+                var policy = PersistenceAgentConfigurationPolicy.Validate(
+                    configuration.Value,
+                    configurationPath);
+                if (!policy.IsSuccess)
                 {
                     _ = await diagnostics.WriteAsync(
                         DiagnosticEventFactory.Create(
@@ -642,128 +698,93 @@ public sealed class PersistenceAgentRunner
                             sessionId,
                             appVersion,
                             operation: "persistence.agent",
-                            error: configuration.Error),
-                        cancellationToken);
-                    lastSignature = configurationSignature;
-                    lastHeartbeatAtUtc = configurationNow;
+                            error: policy.Error),
+                        operationToken);
+                    return 5;
                 }
 
-                previousFailed = true;
-                delay = NextBackoff(delay);
-                await DelayOrStopAsync(stopEvent, delay, cancellationToken);
-                continue;
-            }
-
-            if (!configuration.Value!.Enabled)
-            {
-                _ = await diagnostics.WriteAsync(
-                    DiagnosticEventFactory.Create(
-                        DiagnosticSource.Agent,
-                        DiagnosticLevel.Information,
-                        "agent.stopped",
-                        DiagnosticOutcome.Succeeded,
-                        sessionId,
-                        appVersion,
-                        operation: "persistence.agent"),
-                    CancellationToken.None);
-                return 0;
-            }
-
-            var policy = PersistenceAgentConfigurationPolicy.Validate(
-                configuration.Value,
-                configurationPath);
-            if (!policy.IsSuccess)
-            {
-                _ = await diagnostics.WriteAsync(
-                    DiagnosticEventFactory.Create(
-                        DiagnosticSource.Agent,
-                        DiagnosticLevel.Error,
-                        "agent.configuration.failed",
-                        DiagnosticOutcome.Failed,
-                        sessionId,
-                        appVersion,
-                        operation: "persistence.agent",
-                        error: policy.Error),
-                    cancellationToken);
-                return 5;
-            }
-
-            var client = new InjectorCommandClient(
-                configuration.Value.NodeExecutablePath,
-                configuration.Value.InjectorScriptPath,
-                targetSelection: new CodexTargetSelectionService());
-            var engine = new PersistenceAgentEngine(
-                new PersistenceSnapshotStore(),
-                client,
-                client,
-                client,
-                new PersistenceAgentStateStore(configuration.Value.StateFilePath));
-            var cycle = await engine.RunCycleAsync(
-                configuration.Value,
-                cancellationToken);
-            var signature = cycle.IsSuccess
-                ? $"state:{cycle.Value!.State}"
-                : $"error:{cycle.Error!.DiagnosticCode ?? cycle.Error.Code.ToString()}";
-            var now = DateTimeOffset.UtcNow;
-            var shouldWrite = !string.Equals(
-                    signature,
-                    lastSignature,
-                    StringComparison.Ordinal) ||
-                now - lastHeartbeatAtUtc >= TimeSpan.FromMinutes(15);
-            if (shouldWrite)
-            {
-                var recovered = cycle.IsSuccess && previousFailed;
-                var diagnosticEvent = cycle.IsSuccess
-                    ? DiagnosticEventFactory.Create(
-                        DiagnosticSource.Agent,
-                        recovered
-                            ? DiagnosticLevel.Information
-                            : GetLevel(cycle.Value!.State),
-                        recovered
-                            ? "agent.recovered"
-                            : $"agent.state.{cycle.Value!.State.ToString().ToLowerInvariant()}",
-                        recovered
-                            ? DiagnosticOutcome.Recovered
-                            : DiagnosticOutcome.State,
-                        sessionId,
-                        appVersion,
-                        operation: "persistence.agent",
-                        codexVersion: cycle.Value!.CodexVersion)
-                    : DiagnosticEventFactory.Create(
-                        DiagnosticSource.Agent,
-                        DiagnosticLevel.Error,
-                        "agent.cycle.failed",
-                        DiagnosticOutcome.Failed,
-                        sessionId,
-                        appVersion,
-                        operation: "persistence.agent",
-                        error: cycle.Error);
-                var write = await diagnostics.WriteAsync(
-                    diagnosticEvent,
-                    cancellationToken);
-                if (!write.IsSuccess)
+                var client = new InjectorCommandClient(
+                    configuration.Value.NodeExecutablePath,
+                    configuration.Value.InjectorScriptPath,
+                    targetSelection: new CodexTargetSelectionService());
+                var cycle = cycleRunner is null
+                    ? await new PersistenceAgentEngine(
+                            new PersistenceSnapshotStore(),
+                            client,
+                            client,
+                            client,
+                            new PersistenceAgentStateStore(configuration.Value.StateFilePath))
+                        .RunCycleAsync(configuration.Value, operationToken)
+                    : await cycleRunner(configuration.Value, operationToken);
+                var signature = cycle.IsSuccess
+                    ? $"state:{cycle.Value!.State}"
+                    : $"error:{cycle.Error!.DiagnosticCode ?? cycle.Error.Code.ToString()}";
+                var now = DateTimeOffset.UtcNow;
+                var shouldWrite = !string.Equals(
+                        signature,
+                        lastSignature,
+                        StringComparison.Ordinal) ||
+                    now - lastHeartbeatAtUtc >= TimeSpan.FromMinutes(15);
+                if (shouldWrite)
                 {
-                    await RecordLogWriteFailureAsync(
-                        configuration.Value.StateFilePath,
-                        write.Error!.DiagnosticCode,
-                        cancellationToken);
-                }
-                else
-                {
-                    await ClearLogWriteFailureAsync(
-                        configuration.Value.StateFilePath,
-                        cancellationToken);
+                    var recovered = cycle.IsSuccess && previousFailed;
+                    var diagnosticEvent = cycle.IsSuccess
+                        ? DiagnosticEventFactory.Create(
+                            DiagnosticSource.Agent,
+                            recovered
+                                ? DiagnosticLevel.Information
+                                : GetLevel(cycle.Value!.State),
+                            recovered
+                                ? "agent.recovered"
+                                : $"agent.state.{cycle.Value!.State.ToString().ToLowerInvariant()}",
+                            recovered
+                                ? DiagnosticOutcome.Recovered
+                                : DiagnosticOutcome.State,
+                            sessionId,
+                            appVersion,
+                            operation: "persistence.agent",
+                            codexVersion: cycle.Value!.CodexVersion)
+                        : DiagnosticEventFactory.Create(
+                            DiagnosticSource.Agent,
+                            DiagnosticLevel.Error,
+                            "agent.cycle.failed",
+                            DiagnosticOutcome.Failed,
+                            sessionId,
+                            appVersion,
+                            operation: "persistence.agent",
+                            error: cycle.Error);
+                    var write = await diagnostics.WriteAsync(
+                        diagnosticEvent,
+                        operationToken);
+                    if (!write.IsSuccess)
+                    {
+                        await RecordLogWriteFailureAsync(
+                            configuration.Value.StateFilePath,
+                            write.Error!.DiagnosticCode,
+                            operationToken);
+                    }
+                    else
+                    {
+                        await ClearLogWriteFailureAsync(
+                            configuration.Value.StateFilePath,
+                            operationToken);
+                    }
+
+                    lastSignature = signature;
+                    lastHeartbeatAtUtc = now;
                 }
 
-                lastSignature = signature;
-                lastHeartbeatAtUtc = now;
+                previousFailed = !cycle.IsSuccess;
+                delay = cycle.IsSuccess
+                    ? TimeSpan.FromSeconds(configuration.Value.PollIntervalSeconds)
+                    : NextBackoff(delay);
+                await DelayOrStopAsync(stopEvent, delay, operationToken);
             }
-
-            previousFailed = !cycle.IsSuccess;
-            delay = cycle.IsSuccess
-                ? TimeSpan.FromSeconds(configuration.Value.PollIntervalSeconds)
-                : NextBackoff(delay);
-            await DelayOrStopAsync(stopEvent, delay, cancellationToken);
+        }
+        catch (OperationCanceledException) when (
+            shutdown.IsStopRequested &&
+            !cancellationToken.IsCancellationRequested)
+        {
         }
 
         _ = await diagnostics.WriteAsync(
@@ -777,6 +798,47 @@ public sealed class PersistenceAgentRunner
                 operation: "persistence.agent"),
             CancellationToken.None);
         return 0;
+    }
+
+    private sealed class StopEventCancellation : IDisposable
+    {
+        private readonly EventWaitHandle stopEvent;
+        private readonly CancellationTokenSource source;
+        private readonly RegisteredWaitHandle registration;
+
+        public StopEventCancellation(
+            EventWaitHandle stopEvent,
+            CancellationToken cancellationToken)
+        {
+            this.stopEvent = stopEvent;
+            source = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+            registration = ThreadPool.RegisterWaitForSingleObject(
+                stopEvent,
+                static (state, _) =>
+                {
+                    try
+                    {
+                        ((CancellationTokenSource)state!).Cancel();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                    }
+                },
+                source,
+                Timeout.Infinite,
+                executeOnlyOnce: true);
+        }
+
+        public CancellationToken Token => source.Token;
+
+        public bool IsStopRequested => stopEvent.WaitOne(TimeSpan.Zero);
+
+        public void Dispose()
+        {
+            registration.Unregister(null);
+            source.Dispose();
+        }
     }
 
     public static bool SignalStop()
