@@ -33,11 +33,11 @@
   <tr>
     <td width="50%" align="center">
       <img src="docs/assets/readme/codex-theme-pink.jpg" alt="Codex Desktop 应用粉色主题后的实机效果"><br>
-      <sub>明亮主题 · Codex 首页</sub>
+      <sub>示例主题一 · Codex 首页</sub>
     </td>
     <td width="50%" align="center">
       <img src="docs/assets/readme/codex-theme-dark.jpg" alt="Codex Desktop 应用深色主题后的实机效果"><br>
-      <sub>深色主题 · Codex 首页</sub>
+      <sub>示例主题二 · Codex 首页</sub>
     </td>
   </tr>
 </table>
