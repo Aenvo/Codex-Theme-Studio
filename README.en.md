@@ -33,11 +33,11 @@ Choose a background and palette from the theme library, adjust composition, opac
   <tr>
     <td width="50%" align="center">
       <img src="docs/assets/readme/codex-theme-pink.jpg" alt="Codex Desktop with a pink custom theme applied"><br>
-      <sub>Bright theme · Codex home</sub>
+      <sub>Example theme one · Codex home</sub>
     </td>
     <td width="50%" align="center">
       <img src="docs/assets/readme/codex-theme-dark.jpg" alt="Codex Desktop with a dark custom theme applied"><br>
-      <sub>Dark theme · Codex home</sub>
+      <sub>Example theme two · Codex home</sub>
     </td>
   </tr>
 </table>
