@@ -1,0 +1,48 @@
+<Window
+    x:Class="CodexThemeStudio.Desktop.MacOS.Views.AboutWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="关于 Codex Theme Studio"
+    Width="520"
+    Height="360"
+    CanResize="False"
+    UseLayoutRounding="True"
+    WindowStartupLocation="CenterOwner">
+  <Grid Margin="28" RowDefinitions="Auto,Auto,*,Auto">
+    <Grid ColumnDefinitions="64,*" ColumnSpacing="16">
+      <Border Width="64"
+              Height="64"
+              CornerRadius="17"
+              Background="{StaticResource PrimaryBrush}">
+        <Image Width="50"
+               Height="50"
+               Source="/Assets/app-icon.png"
+               Stretch="Uniform" />
+      </Border>
+      <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+        <TextBlock FontSize="23" FontWeight="SemiBold" Text="Codex Theme Studio" />
+        <TextBlock Foreground="{StaticResource RingBrush}" Text="macOS 产品化预览" />
+      </StackPanel>
+    </Grid>
+
+    <TextBlock Grid.Row="1"
+               Margin="0,22,0,0"
+               FontWeight="SemiBold"
+               Text="macOS 本地主题管理器" />
+
+    <StackPanel Grid.Row="2" Margin="0,10,0,0" Spacing="12">
+      <TextBlock Classes="muted"
+                 TextWrapping="Wrap"
+                 Text="非 OpenAI 官方产品。第 7C.1 仅使用 fixture 数据与 fake Application，不连接 Codex、Inspector 或正式 Runtime。" />
+      <Border Height="1" Background="{StaticResource BorderBrush}" />
+      <TextBlock Classes="muted"
+                 TextWrapping="Wrap"
+                 Text="第一方源码采用 Apache License 2.0；Avalonia 与 Lucide 等第三方组件和素材适用各自许可证。" />
+    </StackPanel>
+
+    <TextBlock Grid.Row="3"
+               Classes="muted"
+               FontSize="11"
+               Text="背景图片当前仅用于 Studio 本地预览。" />
+  </Grid>
+</Window>

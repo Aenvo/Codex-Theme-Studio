@@ -1,0 +1,156 @@
+<Window
+    x:Class="CodexThemeStudio.Desktop.MacOS.Views.EditorColorWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:CodexThemeStudio.Desktop.MacOS.Views"
+    x:CompileBindings="False"
+    Title="选择颜色"
+    Width="390"
+    Height="680"
+    CanResize="False"
+    ShowInTaskbar="False"
+    WindowStartupLocation="CenterOwner">
+  <Window.Resources>
+    <views:CssColorBrushConverter x:Key="ColorBrushConverter" />
+  </Window.Resources>
+  <Grid Margin="20" RowDefinitions="Auto,160,Auto,Auto,Auto,Auto" RowSpacing="12">
+    <Grid ColumnDefinitions="*,Auto">
+      <StackPanel Spacing="4">
+        <TextBlock FontSize="18" FontWeight="SemiBold" Text="选择颜色" />
+        <TextBlock Classes="muted" Text="与 Windows 编辑器使用相同的颜色输入规则。" />
+      </StackPanel>
+      <Border Grid.Column="1"
+              Width="54"
+              Height="44"
+              CornerRadius="8"
+              BorderBrush="{StaticResource BorderBrush}"
+              BorderThickness="1"
+              Background="{Binding PreviewBrush}" />
+    </Grid>
+
+    <Grid x:Name="SaturationValueSurface"
+          Grid.Row="1"
+          ClipToBounds="True"
+          Cursor="Cross"
+          PointerPressed="SaturationValue_OnPointerPressed"
+          PointerMoved="SaturationValue_OnPointerMoved"
+          PointerReleased="SaturationValue_OnPointerReleased">
+      <Border x:Name="HueSurface" CornerRadius="8">
+        <Border.Background>
+          <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+            <GradientStop Color="White" Offset="0" />
+            <GradientStop Color="Red" Offset="1" />
+          </LinearGradientBrush>
+        </Border.Background>
+      </Border>
+      <Border CornerRadius="8">
+        <Border.Background>
+          <LinearGradientBrush StartPoint="50%,0%" EndPoint="50%,100%">
+            <GradientStop Color="#00000000" Offset="0" />
+            <GradientStop Color="#FF000000" Offset="1" />
+          </LinearGradientBrush>
+        </Border.Background>
+      </Border>
+      <Canvas IsHitTestVisible="False">
+        <Ellipse x:Name="SelectionMarker"
+                 Width="16"
+                 Height="16"
+                 Fill="Transparent"
+                 Stroke="White"
+                 StrokeThickness="3" />
+      </Canvas>
+    </Grid>
+
+    <StackPanel Grid.Row="2" Spacing="4">
+      <TextBlock Text="{Binding Hue, StringFormat=色相：{0:F0}°}" />
+      <Slider x:Name="HueSlider"
+              Minimum="0"
+              Maximum="360"
+              Value="{Binding Hue, Mode=TwoWay}" />
+      <TextBlock Text="{Binding SaturationPercent, StringFormat=饱和度：{0:F0}%}" />
+      <Slider x:Name="SaturationSlider"
+              Minimum="0"
+              Maximum="100"
+              Value="{Binding SaturationPercent, Mode=TwoWay}" />
+      <TextBlock Text="{Binding AlphaPercent, StringFormat=不透明度：{0:F0}%}" />
+      <Slider x:Name="AlphaSlider"
+              Minimum="0"
+              Maximum="100"
+              Value="{Binding AlphaPercent, Mode=TwoWay}" />
+    </StackPanel>
+
+    <Grid Grid.Row="3" ColumnDefinitions="78,*" ColumnSpacing="8">
+      <ComboBox x:Name="FormatSelector"
+                SelectedIndex="0"
+                SelectionChanged="FormatSelector_OnSelectionChanged"
+                AutomationProperties.Name="颜色格式">
+        <ComboBoxItem Content="Hex" />
+        <ComboBoxItem Content="RGB" />
+        <ComboBoxItem Content="CSS" />
+      </ComboBox>
+      <Grid Grid.Column="1">
+        <Grid x:Name="HexInputs" ColumnDefinitions="*,56,18" ColumnSpacing="5">
+          <TextBox x:Name="HexInput"
+                   FontFamily="SFMono-Regular, Menlo, monospace"
+                   TextChanged="HexInput_OnTextChanged" />
+          <TextBox x:Name="HexOpacityInput"
+                   Grid.Column="1"
+                   TextAlignment="Right"
+                   TextChanged="HexInput_OnTextChanged" />
+          <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="%" />
+        </Grid>
+        <Grid x:Name="RgbInputs"
+              IsVisible="False"
+              ColumnDefinitions="*,*,*,*"
+              ColumnSpacing="5">
+          <TextBox x:Name="RedInput" TextChanged="RgbInput_OnTextChanged" />
+          <TextBox x:Name="GreenInput" Grid.Column="1" TextChanged="RgbInput_OnTextChanged" />
+          <TextBox x:Name="BlueInput" Grid.Column="2" TextChanged="RgbInput_OnTextChanged" />
+          <TextBox x:Name="AlphaPercentInput" Grid.Column="3" TextChanged="RgbInput_OnTextChanged" />
+        </Grid>
+        <TextBox x:Name="CssInput"
+                 IsVisible="False"
+                 FontFamily="SFMono-Regular, Menlo, monospace"
+                 TextChanged="CssInput_OnTextChanged" />
+      </Grid>
+    </Grid>
+
+    <StackPanel Grid.Row="4" Spacing="6">
+      <TextBlock Classes="muted" FontSize="11" Text="主题颜色与最近使用" />
+      <ItemsControl ItemsSource="{Binding ColorOptions}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <Button Width="25"
+                    Height="25"
+                    MinHeight="25"
+                    Margin="0,0,6,4"
+                    Padding="0"
+                    Tag="{Binding}"
+                    Click="ColorSwatch_OnClick"
+                    ToolTip.Tip="{Binding}">
+              <Border Margin="2"
+                      CornerRadius="4"
+                      Background="{Binding Converter={StaticResource ColorBrushConverter}}" />
+            </Button>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+
+    <StackPanel Grid.Row="5"
+                Orientation="Horizontal"
+                HorizontalAlignment="Right"
+                Spacing="10">
+      <Button Click="Cancel_OnClick" Content="取消" />
+      <Button x:Name="ApplyColorButton"
+              Classes="primary"
+              Click="Apply_OnClick"
+              Content="使用此颜色" />
+    </StackPanel>
+  </Grid>
+</Window>

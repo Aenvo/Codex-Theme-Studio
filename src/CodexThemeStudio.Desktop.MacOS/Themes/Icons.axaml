@@ -1,0 +1,13 @@
+<ResourceDictionary
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <StreamGeometry x:Key="LucideLayoutGridGeometry">M3,3 L10,3 L10,10 L3,10 Z M14,3 L21,3 L21,10 L14,10 Z M3,14 L10,14 L10,21 L3,21 Z M14,14 L21,14 L21,21 L14,21 Z</StreamGeometry>
+  <StreamGeometry x:Key="LucideListGeometry">M8,6 L21,6 M8,12 L21,12 M8,18 L21,18 M3,6 L3.01,6 M3,12 L3.01,12 M3,18 L3.01,18</StreamGeometry>
+  <StreamGeometry x:Key="LucideSearchGeometry">M18,11 A7,7 0 1 1 4,11 A7,7 0 1 1 18,11 M16,16 L21,21</StreamGeometry>
+  <StreamGeometry x:Key="LucideRefreshGeometry">M21,12 A9,9 0 0 1 5.64,18.36 L3,16 M3,21 L3,16 L8,16 M3,12 A9,9 0 0 1 18.36,5.64 L21,8 M21,3 L21,8 L16,8</StreamGeometry>
+  <StreamGeometry x:Key="LucideTrash2Geometry">M3,6 L21,6 M8,6 L8,4 A2,2 0 0 1 10,2 L14,2 A2,2 0 0 1 16,4 L16,6 M19,6 L18,20 A2,2 0 0 1 16,22 L8,22 A2,2 0 0 1 6,20 L5,6 M10,11 L10,17 M14,11 L14,17</StreamGeometry>
+  <StreamGeometry x:Key="LucideSettingsGeometry">M9.671,4.136 A2.34,2.34 0 0 1 14.33,4.136 A2.34,2.34 0 0 0 17.649,6.051 A2.34,2.34 0 0 1 19.979,10.084 A2.34,2.34 0 0 0 19.979,13.915 A2.34,2.34 0 0 1 17.649,17.948 A2.34,2.34 0 0 0 14.33,19.863 A2.34,2.34 0 0 1 9.671,19.863 A2.34,2.34 0 0 0 6.351,17.948 A2.34,2.34 0 0 1 4.021,13.915 A2.34,2.34 0 0 0 4.021,10.084 A2.34,2.34 0 0 1 6.35,6.051 A2.34,2.34 0 0 0 9.669,4.136 M15,12 A3,3 0 1 1 9,12 A3,3 0 1 1 15,12</StreamGeometry>
+  <StreamGeometry x:Key="LucideStarGeometry">M11.53,2.3 C11.72,1.91 12.28,1.91 12.48,2.3 L14.79,6.97 C15.1,7.61 15.71,8.05 16.38,8.13 L21.55,8.89 C21.98,8.95 22.15,9.48 21.84,9.79 L18.1,13.43 C17.59,13.93 17.36,14.64 17.49,15.31 L18.38,20.45 C18.45,20.88 18,21.21 17.6,21.01 L12.99,18.58 C12.36,18.25 11.64,18.25 11.01,18.58 L6.4,21.01 C6.01,21.21 5.55,20.88 5.63,20.45 L6.51,15.31 C6.63,14.64 6.41,13.93 5.9,13.43 L2.16,9.8 C1.85,9.49 2.02,8.95 2.45,8.89 L7.62,8.13 C8.29,8.05 8.9,7.61 9.22,6.97 Z</StreamGeometry>
+  <StreamGeometry x:Key="LucideRotateGeometry">M3,12 A9,9 0 1 0 6,5.3 L3,8 M3,3 L3,8 L8,8</StreamGeometry>
+  <StreamGeometry x:Key="LucideDiamondGeometry">M2.7,10.3 C1.76,11.24 1.76,12.76 2.7,13.71 L10.29,21.3 C11.24,22.24 12.76,22.24 13.7,21.3 L21.29,13.71 C22.24,12.76 22.24,11.24 21.29,10.3 L13.7,2.71 C12.76,1.76 11.24,1.76 10.29,2.71 Z</StreamGeometry>
+</ResourceDictionary>

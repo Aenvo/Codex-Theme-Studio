@@ -1,0 +1,37 @@
+<UserControl
+    x:Class="CodexThemeStudio.Desktop.MacOS.Views.EditorColorField"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:CodexThemeStudio.Desktop.MacOS.Views"
+    x:Name="Root">
+  <UserControl.Resources>
+    <views:CssColorBrushConverter x:Key="EditorCssColorBrushConverter" />
+  </UserControl.Resources>
+  <StackPanel Spacing="4">
+    <TextBlock FontSize="11" Text="{Binding Label, ElementName=Root}" />
+    <Button x:Name="OpenButton"
+            MinHeight="38"
+            Padding="7,5"
+            HorizontalContentAlignment="Stretch"
+            Click="OpenButton_OnClick">
+      <Grid ColumnDefinitions="28,*,Auto" ColumnSpacing="7">
+        <Border Width="26"
+                Height="26"
+                CornerRadius="5"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1"
+                Background="{Binding Value, ElementName=Root, Converter={StaticResource EditorCssColorBrushConverter}}" />
+        <TextBlock Grid.Column="1"
+                   VerticalAlignment="Center"
+                   FontFamily="SFMono-Regular, Menlo, monospace"
+                   FontSize="11"
+                   Text="{Binding Value, ElementName=Root}" />
+        <TextBlock Grid.Column="2"
+                   VerticalAlignment="Center"
+                   Classes="muted"
+                   FontSize="10"
+                   Text="{Binding AlphaLabel, ElementName=Root}" />
+      </Grid>
+    </Button>
+  </StackPanel>
+</UserControl>

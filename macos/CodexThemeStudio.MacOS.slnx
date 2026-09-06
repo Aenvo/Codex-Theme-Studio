@@ -7,10 +7,12 @@
     <Project Path="../src/CodexThemeStudio.ThemeCore/CodexThemeStudio.ThemeCore.csproj" />
     <Project Path="../src/CodexThemeStudio.CodexRuntime/CodexThemeStudio.CodexRuntime.csproj" />
     <Project Path="../src/CodexThemeStudio.CodexAdapter.MacOS/CodexThemeStudio.CodexAdapter.MacOS.csproj" />
+    <Project Path="../src/CodexThemeStudio.Desktop.MacOS/CodexThemeStudio.Desktop.MacOS.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="../tests/CodexThemeStudio.Application.MacOS.Tests/CodexThemeStudio.Application.MacOS.Tests.csproj" />
     <Project Path="../tests/CodexRuntime.Tests/CodexThemeStudio.CodexRuntime.Tests.csproj" />
     <Project Path="../tests/CodexAdapter.MacOS.Tests/CodexThemeStudio.CodexAdapter.MacOS.Tests.csproj" />
+    <Project Path="../tests/CodexThemeStudio.Desktop.MacOS.Tests/CodexThemeStudio.Desktop.MacOS.Tests.csproj" />
   </Folder>
 </Solution>

@@ -1,0 +1,27 @@
+<Application
+    x:Class="CodexThemeStudio.Desktop.MacOS.App"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Name="Codex Theme Studio"
+    RequestedThemeVariant="Dark">
+  <NativeMenu.Menu>
+    <NativeMenu>
+      <NativeMenuItem Header="关于 Codex Theme Studio…" Click="About_OnClick" />
+      <NativeMenuItem Header="设置…" Gesture="Meta+OemComma" Click="Settings_OnClick" />
+    </NativeMenu>
+  </NativeMenu.Menu>
+
+  <Application.Styles>
+    <FluentTheme />
+    <StyleInclude Source="/Themes/DesignTokens.axaml" />
+    <StyleInclude Source="/Themes/ComponentStyles.axaml" />
+  </Application.Styles>
+
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="/Themes/Icons.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

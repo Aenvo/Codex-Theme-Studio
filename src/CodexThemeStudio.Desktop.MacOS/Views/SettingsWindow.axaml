@@ -1,0 +1,106 @@
+<Window
+    x:Class="CodexThemeStudio.Desktop.MacOS.Views.SettingsWindow"
+    x:DataType="vm:SettingsWindowViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:CodexThemeStudio.Desktop.MacOS.ViewModels"
+    Title="Codex Theme Studio 设置"
+    Width="680"
+    Height="500"
+    MinWidth="620"
+    MinHeight="430"
+    CanResize="True"
+    UseLayoutRounding="True"
+    WindowStartupLocation="CenterOwner">
+  <Grid Margin="24" RowDefinitions="Auto,Auto,*">
+    <StackPanel Spacing="4">
+      <TextBlock Classes="title" Text="设置" />
+      <TextBlock Classes="muted"
+                 Text="管理 macOS 本地界面偏好，并查看脱敏诊断状态。" />
+    </StackPanel>
+
+    <Border Grid.Row="1"
+            Width="310"
+            Margin="0,18,0,18"
+            Padding="3"
+            HorizontalAlignment="Left"
+            Background="{StaticResource MutedBrush}"
+            BorderBrush="{StaticResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="9">
+      <UniformGrid Columns="2">
+        <Button Classes="segment"
+                Classes.selected="{Binding IsGeneralSelected}"
+                Command="{Binding ShowGeneralCommand}"
+                Content="通用"
+                AutomationProperties.Name="通用设置" />
+        <Button Classes="segment"
+                Classes.selected="{Binding IsDiagnosticsSelected}"
+                Command="{Binding ShowDiagnosticsCommand}"
+                Content="诊断"
+                AutomationProperties.Name="诊断设置" />
+      </UniformGrid>
+    </Border>
+
+    <Border Grid.Row="2" Classes="card" Padding="22">
+      <Grid>
+        <StackPanel IsVisible="{Binding IsGeneralSelected}" Spacing="18">
+          <StackPanel Spacing="5">
+            <TextBlock FontSize="17" FontWeight="SemiBold" Text="界面" />
+            <TextBlock Classes="muted"
+                       TextWrapping="Wrap"
+                       Text="当前使用固定深色产品视觉；窗口、菜单、滚动和快捷键遵循 macOS 习惯。" />
+          </StackPanel>
+          <Border Height="1" Background="{StaticResource BorderBrush}" />
+          <StackPanel Spacing="5">
+            <TextBlock FontSize="17" FontWeight="SemiBold" Text="主题应用范围" />
+            <TextBlock Classes="muted"
+                       TextWrapping="Wrap"
+                       Text="第 7C.1 仅使用 fixture 和 fake Application。背景图片只在 Studio 内预览，不发送给 Runtime。" />
+          </StackPanel>
+          <Border Padding="12"
+                  CornerRadius="8"
+                  Background="#332A1B"
+                  BorderBrush="#6A542B"
+                  BorderThickness="1">
+            <TextBlock Foreground="{StaticResource WarningBrush}"
+                       TextWrapping="Wrap"
+                       Text="当前 macOS Runtime 能力：调色板与受支持的声明式样式。背景应用仍待后续验证。" />
+          </Border>
+        </StackPanel>
+
+        <StackPanel IsVisible="{Binding IsDiagnosticsSelected}" Spacing="14">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <Border Width="10"
+                    Height="10"
+                    CornerRadius="5"
+                    Background="{StaticResource SuccessBrush}"
+                    VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Spacing="3">
+              <TextBlock FontSize="17" FontWeight="SemiBold" Text="Fixture 诊断正常" />
+              <TextBlock Classes="muted"
+                         Text="这里只显示脱敏的 UI 状态，不连接正式 Runtime。" />
+            </StackPanel>
+          </Grid>
+          <Border Height="1" Background="{StaticResource BorderBrush}" />
+          <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="9">
+            <TextBlock Classes="muted" Text="资料库来源" />
+            <TextBlock Grid.Column="1" Text="内置无私人数据 fixture" />
+            <TextBlock Grid.Row="1" Classes="muted" Text="产品调用链" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="未连接" />
+            <TextBlock Grid.Row="2" Classes="muted" Text="Inspector" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="未访问" />
+            <TextBlock Grid.Row="3" Classes="muted" Text="关闭证明语义" />
+            <TextBlock Grid.Row="3"
+                       Grid.Column="1"
+                       TextWrapping="Wrap"
+                       Text="产品操作证明，不等同于内部会话数量" />
+          </Grid>
+          <TextBlock Classes="muted"
+                     TextWrapping="Wrap"
+                     Text="正式错误码只会在未来接入 Application.MacOS 后以脱敏形式出现；主界面始终显示用户可理解的恢复建议。" />
+        </StackPanel>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

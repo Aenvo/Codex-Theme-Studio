@@ -1,0 +1,318 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{StaticResource BackgroundBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}" />
+    <Setter Property="FontFamily" Value="-apple-system, BlinkMacSystemFont, PingFang SC" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+
+  <Style Selector="Button">
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="14,7" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Background" Value="{StaticResource SecondaryBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="Button:pointerover">
+    <Setter Property="Background" Value="{StaticResource MutedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource InputBrush}" />
+  </Style>
+  <Style Selector="Button:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource MutedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource InputBrush}" />
+  </Style>
+  <Style Selector="Button:pressed">
+    <Setter Property="Opacity" Value="0.82" />
+  </Style>
+  <Style Selector="Button:focus-visible">
+    <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Button:disabled">
+    <Setter Property="Background" Value="{StaticResource SecondaryBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}" />
+    <Setter Property="Opacity" Value="0.42" />
+  </Style>
+  <Style Selector="Button:disabled /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource SecondaryBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+  </Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{StaticResource PrimaryBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource PrimaryForegroundBrush}" />
+  </Style>
+  <Style Selector="Button.primary:pointerover">
+    <Setter Property="Background" Value="{StaticResource PrimaryHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource PrimaryHoverBrush}" />
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource PrimaryHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource PrimaryHoverBrush}" />
+  </Style>
+  <Style Selector="Button.primary:pressed">
+    <Setter Property="Background" Value="{StaticResource PrimaryPressedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource PrimaryPressedBrush}" />
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="Button.primary:pressed /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource PrimaryPressedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource PrimaryPressedBrush}" />
+  </Style>
+  <Style Selector="Button.primary:focus-visible">
+    <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Button.primary:focus-visible /template/ ContentPresenter">
+    <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Button.primary:disabled">
+    <Setter Property="Background" Value="{StaticResource PrimaryBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource PrimaryForegroundBrush}" />
+    <Setter Property="Opacity" Value="0.42" />
+  </Style>
+  <Style Selector="Button.primary:disabled /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource PrimaryBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
+  </Style>
+  <Style Selector="Button.ghost">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="Button.ghost:pointerover">
+    <Setter Property="Background" Value="{StaticResource MutedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource InputBrush}" />
+  </Style>
+  <Style Selector="Button.ghost:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource MutedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource InputBrush}" />
+  </Style>
+  <Style Selector="Button.ghost:focus-visible">
+    <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Button.ghost:focus-visible /template/ ContentPresenter">
+    <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Button.ghost:disabled">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}" />
+    <Setter Property="Opacity" Value="0.42" />
+  </Style>
+  <Style Selector="Button.ghost:disabled /template/ ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="Button.segment">
+    <Setter Property="MinWidth" Value="38" />
+    <Setter Property="Padding" Value="9" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Button.segment.selected">
+    <Setter Property="Background" Value="{StaticResource InputBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource RingBrush}" />
+  </Style>
+  <Style Selector="Button.segment.selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource InputBrush}" />
+  </Style>
+  <Style Selector="Button.sidebar-nav">
+    <Setter Property="MinHeight" Value="42" />
+    <Setter Property="Margin" Value="0,2" />
+    <Setter Property="Padding" Value="12,10" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="Button.sidebar-nav:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource MutedBrush}" />
+  </Style>
+  <Style Selector="Button.sidebar-nav:pressed /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource SidebarAccentBrush}" />
+  </Style>
+  <Style Selector="Button.sidebar-nav.selected">
+    <Setter Property="Background" Value="{StaticResource SidebarAccentBrush}" />
+  </Style>
+  <Style Selector="Button.sidebar-nav.selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource SidebarAccentBrush}" />
+  </Style>
+  <Style Selector="Button.sidebar-nav:focus-visible">
+    <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="ToggleButton.theme-favorite">
+    <Setter Property="Width" Value="36" />
+    <Setter Property="Height" Value="36" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="9" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Background" Value="#26FFFFFF" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="ToggleButton.theme-favorite:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="#3DFFFFFF" />
+  </Style>
+  <Style Selector="ToggleButton.theme-favorite:pressed /template/ ContentPresenter">
+    <Setter Property="Background" Value="#52FFFFFF" />
+  </Style>
+  <Style Selector="ToggleButton.theme-favorite:focus-visible">
+    <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.theme-favorite.checked">
+    <Setter Property="Background" Value="#26FFFFFF" />
+  </Style>
+  <Style Selector="ToggleButton.theme-favorite.checked /template/ ContentPresenter">
+    <Setter Property="Background" Value="#26FFFFFF" />
+  </Style>
+  <Style Selector="Button.card">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="{StaticResource CardBrush}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="Button.card.selected">
+    <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Button.card:pointerover">
+    <Setter Property="BorderBrush" Value="#505050" />
+  </Style>
+  <Style Selector="Button.card:focus-visible">
+    <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Border.editor-image-replace-overlay">
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="Button.editor-image:pointerover Border.editor-image-replace-overlay">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="TextBox">
+    <Setter Property="MinHeight" Value="38" />
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="Background" Value="{StaticResource MutedBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="TextBox:focus">
+    <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Background" Value="{StaticResource MutedBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="ComboBox:focus">
+    <Setter Property="BorderBrush" Value="{StaticResource RingBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="ListBoxItem">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="TextBlock.muted">
+    <Setter Property="Foreground" Value="{StaticResource MutedForegroundBrush}" />
+  </Style>
+  <Style Selector="TextBlock.title">
+    <Setter Property="FontSize" Value="27" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{StaticResource CardBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+  </Style>
+  <Style Selector="Border.sidebar-selection">
+    <Setter Property="Padding" Value="12" />
+    <Setter Property="Background" Value="{StaticResource SecondaryBrush}" />
+    <Setter Property="CornerRadius" Value="10" />
+  </Style>
+  <Style Selector="Border.state">
+    <Setter Property="Padding" Value="28" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Path.lucide">
+    <Setter Property="Fill" Value="Transparent" />
+    <Setter Property="Stroke" Value="{StaticResource ForegroundBrush}" />
+    <Setter Property="StrokeThickness" Value="2" />
+    <Setter Property="StrokeLineCap" Value="Round" />
+    <Setter Property="StrokeJoin" Value="Round" />
+    <Setter Property="Stretch" Value="Uniform" />
+  </Style>
+  <Style Selector="Path.lucide.state-icon">
+    <Setter Property="Width" Value="28" />
+    <Setter Property="Height" Value="28" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="Stroke" Value="{StaticResource MutedForegroundBrush}" />
+  </Style>
+  <Style Selector="Border.error-card">
+    <Setter Property="Padding" Value="10" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Background" Value="#2A1717" />
+    <Setter Property="BorderBrush" Value="#6A2D2D" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="Border.action-panel">
+    <Setter Property="MinHeight" Value="72" />
+    <Setter Property="Background" Value="#F0181818" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+  </Style>
+  <Style Selector="Ellipse.action-status-dot">
+    <Setter Property="Width" Value="8" />
+    <Setter Property="Height" Value="8" />
+    <Setter Property="Fill" Value="{StaticResource WarningBrush}" />
+  </Style>
+  <Style Selector="Ellipse.action-status-dot.success">
+    <Setter Property="Fill" Value="{StaticResource SuccessBrush}" />
+  </Style>
+  <Style Selector="Ellipse.action-status-dot.warning">
+    <Setter Property="Fill" Value="{StaticResource WarningBrush}" />
+  </Style>
+  <Style Selector="Ellipse.action-status-dot.danger">
+    <Setter Property="Fill" Value="{StaticResource DangerBrush}" />
+  </Style>
+  <Style Selector="TextBlock.action-status">
+    <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
+  </Style>
+  <Style Selector="TextBlock.action-status.success">
+    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+  </Style>
+  <Style Selector="TextBlock.action-status.warning">
+    <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
+  </Style>
+  <Style Selector="TextBlock.action-status.danger">
+    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+  </Style>
+  <Style Selector="ProgressBar.action-progress">
+    <Setter Property="MinWidth" Value="72" />
+    <Setter Property="Height" Value="4" />
+    <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
+    <Setter Property="Background" Value="{StaticResource MutedBrush}" />
+  </Style>
+</Styles>

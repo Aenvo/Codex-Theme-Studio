@@ -107,3 +107,47 @@
 ## 8. 验证基线
 
 UI 变更至少检查默认窗口与最小窗口下的空态、单主题、100 主题、编辑器、设置、加载、错误、禁用、Hover、Focus、Popup 和滚动。主题资料库还必须检查卡片/列表默认态与双向切换、分段器 Tooltip、共享选择状态，以及两种布局的虚拟化；设置页还必须检查文字型分段器的默认、各选中项、Hover 与键盘 Focus。源码与 ViewModel 测试不能替代真实渲染截图和人工目视检查。
+
+## 9. macOS 产品规则
+
+- macOS 使用 Avalonia 独立实现，不复用 WPF XAML；视觉 token、信息架构、主题卡片、
+  本地预览和 Apply/Restore 语义保持一致。
+- macOS 必须直接复用 Windows 的第一方 `app-icon.png` / `app-icon.svg` 字节，
+  不得用通用图标或重新绘制的近似图替代产品标识。Sidebar 的工作台、收藏、
+  回收站和设置使用与 WPF 同源的 Lucide Geometry、2 单位圆角描边和相同语义色。
+- macOS Sidebar 固定遵循 Windows 的 Header、导航、底部设置和当前选择卡结构；
+  活动项使用 `sidebar-accent`。资料库页使用全宽卡片区和底部所选主题操作栏，
+  不增加会改变 Windows 信息层级的永久右侧预览栏。
+- 保留 macOS 系统标题栏、窗口按钮、原生菜单、触控板滚动和系统文件交互。应用菜单
+  提供 About 与 `⌘,` Settings；主窗口支持 `⌘F`、`⌘R` 和 `⌘W`。
+- 内容区继续固定使用本文件的深色产品视觉，不随系统主题切换；字体使用系统 UI
+  字体并允许 PingFang SC 等 CJK 回退，不内嵌 SF Pro。
+- 首个 macOS MVP 的主流程为主题列表、选择、本地预览、临时应用和恢复。为保持
+  产品导航一致，回收站入口保留；在 Storage 接入前只显示明确的 fixture 空态，
+  还原、永久删除和清空操作保持禁用。Persistent Apply、完整编辑器、Agent 和
+  登录项不显示为可用能力。
+- 背景可以在 Studio 中本地预览，但主题卡片不增加 Windows 中不存在的能力
+  Badge；“macOS 当前不应用背景”的边界放在所选主题操作区的 Runtime 能力摘要，
+  并且背景不得发送给 Runtime。
+- 所选主题操作区复用 Windows 的固定横向结构：左侧为单行 Codex 状态和单行
+  兼容性/操作说明，中间只在操作进行时显示进度，右侧依次为“临时应用”、
+  “设为持久主题”和“还原外观”。macOS 首版的持久主题按钮保留原位置但保持
+  禁用并提供能力说明；Busy、安全收尾及失败状态不得继续允许 Apply。
+- 正常、应用中和临时应用完成时，所选主题操作区的副标题与 Windows 一致，仅显示
+  Codex 兼容性摘要（例如“未知版本 · 能力探测兼容”）；首次资格说明、背景能力
+  提示和恢复建议不得拼接进该行。只有安全收尾或失败状态可暂时用结构化操作说明
+  替代兼容性摘要。
+- macOS 的按钮组件必须映射 Windows `ButtonBaseStyle`、`PrimaryButtonStyle` 和
+  `GhostButtonStyle`：三者均为最小高度 36、内边距 14×7、8px 圆角和 2px
+  `#60A5FA` 键盘焦点环。主按钮为 `#2563EB / #1D4ED8 / #1E40AF`；
+  次级按钮默认 `#242424`、Hover `#1F1F1F` 配 `#404040` 边框；
+  Ghost 默认透明、Hover 与次级按钮一致；次级和 Ghost 的 Pressed 使用 0.82
+  透明度，Disabled 统一使用 0.42 且保留各自 Default 的背景、边框和前景；
+  平台差异只能改变字体渲染和原生焦点输入方式，不得改变这些产品色和状态语义。
+- macOS UI 不显示 PID、Target、完整 URL、Inspector 原始数据或私人内容。
+  `inspectorClosedProofCount` 只能描述为产品操作关闭证明，不能显示为 Inspector
+  会话数量。
+- 状态操作开始后，关闭窗口或停止等待不得终止必要 Cleanup；UI 使用“正在安全
+  收尾”表达不可中断阶段。
+- 第 7C 验证至少覆盖 960×620、1240×780、0/1/100 主题、Retina、完整键盘导航、
+  VoiceOver、中文输入法和 fixture-only 截图。

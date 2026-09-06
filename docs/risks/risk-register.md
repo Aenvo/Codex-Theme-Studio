@@ -34,3 +34,6 @@
 | R-26 | .NET 或 Node 在 Hardened Runtime 下需要过宽 entitlement | 第 8 阶段从 `allow-jit` 最小候选开始逐项验证；不预设 Apple Events、DYLD、disable-library-validation 或 unsigned executable memory | Open |
 | R-27 | macOS 根构建或 Contracts 变更破坏 Windows 1.2.0 | Windows WPF、Agent 和现有 Adapter 初期保持不变；跨平台 DTO 使用新增 v2 类型，所有共享变更要求 Windows完整构建和测试证据 | Open |
 | R-28 | Intel、Universal Binary 或多个 macOS/Codex 版本被当前 arm64 证据错误覆盖 | 首版只声明 macOS 14+ Apple Silicon；Intel、Universal 和兼容矩阵均保持 `To be confirmed` 并使用独立 Go/No-Go | Open |
+| R-29 | Avalonia 在 macOS 14/15 的 Tier 2 支持不足以保证真实窗口、Retina、中文输入法和 VoiceOver 质量 | 第 7C 先以 fixture、Headless 和真实窗口分层验证；VoiceOver、IME 和 App Bundle 辅助功能必须保留真机验收，不以编译或 Headless 结果替代 | Open |
+| R-30 | macOS UI 取消、关闭窗口或退出应用可能中断已开始的 Runtime Cleanup/Inspector finally | UI 只允许在状态操作开始前取消；开始后进入“安全收尾”，Application 持有独立 deadline/cleanup token，UI 不得终止 Helper 或 Node | Open |
+| R-31 | macOS UI 可能把背景本地预览、资格状态或 Inspector 关闭证明误报为真实 Runtime 能力 | 背景永久显示“macOS 当前不应用”；资格和恢复使用结构化状态；`inspectorClosedProofCount` 只表示产品操作关闭证明，不显示为会话数量 | Open |

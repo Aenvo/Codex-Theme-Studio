@@ -1,0 +1,50 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <Color x:Key="BackgroundColor">#111111</Color>
+    <Color x:Key="ForegroundColor">#F5F5F5</Color>
+    <Color x:Key="CardColor">#181818</Color>
+    <Color x:Key="PopoverColor">#1C1C1C</Color>
+    <Color x:Key="SecondaryColor">#242424</Color>
+    <Color x:Key="MutedColor">#1F1F1F</Color>
+    <Color x:Key="MutedForegroundColor">#A3A3A3</Color>
+    <Color x:Key="BorderColor">#303030</Color>
+    <Color x:Key="InputColor">#404040</Color>
+    <Color x:Key="PrimaryColor">#2563EB</Color>
+    <Color x:Key="PrimaryHoverColor">#1D4ED8</Color>
+    <Color x:Key="PrimaryPressedColor">#1E40AF</Color>
+    <Color x:Key="PrimaryForegroundColor">#FFFFFF</Color>
+    <Color x:Key="RingColor">#60A5FA</Color>
+    <Color x:Key="SelectionSurfaceColor">#1E3A5F</Color>
+    <Color x:Key="LoadingColor">#287EFF</Color>
+    <Color x:Key="SuccessColor">#34D399</Color>
+    <Color x:Key="WarningColor">#FBBF24</Color>
+    <Color x:Key="DestructiveColor">#F87171</Color>
+    <Color x:Key="SidebarColor">#0D0D0D</Color>
+    <Color x:Key="SidebarAccentColor">#202020</Color>
+    <Color x:Key="AccentSoftColor">#232323</Color>
+
+    <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}" />
+    <SolidColorBrush x:Key="ForegroundBrush" Color="{StaticResource ForegroundColor}" />
+    <SolidColorBrush x:Key="CardBrush" Color="{StaticResource CardColor}" />
+    <SolidColorBrush x:Key="PopoverBrush" Color="{StaticResource PopoverColor}" />
+    <SolidColorBrush x:Key="SecondaryBrush" Color="{StaticResource SecondaryColor}" />
+    <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource MutedColor}" />
+    <SolidColorBrush x:Key="MutedForegroundBrush" Color="{StaticResource MutedForegroundColor}" />
+    <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" />
+    <SolidColorBrush x:Key="InputBrush" Color="{StaticResource InputColor}" />
+    <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource PrimaryColor}" />
+    <SolidColorBrush x:Key="PrimaryHoverBrush" Color="{StaticResource PrimaryHoverColor}" />
+    <SolidColorBrush x:Key="PrimaryPressedBrush" Color="{StaticResource PrimaryPressedColor}" />
+    <SolidColorBrush x:Key="PrimaryForegroundBrush" Color="{StaticResource PrimaryForegroundColor}" />
+    <SolidColorBrush x:Key="RingBrush" Color="{StaticResource RingColor}" />
+    <SolidColorBrush x:Key="SelectionSurfaceBrush" Color="{StaticResource SelectionSurfaceColor}" />
+    <SolidColorBrush x:Key="LoadingBrush" Color="{StaticResource LoadingColor}" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
+    <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
+    <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DestructiveColor}" />
+    <SolidColorBrush x:Key="SidebarBrush" Color="{StaticResource SidebarColor}" />
+    <SolidColorBrush x:Key="SidebarAccentBrush" Color="{StaticResource SidebarAccentColor}" />
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="{StaticResource AccentSoftColor}" />
+  </Styles.Resources>
+</Styles>

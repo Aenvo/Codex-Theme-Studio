@@ -20,6 +20,7 @@ Codex Theme Studio 是独立实现的非 OpenAI 官方产品。发布包不包�
 | SkiaSharp | 4.150.1 | MIT |
 | SkiaSharp.NativeAssets.Win32 | 4.150.1 | MIT；另含 Skia 第三方 Notices |
 | Lucide Icons（15 个内置 WPF 矢量图标） | 2026-07-23 固定快照 | ISC；部分 Feather 衍生图标适用 MIT |
+| Avalonia UI Desktop / Native / Skia / Themes.Fluent | 12.1.0 | MIT；macOS UI 产品化依赖 |
 
 实际发布包的 `LICENSES/` 目录包含：
 
@@ -47,5 +48,6 @@ Codex Theme Studio 是独立实现的非 OpenAI 官方产品。发布包不包�
 | System.Collections.Immutable | 8.0.0 | MIT |
 | System.Reflection.Metadata | 8.0.0 | MIT |
 | SkiaSharp.NativeAssets.macOS | 4.150.1 | MIT（锁文件中的跨平台传递依赖，未打入 win-x64 发布包） |
+| Avalonia.Headless | 12.1.0 | MIT（仅 macOS UI 布局、绑定与输入测试） |
 
 许可证名称来自锁定的 NuGet 包元数据和上游随附许可证。各许可证只适用于对应的第三方组件，不表示 OpenAI 或任何第三方对 Codex Theme Studio 提供背书。

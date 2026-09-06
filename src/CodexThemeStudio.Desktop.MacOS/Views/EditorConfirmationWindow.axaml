@@ -1,0 +1,23 @@
+<Window
+    x:Class="CodexThemeStudio.Desktop.MacOS.Views.EditorConfirmationWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="取消主题编辑"
+    Width="420"
+    Height="190"
+    CanResize="False"
+    ShowInTaskbar="False"
+    WindowStartupLocation="CenterOwner">
+  <Grid Margin="22" RowDefinitions="*,Auto">
+    <StackPanel Spacing="9">
+      <TextBlock FontSize="18" FontWeight="SemiBold" Text="放弃未保存的更改？" />
+      <TextBlock Classes="muted"
+                 TextWrapping="Wrap"
+                 Text="当前草稿参数将被放弃。正式主题和当前运行主题不会改变。" />
+    </StackPanel>
+    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+      <Button Click="KeepEditing_OnClick" Content="继续编辑" />
+      <Button Classes="primary" Click="Discard_OnClick" Content="放弃更改" />
+    </StackPanel>
+  </Grid>
+</Window>

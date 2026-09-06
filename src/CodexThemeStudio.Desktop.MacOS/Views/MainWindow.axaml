@@ -1,0 +1,1067 @@
+<Window
+    x:Class="CodexThemeStudio.Desktop.MacOS.Views.MainWindow"
+    x:DataType="vm:MainWindowViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:CodexThemeStudio.Desktop.MacOS.ViewModels"
+    xmlns:views="using:CodexThemeStudio.Desktop.MacOS.Views"
+    Title="Codex Theme Studio"
+    Icon="/Assets/app-icon.png"
+    Width="1240"
+    Height="780"
+    MinWidth="960"
+    MinHeight="620"
+    UseLayoutRounding="True"
+    WindowStartupLocation="CenterScreen">
+  <Window.Resources>
+    <views:CssColorBrushConverter x:Key="CssColorBrushConverter" />
+    <views:AssetUriImageConverter x:Key="AssetUriImageConverter" />
+    <views:EditorArtStretchConverter x:Key="EditorArtStretchConverter" />
+    <views:EditorPreviewScaleConverter x:Key="EditorPreviewScaleConverter" />
+    <views:EditorFocusPointConverter x:Key="EditorFocusPointConverter" />
+  </Window.Resources>
+
+  <NativeMenu.Menu>
+    <NativeMenu>
+      <NativeMenuItem Header="编辑">
+        <NativeMenu>
+          <NativeMenuItem Header="查找主题" Gesture="Meta+F" Command="{Binding FocusSearchCommand}" />
+        </NativeMenu>
+      </NativeMenuItem>
+      <NativeMenuItem Header="显示">
+        <NativeMenu>
+          <NativeMenuItem Header="刷新 Codex 状态" Gesture="Meta+R" Command="{Binding RefreshCommand}" />
+          <NativeMenuItemSeparator />
+          <NativeMenuItem Header="卡片展示"
+                          ToggleType="Radio"
+                          IsChecked="{Binding IsCardView}"
+                          Command="{Binding ShowCardsCommand}" />
+          <NativeMenuItem Header="列表展示"
+                          ToggleType="Radio"
+                          IsChecked="{Binding IsListView}"
+                          Command="{Binding ShowListCommand}" />
+        </NativeMenu>
+      </NativeMenuItem>
+    </NativeMenu>
+  </NativeMenu.Menu>
+
+  <Grid ColumnDefinitions="240,*">
+    <Border Grid.Column="0"
+            Background="{StaticResource SidebarBrush}"
+            BorderBrush="{StaticResource BorderBrush}"
+            BorderThickness="0,0,1,0"
+            Padding="16,22">
+      <Grid RowDefinitions="Auto,*,Auto">
+        <Grid ColumnDefinitions="36,*" ColumnSpacing="8" Margin="0,0,0,22">
+          <Image Width="36"
+                 Height="36"
+                 Source="/Assets/app-icon.png"
+                 Stretch="Uniform"
+                 HorizontalAlignment="Center"
+                 VerticalAlignment="Center"
+                 AutomationProperties.Name="Codex Theme Studio 产品图标" />
+          <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+            <TextBlock FontSize="16"
+                       FontWeight="SemiBold"
+                       Text="Codex Theme Studio" />
+            <TextBlock Classes="muted"
+                       FontSize="12"
+                       Text="Codex 主题配置工作台" />
+          </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1"
+              RowDefinitions="Auto,Auto,Auto">
+          <Button x:Name="SidebarWorkbenchButton"
+                  Classes="sidebar-nav"
+                  Classes.selected="{Binding IsWorkbenchPage}"
+                  HorizontalAlignment="Stretch"
+                  Command="{Binding ShowWorkbenchCommand}"
+                  AutomationProperties.Name="工作台">
+            <StackPanel Orientation="Horizontal" Spacing="9">
+              <Path Classes="lucide" Width="16" Height="16" Data="{StaticResource LucideLayoutGridGeometry}" />
+              <TextBlock Text="工作台" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="SidebarFavoritesButton"
+                  Grid.Row="1"
+                  Classes="sidebar-nav"
+                  Classes.selected="{Binding IsFavoritesPage}"
+                  HorizontalAlignment="Stretch"
+                  Command="{Binding ShowFavoritesPageCommand}"
+                  AutomationProperties.Name="收藏">
+            <StackPanel Orientation="Horizontal" Spacing="9">
+              <Path Classes="lucide" Width="16" Height="16" Data="{StaticResource LucideStarGeometry}" />
+              <TextBlock Text="收藏" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="SidebarTrashButton"
+                  Grid.Row="2"
+                  Classes="sidebar-nav"
+                  Classes.selected="{Binding IsTrashPage}"
+                  HorizontalAlignment="Stretch"
+                  Command="{Binding ShowTrashCommand}"
+                  AutomationProperties.Name="回收站">
+            <StackPanel Orientation="Horizontal" Spacing="9">
+              <Path Classes="lucide" Width="16" Height="16" Data="{StaticResource LucideTrash2Geometry}" />
+              <TextBlock Text="回收站" />
+            </StackPanel>
+          </Button>
+        </Grid>
+
+        <StackPanel Grid.Row="2" VerticalAlignment="Bottom">
+          <Button x:Name="SidebarSettingsButton"
+                  Classes="sidebar-nav"
+                  HorizontalAlignment="Stretch"
+                  Command="{Binding ShowSettingsCommand}"
+                  AutomationProperties.Name="设置">
+            <StackPanel Orientation="Horizontal" Spacing="9">
+              <Path Classes="lucide" Width="16" Height="16" Data="{StaticResource LucideSettingsGeometry}" />
+              <TextBlock Text="设置" />
+            </StackPanel>
+          </Button>
+          <Border x:Name="SelectedThemeSidebarCard"
+                  Classes="sidebar-selection"
+                  Margin="0,14,0,0">
+            <StackPanel Spacing="3">
+              <TextBlock Classes="muted"
+                         FontSize="11"
+                         Text="当前选择" />
+              <TextBlock FontWeight="SemiBold"
+                         TextTrimming="CharacterEllipsis"
+                         Text="{Binding SelectedThemeName}" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Column="1"
+          Margin="24,20,24,20"
+          IsVisible="{Binding IsThemeLibraryPage}"
+          RowDefinitions="Auto,Auto,Auto,*,Auto">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="3">
+          <TextBlock Classes="title" Text="{Binding PageTitle}" />
+          <TextBlock Classes="muted" Text="{Binding PageSubtitle}" />
+        </StackPanel>
+        <StackPanel Grid.Column="1"
+                    Orientation="Horizontal"
+                    Spacing="10"
+                    VerticalAlignment="Top">
+          <Button Command="{Binding RestoreCommand}"
+                  IsEnabled="{Binding CanRestore}"
+                  Content="恢复默认外观"
+                  AutomationProperties.Name="恢复默认外观" />
+          <Button IsEnabled="False"
+                  Content="导入主题"
+                  AutomationProperties.Name="导入主题，后续阶段提供" />
+          <Button Classes="primary"
+                  IsEnabled="False"
+                  Content="＋ 新建主题"
+                  AutomationProperties.Name="新建主题，后续阶段提供" />
+        </StackPanel>
+      </Grid>
+
+      <Grid Grid.Row="1"
+            Margin="0,16,0,10"
+            ColumnDefinitions="*,150,150,150"
+            ColumnSpacing="12">
+        <Grid>
+          <TextBox x:Name="SearchBox"
+                   Padding="34,8,10,8"
+                   PlaceholderText="搜索主题"
+                   Text="{Binding SearchText, Mode=TwoWay}"
+                   AutomationProperties.Name="搜索主题" />
+          <Path Classes="lucide"
+                Width="15"
+                Height="15"
+                Margin="12,0,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Stroke="{StaticResource MutedForegroundBrush}"
+                IsHitTestVisible="False"
+                Data="{StaticResource LucideSearchGeometry}" />
+        </Grid>
+        <ComboBox x:Name="ScopeFilter"
+                  Grid.Column="1"
+                  HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding ScopeOptions}"
+                  SelectedItem="{Binding SelectedScope, Mode=TwoWay}"
+                  AutomationProperties.Name="主题范围" />
+        <ComboBox x:Name="TagFilter"
+                  Grid.Column="2"
+                  HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding TagOptions}"
+                  SelectedItem="{Binding SelectedTag, Mode=TwoWay}"
+                  AutomationProperties.Name="标签筛选" />
+        <ComboBox x:Name="SortFilter"
+                  Grid.Column="3"
+                  HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding SortOptions}"
+                  SelectedItem="{Binding SelectedSort, Mode=TwoWay}"
+                  AutomationProperties.Name="主题排序" />
+      </Grid>
+
+      <Grid Grid.Row="2"
+            Margin="0,0,0,10"
+            ColumnDefinitions="*,Auto">
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <Button Command="{Binding EditCommand}"
+                  Content="编辑"
+                  AutomationProperties.Name="编辑所选主题" />
+          <Button IsEnabled="False" Content="创建副本" />
+          <Button IsEnabled="False" Content="重命名" />
+          <Button IsEnabled="False" Content="导出 .cttheme" />
+          <Button IsEnabled="False" Content="移入回收站" />
+        </StackPanel>
+        <StackPanel Grid.Column="1"
+                    Orientation="Horizontal"
+                    Spacing="10">
+          <Button Command="{Binding RefreshCommand}"
+                  AutomationProperties.Name="刷新 Codex 状态"
+                  ToolTip.Tip="刷新 Codex 状态">
+            <Path Classes="lucide"
+                  Width="16"
+                  Height="16"
+                  Data="{StaticResource LucideRefreshGeometry}" />
+          </Button>
+          <Border Padding="2"
+                  CornerRadius="9"
+                  Background="{StaticResource MutedBrush}"
+                  BorderBrush="{StaticResource BorderBrush}"
+                  BorderThickness="1">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <Button Classes="segment"
+                      Classes.selected="{Binding IsCardView}"
+                      Command="{Binding ShowCardsCommand}"
+                      AutomationProperties.Name="卡片展示"
+                      ToolTip.Tip="卡片展示">
+                <Path Classes="lucide"
+                      Width="16"
+                      Height="16"
+                      Data="{StaticResource LucideLayoutGridGeometry}" />
+              </Button>
+              <Button Classes="segment"
+                      Classes.selected="{Binding IsListView}"
+                      Command="{Binding ShowListCommand}"
+                      AutomationProperties.Name="列表展示"
+                      ToolTip.Tip="列表展示">
+                <Path Classes="lucide"
+                      Width="16"
+                      Height="16"
+                      Data="{StaticResource LucideListGeometry}" />
+              </Button>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Grid>
+
+      <Grid Grid.Row="3">
+        <ListBox x:Name="CardThemeList"
+                 IsVisible="{Binding IsCardView}"
+                 ItemsSource="{Binding VisibleThemeRows}"
+                 Background="Transparent"
+                 BorderThickness="0"
+                 SelectionMode="Single"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemsPanel>
+            <ItemsPanelTemplate>
+              <VirtualizingStackPanel />
+            </ItemsPanelTemplate>
+          </ListBox.ItemsPanel>
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:ThemeCardRowViewModel">
+              <ItemsControl ItemsSource="{Binding Items}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <UniformGrid Columns="{Binding ColumnCount}" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ThemeCardViewModel">
+                    <Button Classes="card"
+                            Classes.selected="{Binding IsSelected}"
+                            Height="270"
+                            Margin="5"
+                            Command="{Binding SelectCommand}"
+                            AutomationProperties.Name="{Binding DisplayName}">
+                      <Grid RowDefinitions="126,*">
+                        <Grid>
+                          <Border CornerRadius="11,11,0,0"
+                                  ClipToBounds="True"
+                                  Background="{Binding Palette.Background, Converter={StaticResource CssColorBrushConverter}}"
+                                  ToolTip.Tip="{Binding BackgroundCapabilityLabel}">
+                            <Image Source="{Binding LocalPreviewAssetUri, Converter={StaticResource AssetUriImageConverter}}"
+                                   Stretch="UniformToFill" />
+                          </Border>
+                          <ToggleButton Classes="theme-favorite"
+                                        Classes.checked="{Binding IsFavorite}"
+                                        Margin="12"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Top"
+                                        IsVisible="{Binding ShowFavoriteButton}"
+                                        IsChecked="{Binding IsFavorite, Mode=OneWay}"
+                                        Command="{Binding ToggleFavoriteCommand}"
+                                        AutomationProperties.Name="{Binding DisplayName, StringFormat=收藏或取消收藏：{0}}">
+                            <Grid Width="18" Height="18">
+                              <Path Classes="lucide"
+                                    IsVisible="{Binding IsNotFavorite}"
+                                    Data="{StaticResource LucideStarGeometry}" />
+                              <Path Classes="lucide"
+                                    Fill="{StaticResource WarningBrush}"
+                                    Stroke="{StaticResource WarningBrush}"
+                                    IsVisible="{Binding IsFavorite}"
+                                    Data="{StaticResource LucideStarGeometry}" />
+                            </Grid>
+                          </ToggleButton>
+                        </Grid>
+                        <Grid Grid.Row="1"
+                              Margin="13,11"
+                              RowDefinitions="Auto,Auto,Auto,*,Auto">
+                          <TextBlock FontSize="16"
+                                     FontWeight="SemiBold"
+                                     TextTrimming="CharacterEllipsis"
+                                     Text="{Binding DisplayName}" />
+                          <TextBlock Grid.Row="1"
+                                     Margin="0,5,0,0"
+                                     Classes="muted"
+                                     FontSize="13"
+                                     TextTrimming="CharacterEllipsis"
+                                     Text="{Binding Subtitle}" />
+                          <ItemsControl Grid.Row="2"
+                                        Margin="0,8,0,0"
+                                        ItemsSource="{Binding PaletteColors}">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="5" />
+                              </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate>
+                                <Border Width="18"
+                                        Height="18"
+                                        CornerRadius="5"
+                                        BorderBrush="{StaticResource BorderBrush}"
+                                        BorderThickness="1"
+                                        Background="{Binding Converter={StaticResource CssColorBrushConverter}}" />
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                          <TextBlock Grid.Row="4"
+                                     Classes="muted"
+                                     FontSize="10"
+                                     Text="{Binding LastUsedLabel}" />
+                        </Grid>
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <ListBox x:Name="CompactThemeList"
+                 IsVisible="{Binding IsListView}"
+                 ItemsSource="{Binding VisibleThemes}"
+                 Background="Transparent"
+                 BorderThickness="0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemsPanel>
+            <ItemsPanelTemplate>
+              <VirtualizingStackPanel />
+            </ItemsPanelTemplate>
+          </ListBox.ItemsPanel>
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:ThemeCardViewModel">
+              <Button Classes="card"
+                      Classes.selected="{Binding IsSelected}"
+                      Height="82"
+                      Margin="0,0,0,8"
+                      Command="{Binding SelectCommand}"
+                      AutomationProperties.Name="{Binding DisplayName}">
+                <Grid ColumnDefinitions="112,*,Auto" Margin="8">
+                  <Border CornerRadius="8" ClipToBounds="True">
+                    <Image Source="{Binding LocalPreviewAssetUri, Converter={StaticResource AssetUriImageConverter}}"
+                           Stretch="UniformToFill" />
+                  </Border>
+                  <StackPanel Grid.Column="1"
+                              Margin="12,0"
+                              Spacing="3"
+                              VerticalAlignment="Center">
+                    <TextBlock FontSize="15" FontWeight="SemiBold" Text="{Binding DisplayName}" />
+                    <TextBlock Classes="muted"
+                               FontSize="13"
+                               TextTrimming="CharacterEllipsis"
+                               Text="{Binding Subtitle}" />
+                    <TextBlock Classes="muted" FontSize="10" Text="{Binding Tags}" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="2"
+                              VerticalAlignment="Center"
+                              HorizontalAlignment="Right">
+                    <ItemsControl ItemsSource="{Binding PaletteColors}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <StackPanel Orientation="Horizontal" Spacing="3" />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Border Width="12"
+                                  Height="12"
+                                  CornerRadius="3"
+                                  Background="{Binding Converter={StaticResource CssColorBrushConverter}}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </Grid>
+              </Button>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Border Classes="state"
+                IsVisible="{Binding IsLibraryLoading}">
+          <StackPanel Spacing="10" HorizontalAlignment="Center">
+            <ProgressBar IsIndeterminate="True" Width="120" />
+            <TextBlock FontWeight="SemiBold" Text="正在载入主题资料库" />
+            <TextBlock Classes="muted" Text="正在准备无私人数据的 fixture 主题。" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="state" IsVisible="{Binding IsLibraryEmpty}">
+          <StackPanel Spacing="8" HorizontalAlignment="Center">
+            <Path Classes="lucide state-icon" Data="{StaticResource LucideDiamondGeometry}" />
+            <TextBlock FontWeight="SemiBold" Text="主题资料库为空" />
+            <TextBlock Classes="muted" Text="后续接入 Storage 后可在这里管理本地主题。" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="state" IsVisible="{Binding IsFilterEmpty}">
+          <StackPanel Spacing="8" HorizontalAlignment="Center">
+            <Path Classes="lucide state-icon" Data="{StaticResource LucideSearchGeometry}" />
+            <TextBlock FontWeight="SemiBold" Text="没有符合条件的主题" />
+            <TextBlock Classes="muted" Text="清除搜索或筛选条件后再试。" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="state" IsVisible="{Binding IsLibraryError}">
+          <StackPanel Spacing="9" HorizontalAlignment="Center">
+            <Path Classes="lucide state-icon"
+                  Stroke="{StaticResource DangerBrush}"
+                  Data="{StaticResource LucideRotateGeometry}" />
+            <TextBlock FontWeight="SemiBold" Text="{Binding PrimaryErrorTitle}" />
+            <TextBlock Classes="muted"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center"
+                       Text="{Binding PrimaryErrorMessage}" />
+            <Button Command="{Binding RetryLibraryCommand}" Content="重新载入" />
+          </StackPanel>
+        </Border>
+
+        <Border x:Name="RightActionPanel"
+                Classes="action-panel"
+                ZIndex="20"
+                Padding="14,11"
+                VerticalAlignment="Bottom"
+                IsVisible="{Binding HasSelection}"
+                AutomationProperties.Name="所选主题状态">
+          <Grid ColumnDefinitions="300,*,Auto" ColumnSpacing="16">
+            <StackPanel VerticalAlignment="Center"
+                        Spacing="3"
+                        AutomationProperties.Name="ChatGPT Codex 检测状态">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Ellipse Classes="action-status-dot"
+                         Classes.success="{Binding IsActionStatusSuccess}"
+                         Classes.warning="{Binding IsActionStatusWarning}"
+                         Classes.danger="{Binding IsActionStatusDanger}" />
+                <TextBlock Classes="action-status"
+                           Classes.success="{Binding IsActionStatusSuccess}"
+                           Classes.warning="{Binding IsActionStatusWarning}"
+                           Classes.danger="{Binding IsActionStatusDanger}"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Text="{Binding ActionStatusText}"
+                           TextTrimming="CharacterEllipsis"
+                           AutomationProperties.LiveSetting="Polite" />
+              </StackPanel>
+              <TextBlock Margin="16,0,0,0"
+                         Classes="muted"
+                         FontSize="11"
+                         MaxLines="1"
+                         Text="{Binding ActionStatusDetail}"
+                         TextTrimming="CharacterEllipsis"
+                         ToolTip.Tip="{Binding ActionStatusDetail}" />
+            </StackPanel>
+
+            <ProgressBar Grid.Column="1"
+                         Classes="action-progress"
+                         Margin="0,0,2,0"
+                         VerticalAlignment="Center"
+                         IsIndeterminate="True"
+                         IsVisible="{Binding IsOperationActive}"
+                         AutomationProperties.Name="主题应用进度" />
+
+            <StackPanel Grid.Column="2"
+                        Orientation="Horizontal"
+                        Spacing="10"
+                        VerticalAlignment="Center">
+              <Button Classes="primary"
+                      Command="{Binding ApplyCommand}"
+                      IsEnabled="{Binding CanApply}"
+                      Content="临时应用"
+                      AutomationProperties.Name="临时应用所选主题" />
+              <Button IsEnabled="False"
+                      Content="设为持久主题"
+                      ToolTip.Tip="{Binding PersistenceEligibilityMessage}"
+                      AutomationProperties.Name="设为持久主题，macOS 首版暂不可用" />
+              <Button Command="{Binding RestoreCommand}"
+                      Classes="ghost"
+                      IsEnabled="{Binding CanRestore}"
+                      Content="还原外观"
+                      AutomationProperties.Name="还原官方外观" />
+            </StackPanel>
+          </Grid>
+        </Border>
+      </Grid>
+
+      <TextBlock Grid.Row="4"
+                 Margin="2,10,2,0"
+                 Classes="muted"
+                 FontSize="10"
+                 IsVisible="{Binding IsSelectionEmpty}"
+                 TextWrapping="Wrap"
+                 Text="{Binding StatusMessage}"
+                 AutomationProperties.LiveSetting="Polite" />
+    </Grid>
+
+    <Grid Grid.Column="1"
+          Margin="30,24,30,24"
+          IsVisible="{Binding IsTrashPage}"
+          RowDefinitions="Auto,Auto,*">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="5">
+          <TextBlock Classes="title" Text="回收站" />
+          <TextBlock Classes="muted" Text="0 个已删除主题" />
+        </StackPanel>
+        <Button Grid.Column="1"
+                IsEnabled="False"
+                Content="清空回收站"
+                AutomationProperties.Name="清空回收站" />
+      </Grid>
+
+      <Grid Grid.Row="1"
+            Margin="0,24,0,14"
+            ColumnDefinitions="*,Auto">
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <Button IsEnabled="False"
+                  Content="还原"
+                  AutomationProperties.Name="还原已删除主题" />
+          <Button IsEnabled="False"
+                  Content="永久删除"
+                  AutomationProperties.Name="永久删除主题" />
+        </StackPanel>
+        <Border Grid.Column="1"
+                Padding="2"
+                CornerRadius="9"
+                Background="{StaticResource MutedBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1">
+          <StackPanel Orientation="Horizontal" Spacing="2">
+            <Button Classes="segment selected"
+                    IsEnabled="False"
+                    AutomationProperties.Name="回收站卡片展示模式">
+              <Path Classes="lucide"
+                    Width="16"
+                    Height="16"
+                    Data="{StaticResource LucideLayoutGridGeometry}" />
+            </Button>
+            <Button Classes="segment"
+                    IsEnabled="False"
+                    AutomationProperties.Name="回收站列表展示模式">
+              <Path Classes="lucide"
+                    Width="16"
+                    Height="16"
+                    Data="{StaticResource LucideListGeometry}" />
+            </Button>
+          </StackPanel>
+        </Border>
+      </Grid>
+
+      <Grid Grid.Row="2">
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="10">
+          <Path Classes="lucide"
+                Width="42"
+                Height="42"
+                HorizontalAlignment="Center"
+                Stroke="{StaticResource MutedForegroundBrush}"
+                Data="{StaticResource LucideTrash2Geometry}" />
+          <TextBlock FontSize="16"
+                     FontWeight="SemiBold"
+                     HorizontalAlignment="Center"
+                     Text="回收站是空的" />
+          <TextBlock Classes="muted"
+                     TextAlignment="Center"
+                     Text="删除的主题会保留在这里，可选择还原或永久删除。" />
+        </StackPanel>
+      </Grid>
+    </Grid>
+
+    <Grid x:Name="ThemeEditorPage"
+          Grid.ColumnSpan="2"
+          ZIndex="100"
+          Background="{StaticResource BackgroundBrush}"
+          IsVisible="{Binding IsEditorPage}"
+          RowDefinitions="Auto,*,Auto">
+      <Grid ColumnDefinitions="Auto,Auto,*" Margin="24,18,24,14">
+        <Button Classes="ghost"
+                Command="{Binding CancelEditorCommand}"
+                Content="‹  主题资料库"
+                AutomationProperties.Name="返回主题资料库" />
+        <TextBlock Grid.Column="1"
+                   Margin="10,0"
+                   VerticalAlignment="Center"
+                   Classes="muted"
+                   Text="/" />
+        <TextBlock Grid.Column="2"
+                   VerticalAlignment="Center"
+                   FontWeight="SemiBold"
+                   Text="{Binding Editor.Name}"
+                   TextTrimming="CharacterEllipsis" />
+      </Grid>
+
+      <Grid Grid.Row="1" Margin="24,0" ColumnDefinitions="340,18,*">
+        <Border Classes="panel" Padding="14">
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="12">
+              <TextBlock FontSize="15" FontWeight="SemiBold" Text="基本信息" />
+              <StackPanel Spacing="5">
+                <TextBlock FontSize="12" Text="主题名称" />
+                <TextBox Text="{Binding Editor.Name, Mode=TwoWay}" />
+              </StackPanel>
+
+              <Border Padding="12"
+                      CornerRadius="10"
+                      Background="{StaticResource MutedBrush}"
+                      BorderBrush="{StaticResource BorderBrush}"
+                      BorderThickness="1">
+                <StackPanel Spacing="8">
+                  <TextBlock FontWeight="SemiBold" Text="背景图片" />
+                  <Button Height="126"
+                          x:Name="EditorImageButton"
+                          Classes="editor-image"
+                          Padding="0"
+                          DragDrop.AllowDrop="True"
+                          DragDrop.DragOver="EditorImage_OnDragOver"
+                          DragDrop.Drop="EditorImage_OnDrop"
+                          Command="{Binding SelectEditorImageCommand}"
+                          AutomationProperties.Name="上传背景图片">
+                    <Grid>
+                      <Image IsVisible="{Binding Editor.HasPreviewImage}"
+                             Source="{Binding Editor.LocalPreviewAssetUri, Converter={StaticResource AssetUriImageConverter}}"
+                             Stretch="Uniform" />
+                      <Border Classes="editor-image-replace-overlay"
+                              IsVisible="{Binding Editor.HasPreviewImage}"
+                              Background="#88000000">
+                        <StackPanel HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Spacing="5">
+                          <Path Classes="lucide" Width="18" Height="18"
+                                Data="{StaticResource LucideUploadGeometry}" />
+                          <TextBlock FontWeight="SemiBold" Text="拖拽或上传图片" />
+                          <TextBlock FontSize="10" Text="支持 PNG / JPEG / WebP 格式" />
+                        </StackPanel>
+                      </Border>
+                      <Border IsVisible="{Binding !Editor.HasPreviewImage}">
+                        <StackPanel HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Spacing="5">
+                          <Path Classes="lucide" Width="18" Height="18"
+                                Stroke="{StaticResource MutedForegroundBrush}"
+                                Data="{StaticResource LucideUploadGeometry}" />
+                          <TextBlock Text="拖拽或上传图片" />
+                          <TextBlock Classes="muted"
+                                     FontSize="10"
+                                     Text="支持 PNG / JPEG / WebP 格式" />
+                        </StackPanel>
+                      </Border>
+                    </Grid>
+                  </Button>
+                </StackPanel>
+              </Border>
+
+              <TextBlock Margin="0,4,0,0"
+                         FontSize="15"
+                         FontWeight="SemiBold"
+                         Text="构图与显示" />
+              <StackPanel Spacing="5">
+                <TextBlock FontSize="11" Text="图片适配" />
+                <ComboBox x:Name="EditorArtSizeComboBox"
+                          ItemsSource="{Binding Editor.ArtSizes}"
+                          SelectedItem="{Binding Editor.ArtSize, Mode=OneWay}"
+                          SelectionChanged="EditorArtSize_OnSelectionChanged" />
+              </StackPanel>
+              <StackPanel Spacing="4" IsVisible="{Binding Editor.IsCropMode}">
+                <TextBlock Text="{Binding Editor.CropScale, StringFormat=图片放缩：{0:P0}}" />
+                <Slider Minimum="1" Maximum="3" Value="{Binding Editor.CropScale, Mode=TwoWay}" />
+                <TextBlock Text="{Binding Editor.FocusX, StringFormat=水平位置：{0:P1}}" />
+                <Slider Minimum="0" Maximum="1" Value="{Binding Editor.FocusX, Mode=TwoWay}" />
+                <TextBlock Text="{Binding Editor.FocusY, StringFormat=垂直位置：{0:P1}}" />
+                <Slider Minimum="0" Maximum="1" Value="{Binding Editor.FocusY, Mode=TwoWay}" />
+              </StackPanel>
+              <TextBlock Text="{Binding Editor.HomeOpacity, StringFormat=首页透明度：{0:P0}}" />
+              <Slider Minimum="0" Maximum="1" Value="{Binding Editor.HomeOpacity, Mode=TwoWay}" />
+              <TextBlock Text="{Binding Editor.HomeOverlay, StringFormat=首页遮罩：{0:P0}}" />
+              <Slider Minimum="0" Maximum="1" Value="{Binding Editor.HomeOverlay, Mode=TwoWay}" />
+              <StackPanel Spacing="5">
+                <TextBlock FontSize="11" Text="任务页模式" />
+                <ComboBox ItemsSource="{Binding Editor.TaskModes}"
+                          SelectedItem="{Binding Editor.TaskMode, Mode=OneWay}"
+                          SelectionChanged="EditorTaskMode_OnSelectionChanged" />
+              </StackPanel>
+              <TextBlock Text="{Binding Editor.TaskOpacity, StringFormat=任务页透明度：{0:P0}}" />
+              <Slider Minimum="0" Maximum="1" Value="{Binding Editor.TaskOpacity, Mode=TwoWay}" />
+              <TextBlock Text="{Binding Editor.TaskOverlay, StringFormat=任务内容区遮罩深度：{0:P0}}" />
+              <Slider Minimum="0" Maximum="1"
+                      IsEnabled="{Binding Editor.IsTaskOverlayEnabled}"
+                      Value="{Binding Editor.TaskOverlay, Mode=TwoWay}" />
+              <TextBlock Text="{Binding Editor.Blur, StringFormat=图片模糊效果：{0:F0} px}" />
+              <Slider Minimum="0" Maximum="64" Value="{Binding Editor.Blur, Mode=TwoWay}" />
+
+              <Grid Margin="0,4,0,0" ColumnDefinitions="*,Auto">
+                <TextBlock FontSize="15" FontWeight="SemiBold" Text="颜色" />
+                <Button Grid.Column="1"
+                        Classes="ghost"
+                        MinHeight="28"
+                        Padding="7"
+                        Command="{Binding Editor.ResetDefaultsCommand}"
+                        ToolTip.Tip="恢复主题默认颜色"
+                        AutomationProperties.Name="恢复主题默认颜色">
+                  <Path Classes="lucide" Width="14" Height="14"
+                        Data="{StaticResource LucideRotateGeometry}" />
+                </Button>
+              </Grid>
+              <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="9">
+                <views:EditorColorField x:Name="EditorBackgroundColorField"
+                                        Label="背景"
+                                        Editor="{Binding Editor}"
+                                        Value="{Binding Editor.BackgroundColor, Mode=TwoWay}" />
+                <views:EditorColorField x:Name="EditorPanelColorField"
+                                        Grid.Column="1"
+                                        Label="面板"
+                                        Editor="{Binding Editor}"
+                                        Value="{Binding Editor.PanelColor, Mode=TwoWay}" />
+                <views:EditorColorField x:Name="EditorAccentColorField"
+                                        Grid.Row="1"
+                                        Label="强调"
+                                        Editor="{Binding Editor}"
+                                        Value="{Binding Editor.AccentColor, Mode=TwoWay}" />
+                <views:EditorColorField x:Name="EditorTextColorField"
+                                        Grid.Row="1"
+                                        Grid.Column="1"
+                                        Label="正文"
+                                        Editor="{Binding Editor}"
+                                        Value="{Binding Editor.TextColor, Mode=TwoWay}" />
+                <views:EditorColorField x:Name="EditorMutedColorField"
+                                        Grid.Row="2"
+                                        Label="弱化文字"
+                                        Editor="{Binding Editor}"
+                                        Value="{Binding Editor.MutedColor, Mode=TwoWay}" />
+                <views:EditorColorField x:Name="EditorBorderColorField"
+                                        Grid.Row="2"
+                                        Grid.Column="1"
+                                        Label="边框"
+                                        Editor="{Binding Editor}"
+                                        Value="{Binding Editor.BorderColor, Mode=TwoWay}" />
+              </Grid>
+              <TextBlock Text="{Binding Editor.PanelBlur, StringFormat=面板毛玻璃效果：{0:F0} px}" />
+              <Slider Minimum="0" Maximum="64" Value="{Binding Editor.PanelBlur, Mode=TwoWay}" />
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+
+        <Grid Grid.Column="2" RowDefinitions="Auto,*">
+          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+            <Button Classes="segment"
+                    Classes.selected="{Binding Editor.IsHomePreview}"
+                    Command="{Binding Editor.ShowHomePreviewCommand}"
+                    Content="首页预览" />
+            <Button Classes="segment"
+                    Classes.selected="{Binding Editor.IsTaskPreview}"
+                    Command="{Binding Editor.ShowTaskPreviewCommand}"
+                    Content="任务页预览" />
+          </StackPanel>
+          <Border Grid.Row="1"
+                  CornerRadius="12"
+                  ClipToBounds="True"
+                  Background="{Binding Editor.BackgroundColor, Converter={StaticResource CssColorBrushConverter}}"
+                  BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
+                  BorderThickness="1">
+            <Grid RowDefinitions="38,*">
+              <Border Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                      BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
+                      BorderThickness="0,0,0,1">
+                <Grid ColumnDefinitions="*,Auto" Margin="12,0">
+                  <Image Source="{Binding Editor.LocalPreviewAssetUri, Converter={StaticResource AssetUriImageConverter}}"
+                         Grid.ColumnSpan="2"
+                         Stretch="UniformToFill"
+                         Opacity="{Binding Editor.PanelGlassOpacity}">
+                    <Image.Effect>
+                      <BlurEffect Radius="{Binding Editor.PanelBlur}" />
+                    </Image.Effect>
+                  </Image>
+                  <TextBlock VerticalAlignment="Center"
+                             Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}"
+                             FontWeight="SemiBold"
+                             IsVisible="{Binding Editor.IsHomePreview}"
+                             Text="Codex" />
+                  <TextBlock VerticalAlignment="Center"
+                             Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}"
+                             FontSize="11"
+                             IsVisible="{Binding Editor.IsTaskPreview}"
+                             Text="▱  示例任务     ···" />
+                  <Border Grid.Column="1"
+                          Padding="8,4"
+                          CornerRadius="7"
+                          Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                          BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
+                          BorderThickness="1">
+                    <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}"
+                               FontSize="9"
+                               Text="打开位置  ⌄" />
+                  </Border>
+                </Grid>
+              </Border>
+              <Grid Grid.Row="1" ColumnDefinitions="132,*">
+                <Border Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                        BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
+                        BorderThickness="0,0,1,0">
+                  <Grid>
+                    <Image Source="{Binding Editor.LocalPreviewAssetUri, Converter={StaticResource AssetUriImageConverter}}"
+                           Stretch="UniformToFill"
+                           Opacity="{Binding Editor.PanelGlassOpacity}">
+                      <Image.Effect>
+                        <BlurEffect Radius="{Binding Editor.PanelBlur}" />
+                      </Image.Effect>
+                    </Image>
+                    <Grid Margin="12,14,10,12" RowDefinitions="Auto,*,Auto">
+                      <StackPanel Spacing="10">
+                        <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}" FontWeight="SemiBold" Text="Codex  ⌄" />
+                        <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}" Text="＋  新建任务" />
+                        <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}" Text="⑂  拉取请求" />
+                        <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}" Text="▦  站点" />
+                        <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}" Text="◷  已安排" />
+                        <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}" Text="◎  插件" />
+                      </StackPanel>
+                      <StackPanel Grid.Row="1" Margin="0,18,0,0" Spacing="10">
+                        <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}" FontSize="9" Text="置顶  ›" />
+                        <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}" FontSize="9" Text="项目  ›" />
+                        <Border Padding="5,6" CornerRadius="5"
+                                Background="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}">
+                          <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}" FontSize="9" Text="示例任务" />
+                        </Border>
+                        <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}" FontSize="9" Text="最近  ›" />
+                      </StackPanel>
+                      <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="7">
+                        <Border Width="20" Height="20" CornerRadius="10"
+                                Background="{Binding Editor.AccentColor, Converter={StaticResource CssColorBrushConverter}}">
+                          <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="8" Text="LP" />
+                        </Border>
+                        <TextBlock VerticalAlignment="Center"
+                                   Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}"
+                                   FontSize="9" Text="本地预览" />
+                      </StackPanel>
+                    </Grid>
+                  </Grid>
+                </Border>
+                <Grid Grid.Column="1">
+                  <Image Source="{Binding Editor.LocalPreviewAssetUri, Converter={StaticResource AssetUriImageConverter}}"
+                         Stretch="{Binding Editor.ArtSize, Converter={StaticResource EditorArtStretchConverter}}"
+                         Opacity="{Binding Editor.PreviewOpacity}">
+                    <Image.RenderTransformOrigin>
+                      <MultiBinding Converter="{StaticResource EditorFocusPointConverter}">
+                        <Binding Path="Editor.FocusX" />
+                        <Binding Path="Editor.FocusY" />
+                      </MultiBinding>
+                    </Image.RenderTransformOrigin>
+                    <Image.RenderTransform>
+                      <ScaleTransform ScaleX="{Binding Editor.PreviewScale}"
+                                      ScaleY="{Binding Editor.PreviewScale}" />
+                    </Image.RenderTransform>
+                    <Image.Effect>
+                      <BlurEffect Radius="{Binding Editor.Blur}" />
+                    </Image.Effect>
+                  </Image>
+                  <Border Background="#FF000000"
+                          Opacity="{Binding Editor.PreviewOverlay}"
+                          IsVisible="{Binding Editor.IsHomePreview}" />
+                  <Border Background="{Binding Editor.BackgroundColor, Converter={StaticResource CssColorBrushConverter}}"
+                          Opacity="{Binding Editor.TaskContentOverlay}"
+                          IsVisible="{Binding Editor.IsTaskPreview}" />
+                  <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="9"
+                              IsVisible="{Binding Editor.IsHomePreview}">
+                    <Border Width="34" Height="34" CornerRadius="17"
+                            Background="{Binding Editor.AccentColor, Converter={StaticResource CssColorBrushConverter}}" />
+                    <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}"
+                               FontSize="22"
+                               FontWeight="SemiBold"
+                               Text="今天想创建什么？" />
+                    <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}"
+                               Text="本地预览 · 不连接 Codex" />
+                  </StackPanel>
+                  <Border Margin="40,0,40,28"
+                          Height="88"
+                          Padding="16,13"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Bottom"
+                          Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                          BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
+                          BorderThickness="1"
+                          CornerRadius="11"
+                          IsVisible="{Binding Editor.IsHomePreview}">
+                    <Grid>
+                      <Image Source="{Binding Editor.LocalPreviewAssetUri, Converter={StaticResource AssetUriImageConverter}}"
+                             Stretch="UniformToFill"
+                             Opacity="{Binding Editor.PanelGlassOpacity}">
+                        <Image.Effect>
+                          <BlurEffect Radius="{Binding Editor.PanelBlur}" />
+                        </Image.Effect>
+                      </Image>
+                      <Grid RowDefinitions="Auto,Auto">
+                        <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}"
+                                   Text="描述你想完成的任务" />
+                        <Grid Grid.Row="1" Margin="0,18,0,0" ColumnDefinitions="*,Auto">
+                          <TextBlock Foreground="{Binding Editor.AccentColor, Converter={StaticResource CssColorBrushConverter}}"
+                                     FontSize="10"
+                                     Text="◉  完全访问" />
+                          <Border Grid.Column="1"
+                                  Width="24"
+                                  Height="24"
+                                  CornerRadius="12"
+                                  Background="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}">
+                            <TextBlock HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Foreground="{Binding Editor.BackgroundColor, Converter={StaticResource CssColorBrushConverter}}"
+                                       Text="↑" />
+                          </Border>
+                        </Grid>
+                      </Grid>
+                    </Grid>
+                  </Border>
+                  <Grid x:Name="EditorTaskPreviewGrid"
+                        IsVisible="{Binding Editor.IsTaskPreview}"
+                        Margin="18,0,18,16"
+                        >
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="0" />
+                    </Grid.ColumnDefinitions>
+                    <Grid RowDefinitions="34,*,78">
+                      <TextBlock VerticalAlignment="Center"
+                                 Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}"
+                                 FontSize="10"
+                                 Text="已处理  2m 14s  ›" />
+                      <StackPanel Grid.Row="1"
+                                  Margin="0,12,0,12"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Top"
+                                  MaxWidth="520"
+                                  Spacing="10">
+                        <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}"
+                                   FontWeight="SemiBold" Text="已完成：" />
+                        <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}"
+                                   TextWrapping="Wrap"
+                                   Text="• 调整了预览界面的结构与信息层级。&#10;• 使用虚构内容保护个人信息。&#10;• 保留主题颜色与背景强度的实时反馈。" />
+                        <TextBlock Margin="0,4,0,0"
+                                   Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}"
+                                   FontWeight="SemiBold"
+                                   Text="变更文件：" />
+                        <Border Padding="12,10"
+                                Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                                BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
+                                BorderThickness="1" CornerRadius="9">
+                          <StackPanel Spacing="6">
+                            <Grid ColumnDefinitions="*,Auto">
+                              <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}"
+                                         FontWeight="SemiBold" Text="已编辑 2 个文件" />
+                              <TextBlock Grid.Column="1"
+                                         Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}"
+                                         FontSize="9" Text="审阅" />
+                            </Grid>
+                            <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}"
+                                       FontSize="9" Text="ui/ThemePreview.axaml        +12  -4" />
+                            <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}"
+                                       FontSize="9" Text="ui/PreviewModel.cs             +6  -2" />
+                          </StackPanel>
+                        </Border>
+                      </StackPanel>
+                      <Border Grid.Row="2" Height="64" Padding="12,9" CornerRadius="10"
+                              Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                              BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
+                              BorderThickness="1">
+                        <Grid RowDefinitions="Auto,*" ColumnDefinitions="*,Auto">
+                          <Image Grid.RowSpan="2" Grid.ColumnSpan="2"
+                                 Source="{Binding Editor.LocalPreviewAssetUri, Converter={StaticResource AssetUriImageConverter}}"
+                                 Stretch="UniformToFill"
+                                 Opacity="{Binding Editor.PanelGlassOpacity}">
+                            <Image.Effect>
+                              <BlurEffect Radius="{Binding Editor.PanelBlur}" />
+                            </Image.Effect>
+                          </Image>
+                          <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}"
+                                     FontSize="10" Text="继续描述任务" />
+                          <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+                            <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}" Text="＋" />
+                            <TextBlock Foreground="{Binding Editor.AccentColor, Converter={StaticResource CssColorBrushConverter}}" FontSize="9" Text="◉  完全访问" />
+                          </StackPanel>
+                          <TextBlock Grid.Row="1" Grid.Column="1"
+                                     VerticalAlignment="Bottom"
+                                     Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}"
+                                     FontSize="9" Text="5.6  ↑" />
+                        </Grid>
+                      </Border>
+                    </Grid>
+                    <Border x:Name="EditorTaskEnvironmentPanel"
+                            Grid.Column="1"
+                            Margin="16,16,0,0"
+                            Padding="14"
+                            VerticalAlignment="Top"
+                            IsVisible="False"
+                            Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                            BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                      <StackPanel Spacing="8">
+                        <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}" FontSize="9" Text="环境信息" />
+                        <Separator Background="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}" />
+                        <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}" FontSize="9" Text="▣  变更" />
+                        <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}" FontSize="9" Text="▭  本地" />
+                        <TextBlock Foreground="{Binding Editor.TextColor, Converter={StaticResource CssColorBrushConverter}}" FontSize="9" Text="⑂  preview" />
+                        <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}" FontSize="8" Text="仅模拟，不连接" />
+                      </StackPanel>
+                    </Border>
+                  </Grid>
+                </Grid>
+              </Grid>
+            </Grid>
+          </Border>
+        </Grid>
+      </Grid>
+
+      <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="24,14,24,18">
+        <TextBlock VerticalAlignment="Center"
+                   Classes="muted"
+                   Text="所有修改先进入草稿；模拟预览不等同于真实 Codex 渲染验证。" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+          <Button Command="{Binding CancelEditorCommand}" Content="取消编辑" />
+          <Button Command="{Binding SaveCopyEditorCommand}" Content="另存为副本" />
+          <Button Classes="primary" Command="{Binding SaveEditorCommand}" Content="保存主题" />
+        </StackPanel>
+      </Grid>
+    </Grid>
+  </Grid>
+</Window>

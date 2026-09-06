@@ -72,6 +72,19 @@ export DOTNET_ROOT="${DOTNET:h}"
   --no-restore
 
 "$DOTNET" restore \
+  ../tests/CodexThemeStudio.Desktop.MacOS.Tests/CodexThemeStudio.Desktop.MacOS.Tests.csproj \
+  --locked-mode
+"$DOTNET" build \
+  ../tests/CodexThemeStudio.Desktop.MacOS.Tests/CodexThemeStudio.Desktop.MacOS.Tests.csproj \
+  --configuration Release \
+  --no-restore
+"$DOTNET" test \
+  ../tests/CodexThemeStudio.Desktop.MacOS.Tests/CodexThemeStudio.Desktop.MacOS.Tests.csproj \
+  --configuration Release \
+  --no-build \
+  --no-restore
+
+"$DOTNET" restore \
   CodexThemeStudio.RuntimeHost/CodexThemeStudio.RuntimeHost.csproj \
   --locked-mode
 "$DOTNET" build \

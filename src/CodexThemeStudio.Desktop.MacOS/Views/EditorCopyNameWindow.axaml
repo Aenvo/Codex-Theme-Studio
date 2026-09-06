@@ -1,0 +1,22 @@
+<Window
+    x:Class="CodexThemeStudio.Desktop.MacOS.Views.EditorCopyNameWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="另存为主题副本"
+    Width="420"
+    Height="210"
+    CanResize="False"
+    ShowInTaskbar="False"
+    WindowStartupLocation="CenterOwner">
+  <Grid Margin="22" RowDefinitions="*,Auto">
+    <StackPanel Spacing="9">
+      <TextBlock FontSize="18" FontWeight="SemiBold" Text="另存为主题副本" />
+      <TextBlock Classes="muted" Text="输入副本名称。原主题不会被修改。" />
+      <TextBox x:Name="CopyNameBox" AutomationProperties.Name="主题副本名称" />
+    </StackPanel>
+    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+      <Button Click="Cancel_OnClick" Content="取消" />
+      <Button Classes="primary" Click="Save_OnClick" Content="保存副本" />
+    </StackPanel>
+  </Grid>
+</Window>
