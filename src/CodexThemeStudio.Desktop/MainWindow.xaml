@@ -2886,7 +2886,7 @@
                                             <WrapPanel Margin="0,14,0,0">
                                                 <Button Style="{StaticResource PrimaryButtonStyle}"
                                                         Command="{Binding SelectCodexExecutableCommand}"
-                                                        Content="选择 Codex EXE" />
+                                                        Content="选择 Codex 程序" />
                                                 <Button Command="{Binding RedetectCodexCommand}"
                                                         Content="重新检测" />
                                                 <Button Style="{StaticResource GhostButtonStyle}"

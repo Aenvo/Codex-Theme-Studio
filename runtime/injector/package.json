@@ -8,6 +8,6 @@
   },
   "scripts": {
     "self-test": "node index.mjs self-test",
-    "test": "node --test security.test.mjs renderer-payload.test.mjs renderer-runtime.test.mjs main-runtime.test.mjs"
+    "test": "node --test security.test.mjs inspector-lifecycle.test.mjs renderer-payload.test.mjs renderer-runtime.test.mjs main-runtime.test.mjs"
   }
 }

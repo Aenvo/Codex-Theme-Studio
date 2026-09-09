@@ -39,7 +39,10 @@ Inspector 当前固定使用端口 9229，并执行以下门禁：
 
 探针使用 `process._debugProcess(PID)` 短时打开 Node Inspector，并通过
 `process._debugEnd()` 关闭。成功与失败路径都尝试清理；成功返回前再次确认
-9229 已无监听。
+9229 已无监听。开启与关闭等待使用 Node 本地 TCP 探测，只有在端口状态转换时
+才调用 Windows 端口 API 核对回环地址和 OwningProcess；不在短时门限内反复启动
+PowerShell 进程。TCP 可达本身不构成信任，读取 Inspector 元数据前仍必须完成
+权威端口所有者校验。
 
 ## 能力探针
 
@@ -98,6 +101,13 @@ PowerShell 5.1，而不是只在当前开发 Shell 中解析脚本。
 元数据就绪，关闭后也需要更长时间才能稳定重开；Injector 因此在总门限内重试
 暂态连接、等待端口稳定关闭，协议或端口所有者异常仍立即拒绝。最终清理为
 `active=false`、`hookCount=0`，端口 9229 无监听；未执行持久化 enable/disable。
+
+2026-09-09 在 Store Codex `26.903.8094.0` / Electron `152.0.7977.83`
+上复现 Windows 端口查询单次约需 3.7 秒，旧逻辑在 6 秒开启门限内先执行查询、
+再发送调试信号，导致 Inspector 已可开启但操作误报超时。改为先发送信号并使用
+本地 TCP 等待后，真实只读 probe 通过：2 个窗口中 1 个主窗口合格，Canary 应用
+与清理均成功，最终端口 9229 无监听。本次未执行持久化 enable/disable，也未据此
+更新持久化资格记录。
 
 ## 启动组合检查
 

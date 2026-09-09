@@ -20,6 +20,10 @@ import {
   evaluate,
   fetchInspectorMetadata,
 } from "./security.mjs";
+import {
+  openInspector,
+  waitForInspectorClosed,
+} from "./inspector-lifecycle.mjs";
 
 const service = "CodexThemeStudio.Injector";
 const version = "0.3.0";
@@ -282,11 +286,7 @@ async function executeRendererOperation(processId, executablePath, expression) {
     });
     await assertSnapshotUnchanged(before, executablePath);
   } finally {
-    if (!metadata) {
-      metadata = await fetchInspectorMetadata(inspectorPort);
-    }
-    await requestInspectorClose(metadata.webSocketUrl);
-    await waitForPortClosed(processId);
+    await closeInspectorAfterOperation(processId, metadata);
   }
 
   return {
@@ -343,11 +343,7 @@ async function probe(processId, executablePath) {
       diagnosticCode: result.diagnosticCode,
     };
   } finally {
-    if (!metadata) {
-      metadata = await fetchInspectorMetadata(inspectorPort);
-    }
-    await requestInspectorClose(metadata.webSocketUrl);
-    await waitForPortClosed(processId);
+    await closeInspectorAfterOperation(processId, metadata);
   }
 
   return {
@@ -411,11 +407,7 @@ async function inspectStatus(processId, executablePath) {
       diagnosticCode: probeResult.diagnosticCode,
     };
   } finally {
-    if (!metadata) {
-      metadata = await fetchInspectorMetadata(inspectorPort);
-    }
-    await requestInspectorClose(metadata.webSocketUrl);
-    await waitForPortClosed(processId);
+    await closeInspectorAfterOperation(processId, metadata);
   }
 
   const duration = millisecondsToTimeSpan(performance.now() - openedAt);
@@ -443,6 +435,19 @@ async function closeInspectorForProcess(processId, executablePath) {
   assertPortOwner(listeners, processId);
   const metadata = await fetchInspectorMetadata(inspectorPort);
   await assertSnapshotUnchanged(before, executablePath);
+  await requestInspectorClose(metadata.webSocketUrl);
+  await waitForPortClosed(processId);
+}
+
+async function closeInspectorAfterOperation(processId, metadata) {
+  if (!metadata) {
+    const listeners = await getPortListeners();
+    if (listeners.length === 0) {
+      return;
+    }
+    assertPortOwner(listeners, processId);
+    metadata = await fetchInspectorMetadata(inspectorPort);
+  }
   await requestInspectorClose(metadata.webSocketUrl);
   await waitForPortClosed(processId);
 }
@@ -498,70 +503,27 @@ async function getPortListeners() {
 }
 
 async function openInspectorForProcess(processId, initialListeners) {
-  if (initialListeners.length > 0) {
-    assertPortOwner(initialListeners, processId);
-  }
-
-  const deadline = Date.now() + 6000;
-  let lastOpenRequestAt = initialListeners.length > 0 ? Date.now() : 0;
-  let requestedOnce = false;
-  while (Date.now() < deadline) {
-    const listeners = await getPortListeners();
-    if (listeners.length > 0) {
-      assertPortOwner(listeners, processId);
-      try {
-        return await fetchInspectorMetadata(inspectorPort, {
-          timeoutMs: Math.min(750, Math.max(1, deadline - Date.now())),
-        });
-      } catch (error) {
-        if (!error?.retryable) {
-          throw error;
-        }
-      }
-    } else if (Date.now() - lastOpenRequestAt >= 750) {
-      try {
-        process._debugProcess(processId);
-        requestedOnce = true;
-      } catch {
-        if (!requestedOnce) {
-          throw commandError(
-            "access_denied",
-            "无法为已校验的 Codex 主进程短时打开 Inspector。",
-            false);
-        }
-      }
-      lastOpenRequestAt = Date.now();
-    }
-    await delay(75);
-  }
-  throw commandError(
-    "timeout",
-    "等待 Codex Inspector 打开超时。",
-    true);
+  return await openInspector({
+    processId,
+    initialListeners,
+    port: inspectorPort,
+    timeoutMs: 6000,
+    getPortListeners,
+    assertPortOwner,
+    fetchMetadata: fetchInspectorMetadata,
+    requestOpen: (targetProcessId) => process._debugProcess(targetProcessId),
+  });
 }
 
 async function waitForPortClosed(processId) {
-  const deadline = Date.now() +
-    inspectorCloseTimeoutMs +
-    inspectorClosedSettleMs;
-  let closedAt;
-  while (Date.now() < deadline) {
-    const listeners = await getPortListeners();
-    if (listeners.length === 0) {
-      closedAt ??= Date.now();
-      if (Date.now() - closedAt >= inspectorClosedSettleMs) {
-        return;
-      }
-    } else {
-      closedAt = undefined;
-      assertPortOwner(listeners, processId);
-    }
-    await delay(75);
-  }
-  throw commandError(
-    "timeout",
-    "等待 Codex Inspector 关闭超时。",
-    true);
+  await waitForInspectorClosed({
+    processId,
+    port: inspectorPort,
+    timeoutMs: inspectorCloseTimeoutMs,
+    settleMs: inspectorClosedSettleMs,
+    getPortListeners,
+    assertPortOwner,
+  });
 }
 
 async function invokeDiscovery(mode, namedArguments = {}) {
