@@ -383,6 +383,7 @@ Copy-RequiredFile `
 
 $injectorFiles = @(
     'index.mjs',
+    'inspector-lifecycle.mjs',
     'main-runtime.mjs',
     'renderer-payload.mjs',
     'renderer-runtime.mjs',

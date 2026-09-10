@@ -5,6 +5,7 @@ namespace CodexThemeStudio.Update.Tests;
 public sealed class SemanticVersionTests
 {
     [Theory]
+    [InlineData("v1.3.2", "1.3.1", 1)]
     [InlineData("v1.3.1", "1.3.0", 1)]
     [InlineData("v1.3.0", "1.2.2", 1)]
     [InlineData("1.2.2", "1.2.2", 0)]

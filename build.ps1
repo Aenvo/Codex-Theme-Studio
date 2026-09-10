@@ -171,6 +171,7 @@ try {
     Invoke-Checked $node @(
         '--test',
         'runtime\injector\security.test.mjs',
+        'runtime\injector\inspector-lifecycle.test.mjs',
         'runtime\injector\renderer-payload.test.mjs',
         'runtime\injector\renderer-runtime.test.mjs',
         'runtime\injector\main-runtime.test.mjs',
