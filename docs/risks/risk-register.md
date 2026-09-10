@@ -1,15 +1,16 @@
 # 当前风险登记表
 
 - 更新日期：2026-09-10
-- 适用基线：Codex Theme Studio 1.3.2 本地维护发布
+- 适用基线：Codex Theme Studio 1.3.3 本地维护发布
 - 历史任务风险和当时证据保留在 `task-11-known-issues.md`、`task-12-known-issues.md` 与对应验收记录中。
+- 2026-09-10，维护者明确接受 R-03、R-04 与 R-22 中列出的三项缺失门禁，仅用于生成 `v1.3.3` Draft Release；该接受不等于门禁通过、不关闭风险，也不授权自动公开 Release。
 
 | ID | 风险 | 当前控制或证据 | 状态 |
 | --- | --- | --- | --- |
 | R-01 | .NET 8 将于 2026-11-10 结束支持 | SDK 固定为 8.0.423，发布为 self-contained；跨越 EOL 前必须用新 ADR 评估迁移到受支持 LTS | Open |
 | R-02 | 便携包未签名 | manifest 和 SHA256SUMS 提供完整性校验，README 明确披露未知发布者警告；不建议绕过安全软件 | Open |
-| R-03 | 本机没有有效病毒扫描证据 | Defender 服务、实时保护和签名库当前不可用；维护者已明确选择不在本机恢复 Defender，`v1.3.2` 必须在 README、验收记录和 Release Notes 披露，公开前仍需取得针对本版本全部缺失门禁的风险接受，后续应在有效环境复扫 | Open |
-| R-04 | 未在无开发 Runtime 的干净 Windows 用户或 VM 验收 | self-contained 文件、随包 Node、中文/空格路径启动及当前主机可运行性已有证据，但不能替代无预装 .NET/Node 的干净环境；`v1.3.2` 公开前必须披露并另行取得针对本版本的风险接受 | Open |
+| R-03 | 本机没有有效病毒扫描证据 | Defender 服务、实时保护和签名库当前不可用；维护者已明确选择不在本机恢复 Defender，`v1.3.3` 必须在 README、验收记录和 Release Notes 披露，公开前仍需取得针对本版本全部缺失门禁的风险接受，后续应在有效环境复扫 | Open |
+| R-04 | 未在无开发 Runtime 的干净 Windows 用户或 VM 验收 | self-contained 文件、随包 Node、中文/空格路径启动及当前主机可运行性已有证据，但不能替代无预装 .NET/Node 的干净环境；`v1.3.3` 公开前必须披露并另行取得针对本版本的风险接受 | Open |
 | R-05 | Codex 完全重启后的 Agent 恢复 | `1.3.1-rc.1` 在 Store Codex `26.803.5235.0` 与 `26.803.10989.0` 上完成临时主题保持、完整 Codex 重启后持久主题恢复、持久主题切换和再次重启恢复；最终持久主题、Agent、Run 项与配置一致，`9229` 无监听 | Mitigated |
 | R-06 | 真实外置磁盘 DataRoot 迁移未覆盖 | 临时真实文件系统测试覆盖复制、哈希、SQLite 完整性、离线、取消和回滚；物理断连仍未覆盖 | Open |
 | R-07 | 能力探测可能无法覆盖未来 Codex 或第三方构建的全部行为差异 | 当前真实证据覆盖 Store Codex `26.715.4045.0`、`26.715.10079.0`、`26.721.3404.0`、`26.727.6591.0`、`26.730.8199.0`、`26.803.5235.0`、`26.803.10989.0` 与 `26.903.8094.0` x64；最新版完成能力探测、Canary 应用/清理和人工可见效果确认，但未执行持久化启停。能力缺失、身份变化、错误端口所有者和清理残留仍 fail-closed。非 Store 真实实例验证为 `To be confirmed` | Open |
@@ -21,11 +22,11 @@
 | R-13 | Injector 运行脚本误用 PowerShell 7/.NET Core API，或原子写入在句柄释放前移动文件 | 运行时发现固定以 Windows PowerShell 5.1 为最低基线；自动化测试真实执行精确 EXE `Discover` 和边界 `Snapshot` 并解析单一 JSON。资格、目标选择及其他原子写入均以流作用域结束后再 `Move/Replace`，关键路径有跨实例读取回归 | Mitigated |
 | R-14 | 统一“还原外观”需要修改第三方 OkkSkin 的当前用户启动项、状态和 Agent；身份误判可能影响无关进程，部分失败可能导致下次 Codex 再次应用主题 | 仅接受无 Reparse Point 的已知状态与启动器、精确 Run 命令和精确 `node.exe … agent.mjs` 命令行；状态原子改为禁用并保留未知字段和缓存；任一残留返回 Partial。自动化边界测试已加入，真实 Codex 完整重启验收仍为 `To be confirmed` | Open |
 | R-15 | 启动兼容缓存可能被误解为当前进程、窗口或可见效果已经验证 | Schema v2 只缓存构建级资格；启动始终重新发现并计算 EXE SHA-256，不缓存 PID、端口、Target、Renderer 或活动主题；应用与持久化继续执行操作级实时 fail-closed 校验 | Mitigated |
-| R-16 | 旧本机交接快照或历史归档可能被误认为当前实施状态 | `Directory.Build.props` 固定维护基线 `1.3.2`；根目录旧交接快照已可恢复移出并由 `.gitignore` 阻止再次误提交，历史验收文档只保留证据边界 | Mitigated |
+| R-16 | 旧本机交接快照或历史归档可能被误认为当前实施状态 | `Directory.Build.props` 固定维护基线 `1.3.3`；根目录旧交接快照已可恢复移出并由 `.gitignore` 阻止再次误提交，历史验收文档只保留证据边界 | Mitigated |
 | R-17 | 去重后的便携包依赖 Agent bundle manifest；路径逃逸、清单篡改或复制中断可能生成不完整稳定 Agent | Schema v1 对路径、大小、SHA-256、重复目标和重解析点 fail-closed；安装先写随机暂存目录，复核全部文件后原子切换，既有内容寻址版本复用前重新校验 | Mitigated |
 | R-18 | 自动化 Release 可能在签名、病毒扫描或干净环境验收前公开 | CI 仅有 `contents: read`；Release 构建阶段只读，只有人工推送精确 tag 后的独立 job 取得 `contents: write` 并创建 Draft。公开发布仍需人工复核 SHA-256 与 NotSigned；缺少 Defender 或干净 Windows 证据时必须明确披露并取得独立风险接受，不能记为门禁通过 | Mitigated |
 | R-19 | 公开仓库可能意外暴露凭证、个人数据或尚未修复的漏洞 | `.gitignore` 拦截常见环境文件、密钥、日志和数据库；公开前扫描当前树与历史，安全问题转入 Private Vulnerability Reporting。仓库公开后仍需人工启用 Secret Scanning、Push Protection 和私密漏洞报告 | Open |
 | R-20 | 编辑器永久删除无引用受管背景时，错误的可达性判断可能造成不可恢复的数据损失 | 删除范围只来自当前编辑会话追踪；存储层再次校验可信 DataRoot、精确主题 UUID、普通文件/目录、无重解析点、`theme.json` 当前 `art.file` 引用和空目录条件。共享缓存、索引主题、应用回收站主题、未知孤立目录及完整未索引主题均排除；临时真实文件系统测试覆盖直接删除和保护分支 | Mitigated |
 | R-21 | 更新资产被替换、损坏或构造为路径逃逸 ZIP | 只接受三个精确 Release 资产；GitHub asset digest、Schema v3 release manifest 与 SHA256SUMS 必须一致。ZIP 条目数、压缩/展开大小、绝对路径、`..`、ADS、大小写重复路径及链接均 fail-closed | Mitigated |
-| R-22 | 自更新在文件锁、断电或新版启动失败时留下不可运行目录 | 外置 Node runner 只接收随机 token；请求通过 Schema v1 JSON 传递。应用目录在同盘以 rename 切换，旧目录保留到新版完成 120 秒健康检查；自动化已覆盖文件锁、启动超时、回滚及回滚失败。`v1.3.2` 尚未覆盖断电及真实杀进程边界，风险必须公开披露并另行接受 | Open |
+| R-22 | 自更新在文件锁、断电或新版启动失败时留下不可运行目录 | 外置 Node runner 只接收随机 token；请求通过 Schema v1 JSON 传递。应用目录在同盘以 rename 切换，旧目录保留到新版完成 120 秒健康检查；自动化已覆盖文件锁、启动超时、回滚及回滚失败。`v1.3.3` 尚未覆盖断电及真实杀进程边界，风险必须公开披露并另行接受 | Open |
 | R-23 | 更新清理误删用户放入便携目录的文件，或持久化 Agent 升级失败 | `app-install-manifest.json` 逐文件记录大小和 SHA-256；只删除旧清单拥有且哈希仍匹配的文件，其他文件移入 Preserved。Agent 使用事务式切换，失败继续运行旧版并提供重试 | Mitigated |

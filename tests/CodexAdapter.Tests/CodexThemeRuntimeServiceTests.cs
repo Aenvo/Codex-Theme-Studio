@@ -85,10 +85,10 @@ public sealed class CodexThemeRuntimeServiceTests
     public async Task QualificationCycle_UsesDedicatedLongerDeadline()
     {
         var fixture = new RuntimeFixture(
-            TimeSpan.FromMilliseconds(100),
-            TimeSpan.FromMilliseconds(500));
-        fixture.Renderer.ApplyDelay = TimeSpan.FromMilliseconds(45);
-        fixture.Renderer.CleanupDelay = TimeSpan.FromMilliseconds(45);
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromSeconds(5));
+        fixture.Renderer.ApplyDelay = TimeSpan.FromMilliseconds(300);
+        fixture.Renderer.CleanupDelay = TimeSpan.FromMilliseconds(300);
         fixture.Discovery.InstallationResult =
             OperationResult<CodexInstallationInfo>.Success(
                 RuntimeFixture.Installation with
@@ -100,7 +100,7 @@ public sealed class CodexThemeRuntimeServiceTests
             CreateTheme(Guid.NewGuid()),
             CancellationToken.None);
 
-        Assert.True(result.IsSuccess);
+        Assert.True(result.IsSuccess, result.Error?.DiagnosticCode);
         Assert.True(result.Value!.IsPersistenceEligible);
         Assert.Equal(2, fixture.Renderer.ApplyCount);
         Assert.Equal(1, fixture.Renderer.CleanupCount);

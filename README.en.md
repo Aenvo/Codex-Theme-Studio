@@ -63,7 +63,7 @@ Choose a background and palette from the theme library, adjust composition, opac
 
 Do not run the app from inside the ZIP, and do not use GitHub's automatically generated `Source code (zip)` or `Source code (tar.gz)` archives as the application. Regular users need the Release Asset whose name contains `win-x64-portable.zip`.
 
-Version `1.3.2` is unsigned, so Windows may show an unknown-publisher warning. Do not run a package whose hash does not match, and do not bypass a warning by disabling security software or blindly allowlisting the app.
+Version `1.3.3` is unsigned, so Windows may show an unknown-publisher warning. Do not run a package whose hash does not match, and do not bypass a warning by disabling security software or blindly allowlisting the app.
 
 ## Workflow
 
@@ -94,7 +94,7 @@ See the [user guide](./docs/user-guide.md) for complete usage, data locations, u
 - It does not read or record conversation content, authentication data, API keys, models, MCP configuration, or permission settings. Once ready, the app queries the public GitHub Releases API for stable updates but does not upload themes, images, or diagnostics.
 - Images are identified by content and limited to PNG, JPEG, and WebP. They are fully decoded, re-encoded into managed copies, and stripped of unnecessary metadata.
 - Live verification currently covers Store Codex `26.715.4045.0`, `26.715.10079.0`, `26.721.3404.0`, `26.727.6591.0`, `26.730.8199.0`, `26.803.5235.0`, `26.803.10989.0`, and `26.903.8094.0`. These are compatibility evidence, not an allowlist; unknown versions still require full capability probing.
-- Version `1.3.2` has not completed release acceptance in a clean Windows VM without preinstalled .NET/Node or in an environment with a working Defender installation. Real updater termination and power-loss boundaries are also untested. Keep a recoverable copy before first use or update.
+- Version `1.3.3` has not completed release acceptance in a clean Windows VM without preinstalled .NET/Node or in an environment with a working Defender installation. Real updater termination and power-loss boundaries are also untested. Keep a recoverable copy before first use or update.
 
 Do not disclose security issues in a public Issue. See the [security policy](./SECURITY.md) for reporting instructions and supported versions.
 

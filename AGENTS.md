@@ -5,7 +5,7 @@
 - 正式产品名是 **Codex Theme Studio**；发布入口 `CodexThemeManager.exe` 是兼容文件名，不代表另一个产品。
 - 本项目是非 OpenAI 官方的 Windows 本地桌面应用，不得使用暗示官方背书的名称、图标或发布文案。
 - 除另有说明外，第一方源码采用 Apache License 2.0；第三方组件和素材继续适用各自许可证。该许可证不授予 OpenAI、Codex 或其他第三方商标使用权。
-- 当前维护基线为 `1.3.2`：Windows 10/11 x64、.NET 8 WPF、SQLite、固定 Node.js Runtime、self-contained 便携目录和 ZIP。
+- 当前维护基线为 `1.3.3`：Windows 10/11 x64、.NET 8 WPF、SQLite、固定 Node.js Runtime、self-contained 便携目录和 ZIP。
 - 本文件适用于仓库根目录及全部子目录。更深目录的 `AGENTS.override.md` 或 `AGENTS.md` 可增加局部约束。
 
 ## 2. 真相源与修改前检查
