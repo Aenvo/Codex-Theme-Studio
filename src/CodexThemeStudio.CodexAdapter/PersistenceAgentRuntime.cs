@@ -33,7 +33,10 @@ public sealed record PersistenceAgentState(
     string? LastDiagnosticCode,
     int? SuppressedProcessId = null,
     DateTimeOffset? SuppressedProcessStartedAtUtc = null,
-    Guid? SuppressedThemeId = null)
+    Guid? SuppressedThemeId = null,
+    int? BlockedProcessId = null,
+    DateTimeOffset? BlockedProcessStartedAtUtc = null,
+    string? BlockedExecutableSha256 = null)
 {
     public const int CurrentSchemaVersion = 1;
 
@@ -198,12 +201,13 @@ public sealed class PersistenceAgentStateStore(string path) :
 
 public sealed class PersistenceAgentEngine
 {
+    private static readonly TimeSpan MinimumSafeVerifyInterval =
+        TimeSpan.FromMinutes(15);
     private readonly IPersistenceSnapshotStore snapshotStore;
     private readonly ICodexDiscoveryService discoveryService;
     private readonly ICodexInspectorService inspectorService;
     private readonly IInjectorRendererClient rendererClient;
     private readonly IPersistenceAgentStateStore stateStore;
-    private readonly CodexVersionPolicy versionPolicy;
     private readonly CodexCompatibilityQualificationStore qualificationStore;
     private readonly TimeProvider timeProvider;
 
@@ -213,7 +217,6 @@ public sealed class PersistenceAgentEngine
         ICodexInspectorService inspectorService,
         IInjectorRendererClient rendererClient,
         IPersistenceAgentStateStore stateStore,
-        CodexVersionPolicy? versionPolicy = null,
         CodexCompatibilityQualificationStore? qualificationStore = null,
         TimeProvider? timeProvider = null)
     {
@@ -222,7 +225,6 @@ public sealed class PersistenceAgentEngine
         this.inspectorService = inspectorService;
         this.rendererClient = rendererClient;
         this.stateStore = stateStore;
-        this.versionPolicy = versionPolicy ?? new CodexVersionPolicy();
         this.qualificationStore = qualificationStore ?? new CodexCompatibilityQualificationStore();
         this.timeProvider = timeProvider ?? TimeProvider.System;
     }
@@ -299,6 +301,24 @@ public sealed class PersistenceAgentEngine
             return OperationResult<ThemeRuntimeStatus>.Failure(state.Error!);
         }
 
+        var blockedIdentityMatches =
+            state.Value!.BlockedProcessId == process.ProcessId &&
+            state.Value.BlockedProcessStartedAtUtc == process.StartedAtUtc &&
+            string.Equals(
+                state.Value.BlockedExecutableSha256,
+                installed.ExecutableSha256,
+                StringComparison.OrdinalIgnoreCase);
+        if (blockedIdentityMatches)
+        {
+            return Success(
+                ThemeRuntimeState.Unsupported,
+                "当前 Codex 实例的 Inspector 操作此前失败；Agent 已停止重试。",
+                verifiedSnapshot.Theme.Id,
+                process.ProcessId,
+                ThemeRuntimeEvidence.ProcessOnly,
+                installed.Version);
+        }
+
         var temporaryOverrideMatches =
             state.Value!.SuppressedProcessId == process.ProcessId &&
             state.Value.SuppressedProcessStartedAtUtc == process.StartedAtUtc &&
@@ -317,21 +337,6 @@ public sealed class PersistenceAgentEngine
                 verifiedSnapshot.Theme.Id);
         }
 
-        var probe = await inspectorService.ProbeAsync(process, cancellationToken);
-        if (!probe.IsSuccess ||
-            versionPolicy.Evaluate(installed.Version, probe.Value!) ==
-                CodexCompatibilityLevel.Incompatible)
-        {
-            await TryCloseInspectorAsync(process);
-            return Success(
-                ThemeRuntimeState.Unsupported,
-                "Codex 能力探测失败，Agent 暂停本轮注入。",
-                verifiedSnapshot.Theme.Id,
-                process.ProcessId,
-                ThemeRuntimeEvidence.ProcessOnly,
-                installed.Version);
-        }
-
         var now = timeProvider.GetUtcNow();
         var identityMatches =
             state.Value!.AppliedProcessId == process.ProcessId &&
@@ -340,8 +345,7 @@ public sealed class PersistenceAgentEngine
             state.Value.ThemeId == verifiedSnapshot.Theme.Id;
         if (identityMatches &&
             state.Value.LastVerifiedAtUtc is { } verifiedAt &&
-            now - verifiedAt <
-            TimeSpan.FromSeconds(configuration.VerifyIntervalSeconds))
+            now - verifiedAt < GetSafeVerifyInterval(configuration))
         {
             return Success(
                 ThemeRuntimeState.Persistent,
@@ -352,19 +356,33 @@ public sealed class PersistenceAgentEngine
                 installed.Version);
         }
 
-        var rendererStatus = await rendererClient.GetStatusAsync(
+        var inspection = await rendererClient.InspectAsync(
             process,
+            CodexInspectionMode.RendererOnly,
             cancellationToken);
-        if (!rendererStatus.IsSuccess && !identityMatches)
+        if (!inspection.IsSuccess)
         {
+            await BlockCurrentProcessAsync(
+                state.Value,
+                process,
+                installed.ExecutableSha256,
+                inspection.Error!.DiagnosticCode,
+                cancellationToken);
             await TryCloseInspectorAsync(process);
-            return OperationResult<ThemeRuntimeStatus>.Failure(
-                rendererStatus.Error!);
+            return identityMatches
+                ? Success(
+                    ThemeRuntimeState.Unsupported,
+                    "Codex 运行时复核失败；Agent 已停止对当前实例重试。",
+                    verifiedSnapshot.Theme.Id,
+                    process.ProcessId,
+                    ThemeRuntimeEvidence.ProcessOnly,
+                    installed.Version)
+                : OperationResult<ThemeRuntimeStatus>.Failure(inspection.Error!);
         }
 
-        if (rendererStatus.IsSuccess)
+        if (inspection.IsSuccess)
         {
-            var renderer = rendererStatus.Value!;
+            var renderer = inspection.Value!.Renderer;
             if (IsCompleteRendererTheme(
                     renderer,
                     verifiedSnapshot.Theme.Id))
@@ -377,6 +395,9 @@ public sealed class PersistenceAgentEngine
                         SuppressedProcessId = null,
                         SuppressedProcessStartedAtUtc = null,
                         SuppressedThemeId = null,
+                        BlockedProcessId = null,
+                        BlockedProcessStartedAtUtc = null,
+                        BlockedExecutableSha256 = null,
                     }
                     : new PersistenceAgentState(
                         PersistenceAgentState.CurrentSchemaVersion,
@@ -456,6 +477,12 @@ public sealed class PersistenceAgentEngine
                 cancellationToken);
             if (!apply.IsSuccess)
             {
+                await BlockCurrentProcessAsync(
+                    state.Value,
+                    process,
+                    installed.ExecutableSha256,
+                    apply.Error!.DiagnosticCode,
+                    cancellationToken);
                 return OperationResult<ThemeRuntimeStatus>.Failure(apply.Error!);
             }
 
@@ -463,6 +490,12 @@ public sealed class PersistenceAgentEngine
                     apply.Value!,
                     verifiedSnapshot.Theme.Id))
             {
+                await BlockCurrentProcessAsync(
+                    state.Value,
+                    process,
+                    installed.ExecutableSha256,
+                    "persistence.agent.apply_unverified",
+                    cancellationToken);
                 return OperationResult<ThemeRuntimeStatus>.Failure(
                     OperationErrorCode.InvalidResponse,
                     "Agent 未能确认持久主题运行时标记。",
@@ -502,6 +535,35 @@ public sealed class PersistenceAgentEngine
     {
         using var source = new CancellationTokenSource(TimeSpan.FromSeconds(4));
         await inspectorService.CloseInspectorAsync(process, source.Token);
+    }
+
+    private async Task BlockCurrentProcessAsync(
+        PersistenceAgentState state,
+        CodexProcessInfo process,
+        string executableSha256,
+        string? diagnosticCode,
+        CancellationToken cancellationToken)
+    {
+        _ = await stateStore.WriteAsync(
+            state with
+            {
+                LastDiagnosticCode = diagnosticCode ??
+                    "persistence.agent.inspector_failed",
+                BlockedProcessId = process.ProcessId,
+                BlockedProcessStartedAtUtc = process.StartedAtUtc,
+                BlockedExecutableSha256 = executableSha256,
+            },
+            cancellationToken);
+    }
+
+    private static TimeSpan GetSafeVerifyInterval(
+        PersistenceAgentConfiguration configuration)
+    {
+        var configured = TimeSpan.FromSeconds(
+            configuration.VerifyIntervalSeconds);
+        return configured < MinimumSafeVerifyInterval
+            ? MinimumSafeVerifyInterval
+            : configured;
     }
 
     private static bool IsCompleteRendererTheme(

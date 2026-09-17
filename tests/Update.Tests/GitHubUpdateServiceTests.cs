@@ -26,6 +26,19 @@ public sealed class GitHubUpdateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CheckAsync_OffersStable134To133()
+    {
+        var handler = new RouteHandler(_ => JsonResponse(CreateReleaseJson("v1.3.4", "notes")));
+        using var service = CreateService(handler, "1.3.3");
+
+        var result = await service.CheckAsync(true, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value!.IsUpdateAvailable);
+        Assert.Equal("1.3.4", result.Value.Release!.Version);
+    }
+
+    [Fact]
     public async Task CheckAsync_CachesSuccessfulResult()
     {
         var handler = new RouteHandler(_ => JsonResponse(CreateReleaseJson("v1.3.1", "notes")));

@@ -181,7 +181,7 @@ public sealed class PersistenceAgentTests
             (await fixture.Engine.RunCycleAsync(
                 fixture.Configuration,
                 CancellationToken.None)).IsSuccess);
-        time.UtcNow = time.UtcNow.AddMinutes(2);
+        time.UtcNow = time.UtcNow.AddMinutes(16);
         fixture.Renderer.StatusResult =
             OperationResult<RendererRuntimeResult>.Success(
                 new RendererRuntimeResult(1, false, null, null, 0, 0, 1, 0));
@@ -208,7 +208,7 @@ public sealed class PersistenceAgentTests
         Assert.Equal(1, fixture.Renderer.ApplyCount);
 
         var temporaryThemeId = Guid.NewGuid();
-        time.UtcNow = time.UtcNow.AddMinutes(2);
+        time.UtcNow = time.UtcNow.AddMinutes(16);
         fixture.Renderer.StatusResult =
             OperationResult<RendererRuntimeResult>.Success(
                 new RendererRuntimeResult(
@@ -293,6 +293,70 @@ public sealed class PersistenceAgentTests
         Assert.Equal(
             "persistence.agent.apply_unverified",
             result.Error!.DiagnosticCode);
+
+        var repeated = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+        Assert.True(repeated.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Unsupported, repeated.Value!.State);
+        Assert.Equal(1, fixture.Renderer.ApplyCount);
+    }
+
+    [Fact]
+    public async Task Agent_SameIdentitySkipsInspectorUntilSafeVerifyInterval()
+    {
+        var time = new MutableTimeProvider(
+            new DateTimeOffset(2026, 7, 20, 12, 0, 0, TimeSpan.Zero));
+        var fixture = new AgentFixture(time);
+
+        Assert.True((await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None)).IsSuccess);
+        var inspectionsAfterApply = fixture.Renderer.StatusCount;
+        time.UtcNow = time.UtcNow.AddMinutes(14);
+
+        var repeated = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+
+        Assert.True(repeated.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Persistent, repeated.Value!.State);
+        Assert.Equal(inspectionsAfterApply, fixture.Renderer.StatusCount);
+        Assert.Equal(1, fixture.Renderer.ApplyCount);
+    }
+
+    [Fact]
+    public async Task Agent_InspectionFailureBlocksRetriesForCurrentProcess()
+    {
+        var time = new MutableTimeProvider(
+            new DateTimeOffset(2026, 7, 20, 12, 0, 0, TimeSpan.Zero));
+        var fixture = new AgentFixture(time);
+        Assert.True((await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None)).IsSuccess);
+        time.UtcNow = time.UtcNow.AddMinutes(16);
+        fixture.Renderer.StatusResult =
+            OperationResult<RendererRuntimeResult>.Failure(
+                OperationErrorCode.InvalidResponse,
+                "Inspector response was invalid.",
+                "injector_response_invalid");
+
+        var failed = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+        var statusCallsAfterFailure = fixture.Renderer.StatusCount;
+        var repeated = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+
+        Assert.True(failed.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Unsupported, failed.Value!.State);
+        Assert.True(repeated.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Unsupported, repeated.Value!.State);
+        Assert.Equal(statusCallsAfterFailure, fixture.Renderer.StatusCount);
+        Assert.Equal(
+            "injector_response_invalid",
+            fixture.State.State.LastDiagnosticCode);
     }
 
     [Fact]
@@ -789,13 +853,16 @@ public sealed class PersistenceAgentTests
         public Task<OperationResult<CodexInspectionResult>> InspectAsync(
             CodexProcessInfo process,
             CodexInspectionMode mode,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(
+            CancellationToken cancellationToken)
+        {
+            StatusCount++;
+            return Task.FromResult(
                 StatusResult.IsSuccess
                     ? OperationResult<CodexInspectionResult>.Success(
                         new CodexInspectionResult(null, StatusResult.Value!))
                     : OperationResult<CodexInspectionResult>.Failure(
                         StatusResult.Error!));
+        }
     }
 
     private sealed class MemoryStateStore : IPersistenceAgentStateStore
