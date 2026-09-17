@@ -1,6 +1,6 @@
 # 当前风险登记表
 
-- 更新日期：2026-09-10
+- 更新日期：2026-09-17
 - 适用基线：Codex Theme Studio 1.3.3 本地维护发布
 - 历史任务风险和当时证据保留在 `task-11-known-issues.md`、`task-12-known-issues.md` 与对应验收记录中。
 - 2026-09-10，维护者明确接受 R-03、R-04 与 R-22 中列出的三项缺失门禁，仅用于生成 `v1.3.3` Draft Release；该接受不等于门禁通过、不关闭风险，也不授权自动公开 Release。
@@ -30,3 +30,4 @@
 | R-21 | 更新资产被替换、损坏或构造为路径逃逸 ZIP | 只接受三个精确 Release 资产；GitHub asset digest、Schema v3 release manifest 与 SHA256SUMS 必须一致。ZIP 条目数、压缩/展开大小、绝对路径、`..`、ADS、大小写重复路径及链接均 fail-closed | Mitigated |
 | R-22 | 自更新在文件锁、断电或新版启动失败时留下不可运行目录 | 外置 Node runner 只接收随机 token；请求通过 Schema v1 JSON 传递。应用目录在同盘以 rename 切换，旧目录保留到新版完成 120 秒健康检查；自动化已覆盖文件锁、启动超时、回滚及回滚失败。`v1.3.3` 尚未覆盖断电及真实杀进程边界，风险必须公开披露并另行接受 | Open |
 | R-23 | 更新清理误删用户放入便携目录的文件，或持久化 Agent 升级失败 | `app-install-manifest.json` 逐文件记录大小和 SHA-256；只删除旧清单拥有且哈希仍匹配的文件，其他文件移入 Preserved。Agent 使用事务式切换，失败继续运行旧版并提供重试 | Mitigated |
+| R-24 | 持久化 Agent 频繁打开 Inspector 可能放大新版 Codex/Electron 的 browser 主进程不稳定 | 2026-09-17 在 Store Codex `26.911.7940.0` 上观察到多次 browser crash；ProcDump 确认 `0x80000003` 与 `chrome.dll`，但终止转储缺少原始异常上下文，不能把 Theme Studio 写为已确认唯一根因。源码审计确认 1.3.3 在 10 秒轮询的安全间隔判断前执行能力探测，并在复核时再次打开 Inspector。修复将无侵入身份短路提前、把复核安全下限提高到 15 分钟、合并为单次 Renderer 状态检查，并在当前 PID 的 Inspector/应用失败后 fail-closed 熔断。禁用 Theme Studio 的对照运行与修复包真实 Codex 回归仍为 `To be confirmed` | Open |
