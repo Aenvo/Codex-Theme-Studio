@@ -28,8 +28,15 @@ export async function openInspector({
     try {
       requestOpen(processId);
       requestedOnce = true;
-    } catch {
+    } catch (error) {
       if (!requestedOnce) {
+        if (error?.syscall === "OpenFileMappingW" && error?.errno === 2) {
+          throw lifecycleError(
+            "unsupported_version",
+            "当前 ChatGPT 构建不允许为运行中的主进程启用 Inspector。",
+            false,
+            "inspector_activation_unavailable");
+        }
         throw lifecycleError(
           "access_denied",
           "无法为已校验的 Codex 主进程短时打开 Inspector。",
@@ -128,11 +135,12 @@ export async function isLoopbackPortOpen(port, timeoutMs = 150) {
   });
 }
 
-function lifecycleError(code, userMessage, retryable) {
+function lifecycleError(code, userMessage, retryable, diagnosticCode) {
   return Object.assign(new Error(userMessage), {
     code,
     userMessage,
     retryable,
+    diagnosticCode,
   });
 }
 

@@ -1,7 +1,31 @@
 export const rendererCompatibility = Object.freeze({
-  version: 1,
-  excludedInitialRoutes: ["/avatar-overlay"],
-  excludedPathFragments: ["/avatar-overlay", "/pet-overlay"],
+  version: 2,
+  excludedInitialRoutes: [
+    "/avatar-overlay",
+    "/global-dictation",
+    "/hotkey-window",
+  ],
+  excludedInitialRoutePrefixes: [
+    "/avatar-overlay/",
+    "/global-dictation/",
+    "/hotkey-window/",
+  ],
+  excludedPathFragments: [
+    "/avatar-overlay",
+    "/global-dictation",
+    "/hotkey-window",
+    "/pet-overlay",
+  ],
+  pageSelector: "[data-app-shell-active-page]",
+  inactivePageSelector: "[data-app-shell-active-page='false']",
+  codexExperienceSelectors: [
+    "[data-codex-composer-root]",
+    "[data-codex-composer]",
+    "[data-app-action-timeline-scroll]",
+    "[data-app-action-sidebar-thread-row]",
+    "[data-codex-terminal]",
+    "[data-codex-page-shortcut-keys]",
+  ],
   shellSelectors: [
     "main.main-surface",
     "[data-testid='codex-shell']",
@@ -52,6 +76,17 @@ export const rendererCompatibility = Object.freeze({
 });
 
 export function rendererWindowProbe(compatibility) {
+  const inactivePageSelector = compatibility.inactivePageSelector ?? "";
+  const pageSelector = compatibility.pageSelector ?? "";
+  const queryActive = (selector) => Array.from(document.querySelectorAll(selector))
+    .filter((element) => !inactivePageSelector ||
+      typeof element?.closest !== "function" ||
+      element.closest(inactivePageSelector) == null);
+  const hasUnifiedPages = Boolean(pageSelector) &&
+    document.querySelectorAll(pageSelector).length > 0;
+  const hasActiveCodexExperience = !hasUnifiedPages ||
+    (compatibility.codexExperienceSelectors ?? []).some(
+      (selector) => queryActive(selector).length > 0);
   let parsed;
   try {
     parsed = new URL(window.location.href);
@@ -63,6 +98,8 @@ export function rendererWindowProbe(compatibility) {
   }
   const initialRoute = parsed.searchParams.get("initialRoute");
   if (compatibility.excludedInitialRoutes.includes(initialRoute) ||
+      (compatibility.excludedInitialRoutePrefixes ?? []).some(
+        (prefix) => initialRoute?.startsWith(prefix)) ||
       compatibility.excludedPathFragments.some(
         (fragment) => parsed.pathname.includes(fragment))) {
     return { eligible: false, reason: "excluded-route" };
@@ -80,10 +117,12 @@ export function rendererWindowProbe(compatibility) {
   const hasComposer = compatibility.composerSelectors.some(
     (selector) => Boolean(document.querySelector(selector)));
   const isTask = compatibility.taskSelectors.some(
-    (selector) => Boolean(document.querySelector(selector)));
+    (selector) => queryActive(selector).length > 0);
+  const eligible = hasShell && hasSidebar && hasContent &&
+    (hasComposer || hasUnifiedPages);
   return {
-    eligible: hasShell && hasSidebar && hasContent && hasComposer,
-    reason: hasShell && hasSidebar && hasContent && hasComposer
+    eligible,
+    reason: eligible
       ? "main-window"
       : "shell-features-missing",
     featureVersion: compatibility.version,
@@ -93,7 +132,9 @@ export function rendererWindowProbe(compatibility) {
       content: hasContent,
       composer: hasComposer,
     },
-    pageMode: isTask ? "task" : "home",
+    pageMode: hasActiveCodexExperience
+      ? (isTask ? "task" : "home")
+      : "inactive",
   };
 }
 
@@ -103,6 +144,8 @@ export function rendererBootstrap(request) {
   const layerId = "codex-theme-studio-layer";
   const rootClass = "codex-theme-studio-active";
   const compatibility = request?.compatibility;
+  const inactivePageSelector = compatibility?.inactivePageSelector ?? "";
+  const pageSelector = compatibility?.pageSelector ?? "";
   const variantClasses = [
     "codex-theme-studio-variant-auto",
     "codex-theme-studio-variant-light",
@@ -239,7 +282,8 @@ html.codex-theme-studio-active ::selection {
 
   const payload = request?.payload;
   const generation = request?.generation;
-  if (!compatibility || compatibility.version !== 1 || !mainSurfaceSelector ||
+  if (!compatibility || ![1, 2].includes(compatibility.version) ||
+      !mainSurfaceSelector ||
       !payload || payload.runtimeVersion !== 1 ||
       !Number.isSafeInteger(generation) || generation < 1) {
     return { eligible: false, applied: false, reason: "invalid-request" };
@@ -300,8 +344,6 @@ html.codex-theme-studio-active ::selection {
   background.style.backgroundSize = payload.art.size;
   const managedMainSurfaces = new Map();
 
-  root.classList.add(rootClass);
-  root.classList.add(`codex-theme-studio-variant-${payload.variant}`);
   root.dataset.codexThemeStudioRuntime = String(payload.runtimeVersion);
   root.dataset.codexThemeStudioGeneration = String(generation);
   setVariable(root, "--cts-background", payload.palette.background);
@@ -333,7 +375,12 @@ html.codex-theme-studio-active ::selection {
   window[stateKey] = state;
 
   const observer = new MutationObserver(() => ensure());
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, {
+    attributes: true,
+    attributeFilter: ["data-app-shell-active-page"],
+    childList: true,
+    subtree: true,
+  });
   const navigationHandler = () => ensure();
   window.addEventListener("hashchange", navigationHandler);
   window.addEventListener("popstate", navigationHandler);
@@ -352,12 +399,35 @@ html.codex-theme-studio-active ::selection {
     if (!layer.isConnected) {
       document.body.prepend(layer);
     }
+    if (!isCodexExperienceActive()) {
+      suspendForInactiveExperience();
+      return;
+    }
+    activateForCodexExperience();
     updatePageMode();
+  }
+
+  function activateForCodexExperience() {
+    root.classList.add(rootClass);
+    root.classList.add(`codex-theme-studio-variant-${payload.variant}`);
+    layer.style.display = "";
+  }
+
+  function suspendForInactiveExperience() {
+    root.classList.remove(rootClass);
+    for (const className of variantClasses) {
+      root.classList.remove(className);
+    }
+    layer.style.display = "none";
+    restoreManagedMainSurfaces();
+    lastPageMode = "inactive";
+    layer.dataset.pageMode = "inactive";
+    delete root.dataset.codexThemeStudioPage;
   }
 
   function updatePageMode() {
     const isTask = compatibility.taskSelectors.some(
-      (selector) => Boolean(document.querySelector(selector)));
+      (selector) => queryActiveElements(selector).length > 0);
     const pageMode = isTask ? `task-${payload.art.taskMode}` : "home";
     updateMainSurfaces(pageMode);
     if (lastPageMode === pageMode) {
@@ -395,7 +465,7 @@ html.codex-theme-studio-active ::selection {
       : pageMode === "task-banner" || pageMode === "task-ambient"
         ? rgbaFromHex(payload.palette.background, payload.art.taskOverlay)
         : "transparent";
-    for (const surface of document.querySelectorAll(mainSurfaceSelector)) {
+    for (const surface of queryActiveElements(mainSurfaceSelector)) {
       if (!managedMainSurfaces.has(surface)) {
         managedMainSurfaces.set(surface, {
           value: surface.style.getPropertyValue("background"),
@@ -409,17 +479,7 @@ html.codex-theme-studio-active ::selection {
     }
   }
 
-  function cleanup(expectedGeneration) {
-    if (state.cleaned ||
-        expectedGeneration !== state.generation ||
-        window[stateKey] !== state) {
-      return false;
-    }
-    state.cleaned = true;
-    observer.disconnect();
-    window.removeEventListener("hashchange", navigationHandler);
-    window.removeEventListener("popstate", navigationHandler);
-    window.clearInterval(intervalId);
+  function restoreManagedMainSurfaces() {
     for (const [surface, original] of managedMainSurfaces) {
       if (original.value) {
         surface.style.setProperty(
@@ -431,6 +491,35 @@ html.codex-theme-studio-active ::selection {
       }
     }
     managedMainSurfaces.clear();
+  }
+
+  function queryActiveElements(selector) {
+    return Array.from(document.querySelectorAll(selector)).filter(
+      (element) => !inactivePageSelector ||
+        typeof element?.closest !== "function" ||
+        element.closest(inactivePageSelector) == null);
+  }
+
+  function isCodexExperienceActive() {
+    if (!pageSelector || document.querySelectorAll(pageSelector).length === 0) {
+      return true;
+    }
+    return (compatibility.codexExperienceSelectors ?? []).some(
+      (selector) => queryActiveElements(selector).length > 0);
+  }
+
+  function cleanup(expectedGeneration) {
+    if (state.cleaned ||
+        expectedGeneration !== state.generation ||
+        window[stateKey] !== state) {
+      return false;
+    }
+    state.cleaned = true;
+    observer.disconnect();
+    window.removeEventListener("hashchange", navigationHandler);
+    window.removeEventListener("popstate", navigationHandler);
+    window.clearInterval(intervalId);
+    restoreManagedMainSurfaces();
     style.remove();
     layer.remove();
     URL.revokeObjectURL(blobUrl);
@@ -471,6 +560,8 @@ html.codex-theme-studio-active ::selection {
     }
     const initialRoute = parsed.searchParams.get("initialRoute");
     if (config.excludedInitialRoutes.includes(initialRoute) ||
+        (config.excludedInitialRoutePrefixes ?? []).some(
+          (prefix) => initialRoute?.startsWith(prefix)) ||
         config.excludedPathFragments.some(
           (fragment) => parsed.pathname.includes(fragment))) {
       return { eligible: false, reason: "excluded-route" };
@@ -487,8 +578,11 @@ html.codex-theme-studio-active ::selection {
       (selector) => Boolean(targetDocument.querySelector(selector)));
     const hasComposer = config.composerSelectors.some(
       (selector) => Boolean(targetDocument.querySelector(selector)));
+    const hasUnifiedPages = Boolean(config.pageSelector) &&
+      targetDocument.querySelectorAll(config.pageSelector).length > 0;
     return {
-      eligible: hasShell && hasContent && hasSidebar && hasComposer,
+      eligible: hasShell && hasContent && hasSidebar &&
+        (hasComposer || hasUnifiedPages),
       hasShell,
       hasSidebar,
       hasContent,

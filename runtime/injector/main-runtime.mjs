@@ -22,16 +22,33 @@ export function createMainOperationExpression(operation) {
   return `(async () => {
     const state = globalThis.${mainStateKey};
     const operation = ${serializedOperation};
-    const electron = process.mainModule.require("electron");
+    const compatibility = ${JSON.stringify(rendererCompatibility)};
+    const electron = resolveElectron();
     const { BrowserWindow } = electron;
+    function resolveElectron() {
+      const builtin = typeof process.getBuiltinModule === "function"
+        ? process.getBuiltinModule("electron")
+        : null;
+      if (builtin) return builtin;
+      if (typeof process.mainModule?.require === "function") {
+        return process.mainModule.require("electron");
+      }
+      if (typeof globalThis.require === "function") {
+        return globalThis.require("electron");
+      }
+      throw new Error("electron-module-unavailable");
+    }
     const isEligibleAppWindow = (contents) => {
       if (!contents || contents.isDestroyed()) return false;
       try {
         const parsed = new URL(contents.getURL());
+        const initialRoute = parsed.searchParams.get("initialRoute");
         return parsed.protocol === "app:" &&
-          parsed.searchParams.get("initialRoute") !== "/avatar-overlay" &&
-          !parsed.pathname.includes("/avatar-overlay") &&
-          !parsed.pathname.includes("/pet-overlay");
+          !compatibility.excludedInitialRoutes.includes(initialRoute) &&
+          !(compatibility.excludedInitialRoutePrefixes ?? []).some(
+            prefix => initialRoute?.startsWith(prefix)) &&
+          !compatibility.excludedPathFragments.some(
+            fragment => parsed.pathname.includes(fragment));
       } catch {
         return false;
       }
@@ -117,7 +134,20 @@ export function createMainProbeExpression() {
   const rendererProbeExpression =
     `(${rendererWindowProbe.toString()})(${JSON.stringify(rendererCompatibility)})`;
   return `(async () => {
-    const electron = process.mainModule.require("electron");
+    const compatibility = ${JSON.stringify(rendererCompatibility)};
+    const electron = (() => {
+      const builtin = typeof process.getBuiltinModule === "function"
+        ? process.getBuiltinModule("electron")
+        : null;
+      if (builtin) return builtin;
+      if (typeof process.mainModule?.require === "function") {
+        return process.mainModule.require("electron");
+      }
+      if (typeof globalThis.require === "function") {
+        return globalThis.require("electron");
+      }
+      throw new Error("electron-module-unavailable");
+    })();
     const results = [];
     for (const window of electron.BrowserWindow.getAllWindows()) {
       const contents = window?.webContents;
@@ -135,9 +165,12 @@ export function createMainProbeExpression() {
         results.push({ eligible: false, reason: "non-app-url" });
         continue;
       }
-      if (parsed.searchParams.get("initialRoute") === "/avatar-overlay" ||
-          parsed.pathname.includes("/avatar-overlay") ||
-          parsed.pathname.includes("/pet-overlay")) {
+      const initialRoute = parsed.searchParams.get("initialRoute");
+      if (compatibility.excludedInitialRoutes.includes(initialRoute) ||
+          (compatibility.excludedInitialRoutePrefixes ?? []).some(
+            prefix => initialRoute?.startsWith(prefix)) ||
+          compatibility.excludedPathFragments.some(
+            fragment => parsed.pathname.includes(fragment))) {
         results.push({ eligible: false, reason: "excluded-route" });
         continue;
       }
@@ -163,8 +196,21 @@ export async function mainRuntimeBootstrap(request) {
   const stateKey = "__CODEX_THEME_STUDIO_MAIN_V1__";
   const pendingRetryAttempts = 20;
   const pendingRetryDelayMs = 250;
-  const electron = process.mainModule.require("electron");
+  const electron = resolveElectron();
   const { app, BrowserWindow } = electron;
+  function resolveElectron() {
+    const builtin = typeof process.getBuiltinModule === "function"
+      ? process.getBuiltinModule("electron")
+      : null;
+    if (builtin) return builtin;
+    if (typeof process.mainModule?.require === "function") {
+      return process.mainModule.require("electron");
+    }
+    if (typeof globalThis.require === "function") {
+      return globalThis.require("electron");
+    }
+    throw new Error("electron-module-unavailable");
+  }
   // A known OkkSkin runtime may be active while its user-level persistence remains
   // intentionally configured. Suspend only the current Codex process hook before
   // applying a managed Theme Studio theme; do not touch files, agents, or Run keys.
@@ -183,9 +229,7 @@ export async function mainRuntimeBootstrap(request) {
     const contents = window?.webContents;
     if (!contents || contents.isDestroyed()) continue;
     try {
-      const parsed = new URL(contents.getURL());
-      if (parsed.protocol === "app:" &&
-          parsed.searchParams.get("initialRoute") !== "/avatar-overlay") {
+      if (assessUrl(contents.getURL()).eligible) {
         await contents.executeJavaScript(okkSkinCleanup, true);
       }
     } catch {
@@ -479,9 +523,13 @@ export async function mainRuntimeBootstrap(request) {
     if (parsed.protocol !== "app:") {
       return { eligible: false };
     }
-    if (parsed.searchParams.get("initialRoute") === "/avatar-overlay" ||
-        parsed.pathname.includes("/avatar-overlay") ||
-        parsed.pathname.includes("/pet-overlay")) {
+    const compatibility = request.compatibility;
+    const initialRoute = parsed.searchParams.get("initialRoute");
+    if (compatibility.excludedInitialRoutes.includes(initialRoute) ||
+        (compatibility.excludedInitialRoutePrefixes ?? []).some(
+          prefix => initialRoute?.startsWith(prefix)) ||
+        compatibility.excludedPathFragments.some(
+          fragment => parsed.pathname.includes(fragment))) {
       return { eligible: false };
     }
     return { eligible: true };

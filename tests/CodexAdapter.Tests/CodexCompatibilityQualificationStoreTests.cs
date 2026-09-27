@@ -108,12 +108,24 @@ public sealed class CodexCompatibilityQualificationStoreTests : IDisposable
         var staleContract = await staleContractStore.FindCompatibleAsync(
             Installation(hash),
             CancellationToken.None);
+        var staleCapabilitiesStore =
+            CodexCompatibilityQualificationStore.CreateWithRecordsInMemory(
+                record with
+                {
+                    RequiredCapabilitiesVersion =
+                        CodexCompatibilityQualificationStore
+                            .CurrentRequiredCapabilitiesVersion - 1,
+                });
+        var staleCapabilities = await staleCapabilitiesStore.FindCompatibleAsync(
+            Installation(hash),
+            CancellationToken.None);
 
         Assert.NotNull(matching.Value);
         Assert.Null(updatedVersion.Value);
         Assert.Null(updatedHash.Value);
         Assert.Null(sourceNotAcknowledged.Value);
         Assert.Null(staleContract.Value);
+        Assert.Null(staleCapabilities.Value);
         Assert.False(
             (await store.IsQualifiedAsync(hash, CancellationToken.None)).Value);
     }

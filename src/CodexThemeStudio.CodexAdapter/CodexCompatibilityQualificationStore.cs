@@ -7,7 +7,7 @@ namespace CodexThemeStudio.CodexAdapter;
 public sealed class CodexCompatibilityQualificationStore
 {
     public const int CurrentProbeContractVersion = 2;
-    public const int CurrentRequiredCapabilitiesVersion = 1;
+    public const int CurrentRequiredCapabilitiesVersion = 2;
 
     private readonly string path;
     private readonly SemaphoreSlim gate = new(1, 1);

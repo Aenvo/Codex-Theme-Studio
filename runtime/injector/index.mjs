@@ -92,7 +92,19 @@ const probeExpression = `(async () => {
     diagnosticCode: null
   };
   try {
-    const electron = process.mainModule.require("electron");
+    const electron = (() => {
+      const builtin = typeof process.getBuiltinModule === "function"
+        ? process.getBuiltinModule("electron")
+        : null;
+      if (builtin) return builtin;
+      if (typeof process.mainModule?.require === "function") {
+        return process.mainModule.require("electron");
+      }
+      if (typeof globalThis.require === "function") {
+        return globalThis.require("electron");
+      }
+      return null;
+    })();
     result.electronAvailable = Boolean(electron);
     result.browserWindowAvailable = Boolean(
       electron?.BrowserWindow?.getAllWindows);
@@ -106,10 +118,14 @@ const probeExpression = `(async () => {
       const raw = window.webContents.getURL();
       try {
         const parsed = new URL(raw);
+        const compatibility = ${JSON.stringify(rendererCompatibility)};
+        const initialRoute = parsed.searchParams.get("initialRoute");
         return parsed.protocol === "app:" &&
-          parsed.searchParams.get("initialRoute") !== "/avatar-overlay" &&
-          !parsed.pathname.includes("/avatar-overlay") &&
-          !parsed.pathname.includes("/pet-overlay");
+          !compatibility.excludedInitialRoutes.includes(initialRoute) &&
+          !(compatibility.excludedInitialRoutePrefixes ?? []).some(
+            prefix => initialRoute?.startsWith(prefix)) &&
+          !compatibility.excludedPathFragments.some(
+            fragment => parsed.pathname.includes(fragment));
       } catch {
         return false;
       }

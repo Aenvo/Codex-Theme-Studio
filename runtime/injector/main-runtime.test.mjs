@@ -6,6 +6,7 @@ import {
   createMainOperationExpression,
   mainRuntimeBootstrap,
 } from "./main-runtime.mjs";
+import { rendererCompatibility } from "./renderer-runtime.mjs";
 
 test("main runtime isolates auxiliary windows and installs guarded hooks", async () => {
   const main = new FakeWindow(1, "app://-/index.html", true);
@@ -67,6 +68,35 @@ test("status detects and cleanup removes OkkSkin without managed state", async (
   assert.equal(environment.context.__okkskinRJS, "");
   assert.equal(main.webContents.okkSkinActive, false);
   assert.equal(avatar.webContents.okkSkinActive, true);
+});
+
+test("resolves Electron through getBuiltinModule when mainModule is absent", async () => {
+  const main = new FakeWindow(1, "app://-/index.html", true);
+  const environment = createMainEnvironment([main], true);
+
+  const state = await runMain(environment);
+  const status = await runOperation(environment, "status");
+
+  assert.equal(state.appliedWindows, 1);
+  assert.equal(status.active, true);
+});
+
+test("excludes new auxiliary window routes without changing legacy routing", async () => {
+  const main = new FakeWindow(1, "app://-/index.html", true);
+  const dictation = new FakeWindow(
+    2,
+    "app://-/index.html?initialRoute=/global-dictation/session",
+    true);
+  const hotkey = new FakeWindow(
+    3,
+    "app://-/index.html?initialRoute=/hotkey-window",
+    true);
+  const environment = createMainEnvironment([main, dictation, hotkey]);
+
+  const state = await runMain(environment);
+
+  assert.equal(state.appliedWindows, 1);
+  assert.equal(state.auxiliaryWindows, 2);
 });
 
 test("late DOM, renderer refresh, and future windows are ensured", async () => {
@@ -206,7 +236,7 @@ async function runMain(
     runtimeVersion: 1,
     themeId,
     rendererBootstrapSource: "() => ({ eligible: true, applied: true })",
-    compatibility: { version: 1 },
+    compatibility: rendererCompatibility,
     payload: { runtimeVersion: 1, themeId },
   };
   const script = new vm.Script(
@@ -219,7 +249,7 @@ async function runOperation(environment, operation) {
   return await script.runInContext(environment.context);
 }
 
-function createMainEnvironment(windows) {
+function createMainEnvironment(windows, useBuiltinModule = false) {
   const app = new EventEmitter();
   const electron = {
     app,
@@ -227,20 +257,28 @@ function createMainEnvironment(windows) {
       getAllWindows: () => windows,
     },
   };
+  const process = useBuiltinModule
+    ? {
+        getBuiltinModule(name) {
+          assert.equal(name, "electron");
+          return electron;
+        },
+      }
+    : {
+        mainModule: {
+          require(name) {
+            assert.equal(name, "electron");
+            return electron;
+          },
+        },
+      };
   const context = vm.createContext({
     URL,
     setTimeout(callback) {
       callback();
       return 1;
     },
-    process: {
-      mainModule: {
-        require(name) {
-          assert.equal(name, "electron");
-          return electron;
-        },
-      },
-    },
+    process,
   });
   return { context, app, windows };
 }

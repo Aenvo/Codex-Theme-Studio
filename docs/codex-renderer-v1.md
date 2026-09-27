@@ -30,13 +30,15 @@ Payload 由 `JSON.stringify` 整体序列化到固定程序，不把颜色、路
 
 ## 窗口识别
 
-兼容配置版本为 1，集中定义在 `renderer-runtime.mjs`。判定顺序：
+兼容配置版本为 2，集中定义在 `renderer-runtime.mjs`。判定顺序：
 
 1. 主进程仅考虑 `app://` 窗口；
-2. 排除 `initialRoute=/avatar-overlay`、`/avatar-overlay` 和已知宠物路径；
+2. 排除 avatar、global dictation、hotkey 和已知宠物辅助窗口；
 3. Renderer 等待 DOM 不再处于 `loading`；
-4. 同时要求 Shell、侧栏、主内容和 Composer 四类特征；
-5. 不完整或未知窗口保持原样。
+4. 旧版单页 DOM 继续要求 Shell、侧栏、主内容和 Composer 四类特征；
+5. 新版统一宿主识别 `data-app-shell-active-page`，运行时可以在 Chat/Work
+   页面保持休眠，但只在当前激活页出现 Codex 语义标记时启用主题；
+6. 不完整或未知窗口保持原样。
 
 当前版本的 task/home 判断优先使用 Codex 提供的语义化 `data-*` 特征，包括
 主内容中的 conversation、timeline 和 thread footer 标记；不读取页面文本，
@@ -57,6 +59,9 @@ Payload 由 `JSON.stringify` 整体序列化到固定程序，不把颜色、路
 
 Renderer 监听 DOM 变化、hash/popstate 和低频页面模式检查。重复 ensure 在相同
 themeId/generation 下只修复缺失节点和同步 pageMode，不创建新 Style 或 Blob。
+统一宿主切到 Chat/Work 时，Renderer 移除主题激活 Class、隐藏背景层并恢复受管
+主内容背景；切回 Codex 后复用同一 Style 和 Blob 恢复主题。旧版没有 active-page
+标记时继续使用原有单页行为。
 
 ## 主进程生命周期
 
@@ -104,3 +109,13 @@ hookCount、pageModes 和脱敏失败计数。它不返回 URL、DOM、页面文
 1 个完整主窗口应用、1 个 `avatar-overlay` 隔离、2 个窗口 Guard、0 个失败；
 应用、状态确认、清理、重新应用闭环通过，最终清理后 `active=false`、
 `hookCount=0`，端口 9229 无监听。未保存含本地任务信息的真实截图。
+
+2026-09-27 对 Store ChatGPT `26.924.1866.0` 的只读包内静态检查确认统一宿主保留
+`data-app-shell-active-page`、Codex Composer、timeline、app-shell 主内容与旧版
+composer/surface 标记。兼容配置 v2 已加入统一宿主 active/inactive 切换回归，并保留
+旧版单页夹具。当前构建未注册 Windows `node-debug-handler-<PID>` 映射，受控探测在
+`OpenFileMappingW` 返回 errno 2。独立离线探测进一步确认：Store AUMID 激活能够重新启动
+应用，但附带的 `--inspect` 没有进入 Electron 主进程；直接启动精确 WindowsApps EXE
+被 MSIX 拒绝，包清单也没有 ChatGPT 主程序 execution alias。统一宿主 DOM 层已具备
+增量兼容，但真实 Renderer 应用、可见效果和持久化闭环仍为 `To be confirmed`，不得仅凭
+静态 DOM 与自动化结果记为最新版兼容通过。

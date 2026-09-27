@@ -51,3 +51,26 @@
 - Inspector 端口开始监听后可能短暂拒绝 HTTP 元数据连接；暂态连接在固定总门限内重试，协议、身份或端口所有者错误仍立即 fail-closed。
 - Inspector 关闭后等待端口稳定收敛，并放宽关闭确认门限以适配新版宿主时序；最终清理为 `active=false`、`hookCount=0`，端口 `9229` 无监听。
 - 未执行持久化 enable/disable、Codex 完整重启恢复或带私人内容的截图保存。
+
+## 2026-09-27 统一宿主适配状态
+
+- Store ChatGPT `26.924.1866.0` 的包内静态资源保留旧版 surface/composer 标记，并新增
+  `data-app-shell-active-page`；兼容契约 v2 采用增量选择器，不删除旧版单页路径。
+- 新版回归覆盖 Codex 激活页应用、inactive Chat 页隔离、切到 Chat 时暂停并恢复行内
+  背景、切回 Codex 时复用运行时，以及 global dictation/hotkey 辅助窗口隔离。
+- 真实 WPF 启动验证发现 GUI 进程曾按 CP936 解码 Injector 的 UTF-8 中文错误 JSON，导致
+  `inspector_activation_unavailable` 被误报为 `injector_response_invalid`；Desktop 现已显式
+  固定 stdout/stderr 为 UTF-8，并由包含中文错误消息的回归测试覆盖。
+- 当前运行实例不提供 Node 的 Windows debug-handler 映射；源码探测已将该事实稳定映射为
+  `inspector_activation_unavailable`，并确认失败后 9229 无监听。
+- 用户手动启动的独立离线探测器重新校验目标 EXE SHA-256 后，通过 AUMID 附带
+  `--inspect=127.0.0.1:9229` 激活 Store 应用；应用重新启动，但 Electron 主进程没有接收
+  该参数，结果为 `inspect_cli_activation_unavailable`。直接启动精确 WindowsApps EXE
+  被 MSIX 拒绝，包清单也没有 ChatGPT 主程序 execution alias。
+- 运行中 debug-handler、离线 Store 参数激活、精确 EXE 启动和主程序 execution alias
+  四条安全路径均不可用；WindowsApps/`app.asar` 修改、包调试设置、原生 DLL/进程注入和
+  长期开启 Inspector 不属于本次兼容范围，也不得作为回退方案。
+- 由于 Inspector 通道尚未建立，最新版真实“探测 → 应用 → 清理 → 重新应用”和视觉验收
+  均为 `To be confirmed`；不得更新 `docs/compatibility/codex-versions.json` 或授予持久化资格。
+- Store Codex `26.903.8094.0` 及更早版本继续由旧版 DOM 自动化回归和既有真实验收记录保护；
+  发布前仍需在至少一个旧版真实实例复验闭环，避免新通道方案破坏动态 Inspector 路径。

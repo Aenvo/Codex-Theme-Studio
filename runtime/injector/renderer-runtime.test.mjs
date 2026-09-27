@@ -239,6 +239,74 @@ test("supports the current app-shell surface when the legacy class is absent", (
     "important");
 });
 
+test("unified shell themes only the active Codex page and suspends on Chat", () => {
+  const environment = createEnvironment();
+  environment.addMainFeatures();
+  const unified = environment.addUnifiedPages();
+  unified.chatSurface.style.setProperty("background", "chat-original", "important");
+  unified.codexSurface.style.setProperty("background", "codex-original", "important");
+
+  const probe = new vm.Script(
+    `(${rendererWindowProbe.toString()})(${JSON.stringify(rendererCompatibility)})`)
+    .runInContext(environment.context);
+  const applied = runRenderer(environment, createPayload(), 1);
+
+  assert.equal(probe.eligible, true);
+  assert.equal(probe.pageMode, "home");
+  assert.equal(applied.pageMode, "home");
+  assert.equal(
+    unified.codexSurface.style.getPropertyValue("background"),
+    "transparent");
+  assert.equal(
+    unified.chatSurface.style.getPropertyValue("background"),
+    "chat-original");
+
+  unified.activateChat();
+  environment.runIntervals();
+
+  const state = environment.window.__CODEX_THEME_STUDIO_RENDERER_V1__;
+  const layer = environment.findById("codex-theme-studio-layer");
+  assert.equal(state.snapshot().pageMode, "inactive");
+  assert.equal(layer.style.display, "none");
+  assert.equal(
+    environment.document.documentElement.classList.contains(
+      "codex-theme-studio-active"),
+    false);
+  assert.equal(
+    unified.codexSurface.style.getPropertyValue("background"),
+    "codex-original");
+  assert.equal(
+    unified.chatSurface.style.getPropertyValue("background"),
+    "chat-original");
+
+  unified.activateCodex();
+  environment.runIntervals();
+
+  assert.equal(state.snapshot().pageMode, "home");
+  assert.equal(layer.style.display, "");
+  assert.equal(
+    environment.document.documentElement.classList.contains(
+      "codex-theme-studio-active"),
+    true);
+  assert.equal(
+    unified.codexSurface.style.getPropertyValue("background"),
+    "transparent");
+});
+
+test("unified shell probe stays eligible while Chat is active", () => {
+  const environment = createEnvironment();
+  environment.addMainFeatures();
+  const unified = environment.addUnifiedPages();
+  unified.activateChat();
+  const script = new vm.Script(
+    `(${rendererWindowProbe.toString()})(${JSON.stringify(rendererCompatibility)})`);
+
+  const result = script.runInContext(environment.context);
+
+  assert.equal(result.eligible, true);
+  assert.equal(result.pageMode, "inactive");
+});
+
 test("route changes update page mode without replacing the current Blob URL", () => {
   const environment = createEnvironment();
   environment.addMainFeatures();
@@ -356,6 +424,11 @@ function createEnvironment(href = "app://-/index.html") {
       assert.equal(typeof handler, "function");
       handler();
     },
+    runIntervals() {
+      for (const handler of intervals) {
+        handler();
+      }
+    },
     addMainFeatures() {
       for (const selector of ["#root", "aside", "main", "textarea"]) {
         document.selectorMatches.add(selector);
@@ -364,6 +437,40 @@ function createEnvironment(href = "app://-/index.html") {
     useModernMainSurface() {
       document.hasLegacyMainSurface = false;
       document.hasModernMainSurface = true;
+    },
+    addUnifiedPages() {
+      document.hasLegacyMainSurface = false;
+      document.hasModernMainSurface = true;
+      const codexPage = new FakeElement("div");
+      const chatPage = new FakeElement("div");
+      const codexMarker = new FakeElement("div");
+      const inactiveArticle = new FakeElement("article");
+      const chatSurface = new FakeElement("main");
+      codexPage.setAttribute("data-app-shell-active-page", "true");
+      chatPage.setAttribute("data-app-shell-active-page", "false");
+      codexPage.append(codexMarker, document.modernMainSurface);
+      chatPage.append(inactiveArticle, chatSurface);
+      document.body.append(codexPage, chatPage);
+      document.extraMainSurfaces.push(chatSurface);
+      document.selectorElements.set(
+        rendererCompatibility.pageSelector,
+        [codexPage, chatPage]);
+      document.selectorElements.set(
+        rendererCompatibility.codexExperienceSelectors[0],
+        [codexMarker]);
+      document.selectorElements.set("article", [inactiveArticle]);
+      return {
+        codexSurface: document.modernMainSurface,
+        chatSurface,
+        activateCodex() {
+          codexPage.setAttribute("data-app-shell-active-page", "true");
+          chatPage.setAttribute("data-app-shell-active-page", "false");
+        },
+        activateChat() {
+          codexPage.setAttribute("data-app-shell-active-page", "false");
+          chatPage.setAttribute("data-app-shell-active-page", "true");
+        },
+      };
     },
     findById(id) {
       return findElement(document.documentElement, id);
@@ -378,6 +485,7 @@ class FakeDocument {
   constructor() {
     this.readyState = "complete";
     this.selectorMatches = new Set();
+    this.selectorElements = new Map();
     this.documentElement = new FakeElement("html");
     this.head = new FakeElement("head");
     this.body = new FakeElement("body");
@@ -385,6 +493,7 @@ class FakeDocument {
     this.modernMainSurface = new FakeElement("main");
     this.hasLegacyMainSurface = true;
     this.hasModernMainSurface = false;
+    this.extraMainSurfaces = [];
     this.documentElement.append(this.head, this.body);
   }
 
@@ -393,12 +502,17 @@ class FakeDocument {
   }
 
   querySelector(selector) {
-    return this.selectorMatches.has(selector) ? { selector } : null;
+    return this.querySelectorAll(selector)[0] ?? null;
   }
 
   querySelectorAll(selector) {
     if (selector !== rendererCompatibility.mainSurfaceSelectors.join(", ")) {
-      return [];
+      if (this.selectorElements.has(selector)) {
+        return this.selectorElements.get(selector);
+      }
+      return this.selectorMatches.has(selector)
+        ? [new FakeElement("div")]
+        : [];
     }
     const surfaces = this.selectorMatches.has("main") &&
       this.hasLegacyMainSurface
@@ -407,6 +521,7 @@ class FakeDocument {
     if (this.hasModernMainSurface) {
       surfaces.push(this.modernMainSurface);
     }
+    surfaces.push(...this.extraMainSurfaces);
     return surfaces;
   }
 }
@@ -461,6 +576,18 @@ class FakeElement {
 
   setAttribute(name, value) {
     this.attributes.set(name, value);
+  }
+
+  closest(selector) {
+    let current = this;
+    while (current) {
+      if (selector === rendererCompatibility.inactivePageSelector &&
+          current.attributes.get("data-app-shell-active-page") === "false") {
+        return current;
+      }
+      current = current.parent;
+    }
+    return null;
   }
 
   setConnected(value) {

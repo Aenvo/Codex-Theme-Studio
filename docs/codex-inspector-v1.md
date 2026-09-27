@@ -71,6 +71,10 @@ close-inspector --pid <PID> [--executable <absolute-exe-path>]
 稳定错误码和 `retryable`。错误响应不记录命令行、完整调试响应、页面 DOM、
 认证信息或用户对话。
 
+Desktop 启动 Node 子进程时必须把重定向的 stdout 与 stderr 显式解码为 UTF-8；不得依赖
+GUI 进程的系统代码页。否则中文 Windows 可能按 CP936 解码 Injector 的 UTF-8 错误 JSON，
+破坏字符串边界并把明确的兼容性错误误报为 `injector_response_invalid`。
+
 `windows-discovery.ps1` 由系统 `powershell.exe` 执行，以 Windows PowerShell 5.1
 为最低运行基线。精确 EXE 路径不得依赖 PowerShell 7 或 .NET Core 专属 API；
 进程不存在、PID 复用或无法取得映像路径时返回结构化空结果并由上层 fail-closed，
@@ -119,3 +123,25 @@ Renderer 状态读取；仅需核对已有活动主题时使用 `renderer-status
 
 组合结果不得缓存 PID、创建时间、Browser/Page Target、端口、窗口、路由、Renderer
 marker 或页面内容。失败、取消、身份变化或关闭确认失败继续 fail-closed。
+
+## 2026-09-27 新版通道限制
+
+Store ChatGPT `26.924.1866.0` 的当前主进程没有暴露 Node 在 Windows 上用于
+`process._debugProcess(PID)` 的 `node-debug-handler-<PID>` 映射。受控源码探测在
+`OpenFileMappingW` 返回 errno 2，端口 9229 始终未进入监听；这与 DOM 选择器不匹配
+属于不同阶段。Injector 将该稳定事实返回为 `unsupported_version` /
+`inspector_activation_unavailable`，上层保留本地化说明并 fail-closed。
+
+关闭 ChatGPT 后，由用户手动启动的独立探测器重新校验了目标 EXE 的 SHA-256，随后通过
+已注册 AUMID 调用 Store 应用激活接口并附带 `--inspect=127.0.0.1:9229`。应用能够重新
+启动，但参数没有成为 Electron 主进程命令行，9229 未进入监听；该路径稳定报告
+`inspect_cli_activation_unavailable`。直接以精确 WindowsApps EXE 创建进程则被 MSIX
+应用模型以 Access Denied 拒绝，包清单也没有为 ChatGPT 主程序注册可用的 execution alias。
+因此本版本可用的安全路径已经覆盖并排除：运行中 `process._debugProcess`、离线 Store
+参数激活、精确 EXE 直接启动和主程序 execution alias。
+
+在获得经过安全评审的新通道前，不使用进程内原生 DLL 注入、不修改 WindowsApps 或
+`app.asar`、不保留长期开放的调试端口，也不把包内静态 DOM 适配写成真实注入成功。
+旧版仍先走原有短时 debug-handler 通道，不受这一诊断分支影响。ChatGPT
+`26.924.1866.0` 保持 fail-closed，不授予持久化资格；上游重新提供可验证通道或另行批准
+新的高风险架构前，不继续扩大探测范围。

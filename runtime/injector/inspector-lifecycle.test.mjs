@@ -83,6 +83,28 @@ test("does not fetch metadata when the listening port has a foreign owner", asyn
   assert.equal(metadataFetched, false);
 });
 
+test("reports a missing target debug handler as unsupported", async () => {
+  await assert.rejects(openInspector({
+    processId: 42,
+    initialListeners: [],
+    port: 9229,
+    timeoutMs: 6000,
+    requestOpen: () => {
+      throw Object.assign(new Error("mapping missing"), {
+        errno: 2,
+        syscall: "OpenFileMappingW",
+      });
+    },
+    isPortOpen: async () => false,
+    getPortListeners: async () => [],
+    assertPortOwner: () => {},
+    fetchMetadata: async () => assert.fail("metadata should not be fetched"),
+  }), (error) =>
+    error.code === "unsupported_version" &&
+    error.diagnosticCode === "inspector_activation_unavailable" &&
+    error.retryable === false);
+});
+
 test("closed-port settling performs one final authoritative lookup", async () => {
   let currentTime = 0;
   let ownerLookups = 0;

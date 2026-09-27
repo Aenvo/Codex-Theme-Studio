@@ -291,19 +291,11 @@ public sealed class InjectorCommandClient :
         }
 
         using var inspectorLease = lease.Value!;
-        var startInfo = new ProcessStartInfo(nodeExecutablePath)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = standardInput is not null,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        startInfo.ArgumentList.Add(injectorScriptPath);
-        foreach (var argument in arguments)
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
+        var startInfo = CreateProcessStartInfo(
+            nodeExecutablePath,
+            injectorScriptPath,
+            arguments,
+            standardInput is not null);
 
         using var process = new Process { StartInfo = startInfo };
         try
@@ -383,6 +375,31 @@ public sealed class InjectorCommandClient :
         }
     }
 
+    internal static ProcessStartInfo CreateProcessStartInfo(
+        string nodePath,
+        string scriptPath,
+        IReadOnlyList<string> arguments,
+        bool redirectStandardInput)
+    {
+        var startInfo = new ProcessStartInfo(nodePath)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = redirectStandardInput,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        startInfo.ArgumentList.Add(scriptPath);
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        return startInfo;
+    }
+
     private async Task WriteDiagnosticAsync(
         string command,
         DiagnosticOutcome outcome,
@@ -458,13 +475,24 @@ public sealed class InjectorCommandClient :
         var retryable = error.ValueKind is JsonValueKind.Object &&
             error.TryGetProperty("retryable", out var retryableElement) &&
             retryableElement.ValueKind is JsonValueKind.True;
+        var diagnosticCode = error.ValueKind is JsonValueKind.Object &&
+            error.TryGetProperty("diagnosticCode", out var diagnosticElement) &&
+            diagnosticElement.ValueKind is JsonValueKind.String
+            ? diagnosticElement.GetString()
+            : null;
+        var userMessage = error.ValueKind is JsonValueKind.Object &&
+            error.TryGetProperty("userMessage", out var messageElement) &&
+            messageElement.ValueKind is JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(messageElement.GetString())
+            ? messageElement.GetString()!
+            : retryable
+                ? "Codex Inspector 操作暂时失败，可以重试。"
+                : "Codex Inspector 操作未通过安全校验。";
 
         return new OperationError(
             MapErrorCode(code),
-            retryable
-                ? "Codex Inspector 操作暂时失败，可以重试。"
-                : "Codex Inspector 操作未通过安全校验。",
-            code);
+            userMessage,
+            diagnosticCode ?? code);
     }
 
     private static OperationErrorCode MapErrorCode(string? code) => code switch
