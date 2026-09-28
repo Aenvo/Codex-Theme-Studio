@@ -233,7 +233,11 @@ export function protocolError(diagnosticCode, retryable = false) {
 }
 
 export function retryableError(code) {
-  return Object.assign(new Error(code), { code, retryable: true });
+  return Object.assign(new Error(code), {
+    code,
+    diagnosticCode: code,
+    retryable: true,
+  });
 }
 
 function validateWebSocketUrl(rawUrl, port, diagnosticCode) {

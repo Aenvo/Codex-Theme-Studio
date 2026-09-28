@@ -175,6 +175,7 @@ try {
         'runtime\injector\renderer-payload.test.mjs',
         'runtime\injector\renderer-runtime.test.mjs',
         'runtime\injector\main-runtime.test.mjs',
+        'runtime\injector\cdp-port.test.mjs',
         'runtime\updater\apply-update.test.mjs'
     )
 

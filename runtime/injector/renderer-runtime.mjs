@@ -1,5 +1,5 @@
 export const rendererCompatibility = Object.freeze({
-  version: 2,
+  version: 3,
   excludedInitialRoutes: [
     "/avatar-overlay",
     "/global-dictation",
@@ -21,6 +21,8 @@ export const rendererCompatibility = Object.freeze({
   codexExperienceSelectors: [
     "[data-codex-composer-root]",
     "[data-codex-composer]",
+    "[data-testid='home-icon']",
+    "[data-settings-panel-slug='general-settings']",
     "[data-app-action-timeline-scroll]",
     "[data-app-action-sidebar-thread-row]",
     "[data-codex-terminal]",
@@ -28,6 +30,8 @@ export const rendererCompatibility = Object.freeze({
   ],
   shellSelectors: [
     "main.main-surface",
+    "main[data-app-shell-main-surface]",
+    "main[class*='_MainContentSurface_']",
     "[data-testid='codex-shell']",
     "[data-testid='app-shell']",
     "#root",
@@ -49,12 +53,32 @@ export const rendererCompatibility = Object.freeze({
   mainSurfaceSelectors: [
     "main.main-surface",
     "main[data-app-shell-main-surface='default']",
+    "main[data-app-shell-main-surface]",
+    "main[class*='_MainContentSurface_']",
   ],
   composerSelectors: [
+    ".composer-surface-chrome",
+    "[class*='_ComposerLayoutRoot_']",
+    "[data-composer-surface-variant][data-composer-radius-variant]",
     "textarea",
     "[contenteditable='true']",
     "form",
     "[data-testid*='composer']",
+  ],
+  composerSurfaceSelectors: [
+    ".composer-surface-chrome",
+    "[class*='_ComposerLayoutRoot_']",
+    "[data-composer-surface-variant][data-composer-radius-variant]",
+  ],
+  headerSelectors: [
+    "header.app-header-tint",
+    "header[data-app-shell-header-edge-scroll]",
+    "header[class*='_Header_']",
+  ],
+  topFadeSelectors: [
+    ".app-shell-main-content-top-fade",
+    "[data-app-shell-main-content-top-fade]",
+    "[class*='_MainContentTopFade_']",
   ],
   taskSelectors: [
     "main [data-above-composer-conversation-id]",
@@ -167,6 +191,15 @@ export function rendererBootstrap(request) {
   const mainSurfaceSelector = Array.isArray(compatibility?.mainSurfaceSelectors)
     ? compatibility.mainSurfaceSelectors.join(", ")
     : "";
+  const composerSurfaceSelector = Array.isArray(compatibility?.composerSurfaceSelectors)
+    ? compatibility.composerSurfaceSelectors.join(", ")
+    : ".composer-surface-chrome";
+  const headerSelector = Array.isArray(compatibility?.headerSelectors)
+    ? compatibility.headerSelectors.join(", ")
+    : "header.app-header-tint";
+  const topFadeSelector = Array.isArray(compatibility?.topFadeSelectors)
+    ? compatibility.topFadeSelectors.join(", ")
+    : ".app-shell-main-content-top-fade";
   const staticCss = `
 html.codex-theme-studio-active {
   background: var(--cts-background) !important;
@@ -246,11 +279,20 @@ html.codex-theme-studio-active nav[class*="navigation"] {
   background: transparent !important;
   box-shadow: none !important;
 }
-html.codex-theme-studio-active .composer-surface-chrome {
+html.codex-theme-studio-active :is(${composerSurfaceSelector}) {
   background-color: color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent) !important;
   box-shadow: 0 0 0 1px var(--cts-border) !important;
   -webkit-backdrop-filter: blur(var(--cts-panel-blur)) !important;
   backdrop-filter: blur(var(--cts-panel-blur)) !important;
+}
+html.codex-theme-studio-active :is(${headerSelector}) {
+  background-color: color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent) !important;
+  border-color: var(--cts-border) !important;
+  -webkit-backdrop-filter: blur(var(--cts-panel-blur)) !important;
+  backdrop-filter: blur(var(--cts-panel-blur)) !important;
+}
+html.codex-theme-studio-active :is(${topFadeSelector}) {
+  background: transparent !important;
 }
 html.codex-theme-studio-active .sticky.bottom-0
   [class*="bg-gradient-to-t"][class*="from-token-main-surface-primary"] {
@@ -282,7 +324,7 @@ html.codex-theme-studio-active ::selection {
 
   const payload = request?.payload;
   const generation = request?.generation;
-  if (!compatibility || ![1, 2].includes(compatibility.version) ||
+  if (!compatibility || ![1, 2, 3].includes(compatibility.version) ||
       !mainSurfaceSelector ||
       !payload || payload.runtimeVersion !== 1 ||
       !Number.isSafeInteger(generation) || generation < 1) {
@@ -618,4 +660,154 @@ export function createRendererCleanupExpression(expectedGeneration) {
     const state = window.__CODEX_THEME_STUDIO_RENDERER_V1__;
     return state ? state.cleanup(${JSON.stringify(expectedGeneration)}) : false;
   })()`;
+}
+
+export function createRendererPortApplyExpression(payload) {
+  return createRendererPortExpression("apply", payload);
+}
+
+export function createRendererPortOperationExpression(operation) {
+  if (operation !== "status" && operation !== "cleanup") {
+    throw new TypeError("Unsupported renderer port operation.");
+  }
+  return createRendererPortExpression(operation, null);
+}
+
+function createRendererPortExpression(operation, payload) {
+  return `(${rendererPortRuntime.toString()})(${JSON.stringify({
+    operation,
+    compatibility: rendererCompatibility,
+    payload,
+  })}, ${rendererBootstrap.toString()}, ${rendererWindowProbe.toString()})`;
+}
+
+export function rendererPortRuntime(request, bootstrap, probe) {
+  const stateKey = "__CODEX_THEME_STUDIO_RENDERER_V1__";
+  const styleId = "codex-theme-studio-style";
+  const layerId = "codex-theme-studio-layer";
+  const rootClass = "codex-theme-studio-active";
+  const variantClasses = [
+    "codex-theme-studio-variant-auto",
+    "codex-theme-studio-variant-light",
+    "codex-theme-studio-variant-dark",
+  ];
+  const cssVariables = [
+    "--cts-background",
+    "--cts-panel",
+    "--cts-accent",
+    "--cts-text",
+    "--cts-muted",
+    "--cts-border",
+    "--cts-focus-x",
+    "--cts-focus-y",
+    "--cts-blur",
+    "--cts-panel-blur",
+    "--cts-panel-opacity",
+  ];
+  const root = document.documentElement;
+  const structure = probe(request.compatibility);
+  const existing = window[stateKey];
+  const hasManagedMarkers = Boolean(existing) ||
+    Boolean(document.getElementById(styleId)) ||
+    Boolean(document.getElementById(layerId)) ||
+    root.classList.contains(rootClass);
+  if (!structure?.eligible && !hasManagedMarkers) {
+    return { qualified: false };
+  }
+
+  if (request.operation === "apply") {
+    if (!structure?.eligible) {
+      return { qualified: false };
+    }
+    cleanupOkkSkin();
+    const generation = Number.isSafeInteger(existing?.generation)
+      ? existing.generation + 1
+      : 1;
+    bootstrap({
+      compatibility: request.compatibility,
+      payload: request.payload,
+      generation,
+    });
+  } else if (request.operation === "cleanup") {
+    cleanupManagedRuntime();
+    cleanupOkkSkin();
+  } else if (request.operation === "status") {
+    existing?.ensure();
+  } else {
+    return { qualified: false };
+  }
+
+  return {
+    qualified: true,
+    runtime: snapshotRuntime(),
+  };
+
+  function snapshotRuntime() {
+    const state = window[stateKey];
+    const active = Boolean(state && !state.cleaned);
+    const style = document.getElementById(styleId);
+    const layer = document.getElementById(layerId);
+    const applied = active && Boolean(style) && Boolean(layer) &&
+      root.classList.contains(rootClass) &&
+      root.dataset.codexThemeStudioRuntime === "1";
+    return {
+      runtimeVersion: 1,
+      active,
+      generation: Number.isSafeInteger(state?.generation)
+        ? state.generation
+        : null,
+      themeId: active && typeof state?.themeId === "string"
+        ? state.themeId
+        : null,
+      eligibleWindows: structure?.eligible ? 1 : 0,
+      appliedWindows: applied ? 1 : 0,
+      pendingWindows: 0,
+      auxiliaryWindows: 0,
+      hookCount: active ? 1 : 0,
+      pageModes: typeof structure?.pageMode === "string"
+        ? [structure.pageMode]
+        : [],
+      failures: 0,
+      knownExternalThemeActive: hasOkkSkin(),
+    };
+  }
+
+  function cleanupManagedRuntime() {
+    const state = window[stateKey];
+    if (state) {
+      state.cleanup(state.generation);
+    }
+    const layer = document.getElementById(layerId);
+    const backgroundImage = layer?.querySelector?.(".cts-background")?.style?.backgroundImage ?? "";
+    const blobMatch = /^url\(["']?(blob:[^)"']+)["']?\)$/u.exec(backgroundImage);
+    if (blobMatch) {
+      URL.revokeObjectURL(blobMatch[1]);
+    }
+    document.getElementById(styleId)?.remove();
+    layer?.remove();
+    root.classList.remove(rootClass, ...variantClasses);
+    for (const variable of cssVariables) {
+      root.style.removeProperty(variable);
+    }
+    delete root.dataset.codexThemeStudioRuntime;
+    delete root.dataset.codexThemeStudioGeneration;
+    delete root.dataset.codexThemeStudioPage;
+    if (window[stateKey]) {
+      delete window[stateKey];
+    }
+  }
+
+  function hasOkkSkin() {
+    return Boolean(document.getElementById("okkskin-style")) ||
+      root.classList.contains("okkskin") ||
+      Boolean(root.style.getPropertyValue("--ok-art"));
+  }
+
+  function cleanupOkkSkin() {
+    document.getElementById("okkskin-style")?.remove();
+    root.classList.remove("okkskin");
+    root.style.removeProperty("color-scheme");
+    ["--ok-bg", "--ok-panel", "--ok-accent", "--ok-text", "--ok-muted", "--ok-line", "--ok-art"]
+      .forEach(name => root.style.removeProperty(name));
+  }
 }

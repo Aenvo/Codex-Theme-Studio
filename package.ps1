@@ -382,6 +382,7 @@ Copy-RequiredFile `
     (Join-Path $updaterRoot 'apply-update.mjs')
 
 $injectorFiles = @(
+    'cdp-port.mjs',
     'index.mjs',
     'inspector-lifecycle.mjs',
     'main-runtime.mjs',

@@ -1,10 +1,38 @@
 using System.Text;
 using System.Text.Json;
+using CodexThemeStudio.Contracts.Models;
 
 namespace CodexThemeStudio.CodexAdapter.Tests;
 
 public sealed class InjectorCommandClientTests
 {
+    [Fact]
+    public void RendererPortArguments_BindProcessExecutableAndRandomPort()
+    {
+        var process = new CodexProcessInfo(
+            63540,
+            DateTimeOffset.Parse("2026-09-28T14:43:00Z"),
+            @"C:\Program Files\WindowsApps\OpenAI.Codex\app\ChatGPT.exe",
+            null,
+            13892);
+
+        var arguments = InjectorCommandClient.RendererPortArguments(
+            "renderer-port-apply",
+            process);
+
+        Assert.Equal(
+            [
+                "renderer-port-apply",
+                "--pid",
+                "63540",
+                "--executable",
+                process.ExecutablePath,
+                "--port",
+                "13892",
+            ],
+            arguments);
+    }
+
     [Fact]
     public void ProcessStartInfo_ForcesUtf8ForStructuredOutput()
     {

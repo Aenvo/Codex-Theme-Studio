@@ -36,7 +36,7 @@ public sealed class InjectorCommandClient :
 
         this.nodeExecutablePath = Path.GetFullPath(nodeExecutablePath);
         this.injectorScriptPath = Path.GetFullPath(injectorScriptPath);
-        this.commandTimeout = commandTimeout ?? TimeSpan.FromSeconds(45);
+        this.commandTimeout = commandTimeout ?? TimeSpan.FromSeconds(75);
         this.targetSelection = targetSelection;
         this.diagnosticSink = diagnosticSink;
         this.diagnosticSessionId = diagnosticSessionId ?? Guid.Empty;
@@ -119,6 +119,12 @@ public sealed class InjectorCommandClient :
         CodexProcessInfo process,
         CancellationToken cancellationToken)
     {
+        if (process.RendererPort is not null)
+        {
+            return await ProbeRendererPortAsync(process, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         var response = await ExecuteAsync(
             TargetArguments("probe", process),
             cancellationToken).ConfigureAwait(false);
@@ -146,6 +152,11 @@ public sealed class InjectorCommandClient :
         CodexProcessInfo process,
         CancellationToken cancellationToken)
     {
+        if (process.RendererPort is not null)
+        {
+            return OperationResult.Success();
+        }
+
         var response = await ExecuteAsync(
             TargetArguments("close-inspector", process),
             cancellationToken).ConfigureAwait(false);
@@ -158,12 +169,12 @@ public sealed class InjectorCommandClient :
         CodexProcessInfo process,
         ReadOnlyMemory<byte> payload,
         CancellationToken cancellationToken) =>
-        ExecuteRendererAsync("renderer-apply", process, payload, cancellationToken);
+        ExecuteRendererAsync(RendererCommand("apply", process), process, payload, cancellationToken);
 
     public Task<OperationResult<RendererRuntimeResult>> GetStatusAsync(
         CodexProcessInfo process,
         CancellationToken cancellationToken) =>
-        ExecuteRendererAsync("renderer-status", process, null, cancellationToken);
+        ExecuteRendererAsync(RendererCommand("status", process), process, null, cancellationToken);
 
     public async Task<OperationResult<CodexInspectionResult>> InspectAsync(
         CodexProcessInfo process,
@@ -178,6 +189,21 @@ public sealed class InjectorCommandClient :
                 ? OperationResult<CodexInspectionResult>.Success(
                     new CodexInspectionResult(null, rendererOnly.Value!))
                 : OperationResult<CodexInspectionResult>.Failure(rendererOnly.Error!);
+        }
+
+        if (process.RendererPort is not null)
+        {
+            var probe = await ProbeAsync(process, cancellationToken).ConfigureAwait(false);
+            if (!probe.IsSuccess)
+            {
+                return OperationResult<CodexInspectionResult>.Failure(probe.Error!);
+            }
+
+            var renderer = await GetStatusAsync(process, cancellationToken).ConfigureAwait(false);
+            return renderer.IsSuccess
+                ? OperationResult<CodexInspectionResult>.Success(
+                    new CodexInspectionResult(probe.Value, renderer.Value!))
+                : OperationResult<CodexInspectionResult>.Failure(renderer.Error!);
         }
 
         var response = await ExecuteAsync(
@@ -211,7 +237,7 @@ public sealed class InjectorCommandClient :
     public Task<OperationResult<RendererRuntimeResult>> CleanupAsync(
         CodexProcessInfo process,
         CancellationToken cancellationToken) =>
-        ExecuteRendererAsync("renderer-cleanup", process, null, cancellationToken);
+        ExecuteRendererAsync(RendererCommand("cleanup", process), process, null, cancellationToken);
 
     private async Task<OperationResult<RendererRuntimeResult>> ExecuteRendererAsync(
         string command,
@@ -220,7 +246,9 @@ public sealed class InjectorCommandClient :
         CancellationToken cancellationToken)
     {
         var response = await ExecuteAsync(
-            TargetArguments(command, process),
+            process.RendererPort is null
+                ? TargetArguments(command, process)
+                : RendererPortArguments(command, process),
             cancellationToken,
             payload).ConfigureAwait(false);
         if (!response.IsSuccess)
@@ -241,6 +269,52 @@ public sealed class InjectorCommandClient :
         catch (JsonException)
         {
             return InvalidResponse<RendererRuntimeResult>("renderer_payload_invalid");
+        }
+    }
+
+    private async Task<OperationResult<CodexProbeResult>> ProbeRendererPortAsync(
+        CodexProcessInfo process,
+        CancellationToken cancellationToken)
+    {
+        var response = await ExecuteAsync(
+            RendererPortArguments("renderer-port-probe", process),
+            cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccess)
+        {
+            return OperationResult<CodexProbeResult>.Failure(response.Error!);
+        }
+
+        using var document = response.Value!;
+        try
+        {
+            var portProbe = document.RootElement.GetProperty("portProbe");
+            var routes = portProbe.GetProperty("routeTypes")
+                .Deserialize<string[]>(JsonOptions) ?? [];
+            var canaryApplied = portProbe.GetProperty("canaryApplied").GetBoolean();
+            var canaryCleaned = portProbe.GetProperty("canaryCleaned").GetBoolean();
+            var eligible = portProbe.GetProperty("eligibleTargetCount").GetInt32();
+            return OperationResult<CodexProbeResult>.Success(
+                new CodexProbeResult(
+                    process.ProcessId,
+                    process.StartedAtUtc,
+                    "chromium-cdp",
+                    portProbe.GetProperty("targetCount").GetInt32(),
+                    routes,
+                    TimeSpan.Zero,
+                    ElectronAvailable: true,
+                    BrowserWindowAvailable: true,
+                    ExecuteJavaScriptAvailable: true,
+                    EligibleWindowCount: eligible,
+                    CanaryApplied: canaryApplied,
+                    CanaryCleaned: canaryCleaned,
+                    DiagnosticCode: canaryApplied && canaryCleaned
+                        ? "renderer_port.capability_verified"
+                        : "renderer_port.canary_failed"));
+        }
+        catch (Exception exception) when (
+            exception is JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            return InvalidResponse<CodexProbeResult>("renderer_port.probe_payload_invalid");
         }
     }
 
@@ -538,6 +612,24 @@ public sealed class InjectorCommandClient :
         "--executable",
         process.ExecutablePath,
     ];
+
+    internal static string[] RendererPortArguments(
+        string command,
+        CodexProcessInfo process) =>
+    [
+        command,
+        "--pid",
+        process.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        "--executable",
+        process.ExecutablePath,
+        "--port",
+        process.RendererPort?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "",
+    ];
+
+    private static string RendererCommand(string operation, CodexProcessInfo process) =>
+        process.RendererPort is null
+            ? $"renderer-{operation}"
+            : $"renderer-port-{operation}";
 
     private static async Task<string> ComputeSha256Async(
         string path,

@@ -35,7 +35,8 @@ public sealed record CodexProcessInfo(
     int ProcessId,
     DateTimeOffset StartedAtUtc,
     string ExecutablePath,
-    string? BrowserId);
+    string? BrowserId,
+    int? RendererPort = null);
 
 public sealed record CodexDiscoverySnapshot(
     CodexInstallationInfo Installation,

@@ -60,7 +60,20 @@ function Get-ProcessSnapshot {
     $isExpectedExecutable = $executablePath.Equals(
         $expectedExecutable,
         [StringComparison]::OrdinalIgnoreCase)
-    $isMainProcess = -not ([string]$process.CommandLine -match '(?i)(?:^|\s)--type=')
+    $commandLine = [string]$process.CommandLine
+    $isMainProcess = -not ($commandLine -match '(?i)(?:^|\s)--type=')
+    $rendererPort = $null
+    $hasLoopbackAddress = $commandLine -match `
+        '(?i)(?:^|\s)"?--remote-debugging-address=127\.0\.0\.1"?(?=\s|$)'
+    $portMatch = [regex]::Match(
+        $commandLine,
+        '(?i)(?:^|\s)"?--remote-debugging-port=([0-9]{4,5})"?(?=\s|$)')
+    if ($isMainProcess -and $hasLoopbackAddress -and $portMatch.Success) {
+        $candidatePort = [int]$portMatch.Groups[1].Value
+        if ($candidatePort -ge 1024 -and $candidatePort -le 65535) {
+            $rendererPort = $candidatePort
+        }
+    }
 
     [pscustomobject]@{
         processId = [int]$process.ProcessId
@@ -68,6 +81,7 @@ function Get-ProcessSnapshot {
         executablePath = $executablePath
         commandLineKind = if ($isMainProcess) { 'main' } else { 'child' }
         identityValid = [bool]($isExpectedExecutable -and $isMainProcess)
+        rendererPort = $rendererPort
     }
 }
 

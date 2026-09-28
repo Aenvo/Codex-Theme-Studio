@@ -4,6 +4,8 @@ import vm from "node:vm";
 import { prepareRendererPayload } from "./renderer-payload.mjs";
 import { createInput } from "./renderer-test-fixture.mjs";
 import {
+  createRendererPortApplyExpression,
+  createRendererPortOperationExpression,
   rendererBootstrap,
   rendererCompatibility,
   rendererWindowProbe,
@@ -24,7 +26,7 @@ test("applies once to a complete main window and preserves pointer interaction",
   assert.match(environment.findById("codex-theme-studio-style").textContent, /pointer-events: none/);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
-    /:is\(main\.main-surface, main\[data-app-shell-main-surface='default'\]\)\s*\{\s*background: transparent !important;/);
+    /:is\([^)]*main\.main-surface[^)]*main\[class\*='_MainContentSurface_'\][^)]*\)\s*\{\s*background: transparent !important;/);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
     /--color-background-surface: var\(--cts-panel\) !important;/);
@@ -33,13 +35,13 @@ test("applies once to a complete main window and preserves pointer interaction",
     /--color-token-dropdown-background: var\(--cts-panel\) !important;/);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
-    /\.composer-surface-chrome\s*\{/);
+    /:is\([^)]*\.composer-surface-chrome[^)]*\[class\*='_ComposerLayoutRoot_'\][^)]*\)\s*\{/);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
-    /\.composer-surface-chrome\s*\{[^}]*box-shadow:\s*0 0 0 1px var\(--cts-border\) !important;/s);
+    /:is\([^)]*\.composer-surface-chrome[^)]*\)\s*\{[^}]*box-shadow:\s*0 0 0 1px var\(--cts-border\) !important;/s);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
-    /\.composer-surface-chrome\s*\{[^}]*backdrop-filter:\s*blur\(var\(--cts-panel-blur\)\) !important;/s);
+    /:is\([^)]*\.composer-surface-chrome[^)]*\)\s*\{[^}]*backdrop-filter:\s*blur\(var\(--cts-panel-blur\)\) !important;/s);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
     /aside\s*\{[^}]*backdrop-filter:\s*blur\(var\(--cts-panel-blur\)\) !important;/s);
@@ -60,7 +62,7 @@ test("applies once to a complete main window and preserves pointer interaction",
     /\[data-page-mode="task-banner"\][^}]*\{[^}]*(?:mask-image|mask-size|mask-repeat|bottom:\s*auto|height:\s*min\(32vh, 320px\))/s);
   assert.doesNotMatch(
     environment.findById("codex-theme-studio-style").textContent,
-    /\.composer-surface-chrome\s*\{[^}]*0 12px 32px/s);
+    /:is\([^)]*\.composer-surface-chrome[^)]*\)\s*\{[^}]*0 12px 32px/s);
   assert.doesNotMatch(
     environment.findById("codex-theme-studio-style").textContent,
     /:where\(aside, nav\)/);
@@ -239,6 +241,27 @@ test("supports the current app-shell surface when the legacy class is absent", (
     "important");
 });
 
+test("recognizes current CSS-module shell and composer while retaining legacy selectors", () => {
+  const environment = createEnvironment();
+  environment.addCurrentModuleFeatures();
+
+  const probe = new vm.Script(
+    `(${rendererWindowProbe.toString()})(${JSON.stringify(rendererCompatibility)})`)
+    .runInContext(environment.context);
+  const applied = runRenderer(environment, createPayload(), 1);
+  const css = environment.findById("codex-theme-studio-style").textContent;
+
+  assert.equal(probe.eligible, true);
+  assert.equal(probe.featureVersion, 3);
+  assert.equal(applied.applied, true);
+  assert.match(css, /main\.main-surface/);
+  assert.match(css, /main\[class\*='_MainContentSurface_'\]/);
+  assert.match(css, /\.composer-surface-chrome/);
+  assert.match(css, /\[class\*='_ComposerLayoutRoot_'\]/);
+  assert.match(css, /header\[class\*='_Header_'\]/);
+  assert.match(css, /\[class\*='_MainContentTopFade_'\]/);
+});
+
 test("unified shell themes only the active Codex page and suspends on Chat", () => {
   const environment = createEnvironment();
   environment.addMainFeatures();
@@ -352,6 +375,49 @@ test("cleanup removes styles, classes, hooks, and the current Blob URL", () => {
     "");
 });
 
+test("renderer port expressions apply, report, and clean a theme", () => {
+  const environment = createEnvironment();
+  environment.addMainFeatures();
+
+  const applied = new vm.Script(
+    createRendererPortApplyExpression(createPayload()))
+    .runInContext(environment.context);
+  assert.equal(applied.qualified, true);
+  assert.equal(applied.runtime.active, true);
+  assert.equal(applied.runtime.appliedWindows, 1);
+  assert.equal(
+    applied.runtime.themeId,
+    "1296cb77-2297-4992-af72-5c3cc40b32be");
+
+  const status = new vm.Script(
+    createRendererPortOperationExpression("status"))
+    .runInContext(environment.context);
+  assert.equal(status.qualified, true);
+  assert.equal(status.runtime.active, true);
+  assert.equal(environment.countById("codex-theme-studio-style"), 1);
+
+  const cleaned = new vm.Script(
+    createRendererPortOperationExpression("cleanup"))
+    .runInContext(environment.context);
+  assert.equal(cleaned.qualified, true);
+  assert.equal(cleaned.runtime.active, false);
+  assert.equal(environment.countById("codex-theme-studio-style"), 0);
+  assert.equal(environment.countById("codex-theme-studio-layer"), 0);
+});
+
+test("renderer port apply ignores an incomplete auxiliary page", () => {
+  const environment = createEnvironment(
+    "app://-/detached-window.html?initialRoute=%2Fdetached-window");
+  environment.document.selectorMatches.add("#root");
+
+  const result = new vm.Script(
+    createRendererPortApplyExpression(createPayload()))
+    .runInContext(environment.context);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { qualified: false });
+  assert.equal(environment.countById("codex-theme-studio-style"), 0);
+});
+
 function createPayload() {
   return prepareRendererPayload(createInput());
 }
@@ -438,6 +504,18 @@ function createEnvironment(href = "app://-/index.html") {
       document.hasLegacyMainSurface = false;
       document.hasModernMainSurface = true;
     },
+    addCurrentModuleFeatures() {
+      document.hasLegacyMainSurface = false;
+      document.hasModernMainSurface = true;
+      for (const selector of [
+        "main",
+        "aside",
+        "main[class*='_MainContentSurface_']",
+        "[class*='_ComposerLayoutRoot_']",
+      ]) {
+        document.selectorMatches.add(selector);
+      }
+    },
     addUnifiedPages() {
       document.hasLegacyMainSurface = false;
       document.hasModernMainSurface = true;
@@ -499,6 +577,10 @@ class FakeDocument {
 
   createElement(tagName) {
     return new FakeElement(tagName);
+  }
+
+  getElementById(id) {
+    return findElement(this.documentElement, id);
   }
 
   querySelector(selector) {

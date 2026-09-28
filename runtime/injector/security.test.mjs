@@ -113,7 +113,9 @@ test("closed local inspector reports a retryable unavailable error", async () =>
 
   await assert.rejects(
     fetchInspectorMetadata(port, { timeoutMs: 100, retryDelayMs: 10 }),
-    (error) => error.code === "inspector_unavailable" && error.retryable);
+    (error) => error.code === "inspector_unavailable" &&
+      error.diagnosticCode === "inspector_unavailable" &&
+      error.retryable);
 });
 
 test("port reuse by another PID or a non-loopback listener fails closed", () => {

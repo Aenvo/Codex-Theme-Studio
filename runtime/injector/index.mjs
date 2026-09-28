@@ -11,6 +11,8 @@ import {
   readStructuredInput,
 } from "./renderer-payload.mjs";
 import {
+  createRendererPortApplyExpression,
+  createRendererPortOperationExpression,
   rendererCompatibility,
   rendererWindowProbe,
 } from "./renderer-runtime.mjs";
@@ -24,6 +26,10 @@ import {
   openInspector,
   waitForInspectorClosed,
 } from "./inspector-lifecycle.mjs";
+import {
+  executeRendererPortExpression,
+  probeRendererPort,
+} from "./cdp-port.mjs";
 
 const service = "CodexThemeStudio.Injector";
 const version = "0.3.0";
@@ -177,6 +183,10 @@ try {
         "renderer-ensure",
         "renderer-status",
         "renderer-cleanup",
+        "renderer-port-probe",
+        "renderer-port-apply",
+        "renderer-port-status",
+        "renderer-port-cleanup",
       ],
     });
   } else if (command === "discover") {
@@ -244,6 +254,35 @@ try {
     const options = parseTargetOptions(process.argv.slice(3), true);
     await closeInspectorForProcess(options.processId, options.executablePath);
     outputSuccess({ closed: true, processId: options.processId });
+  } else if (command === "renderer-port-probe") {
+    const options = parsePortTargetOptions(process.argv.slice(3));
+    outputSuccess({
+      portProbe: await probeRendererPortForProcess(
+        options.processId,
+        options.executablePath,
+        options.port),
+    });
+  } else if (command === "renderer-port-apply") {
+    const options = parsePortTargetOptions(process.argv.slice(3));
+    const payload = prepareRendererPayload(await readStructuredInput(process.stdin));
+    outputSuccess({
+      renderer: await executeRendererPortOperation(
+        options.processId,
+        options.executablePath,
+        options.port,
+        createRendererPortApplyExpression(payload)),
+    });
+  } else if (command === "renderer-port-status" ||
+      command === "renderer-port-cleanup") {
+    const options = parsePortTargetOptions(process.argv.slice(3));
+    outputSuccess({
+      renderer: await executeRendererPortOperation(
+        options.processId,
+        options.executablePath,
+        options.port,
+        createRendererPortOperationExpression(
+          command === "renderer-port-status" ? "status" : "cleanup")),
+    });
   } else {
     throw commandError(
       "invalid_arguments",
@@ -252,6 +291,126 @@ try {
   }
 } catch (error) {
   outputFailure(error);
+}
+
+function parsePortTargetOptions(args) {
+  if (args.length !== 6) {
+    throw commandError("invalid_arguments", "命令或参数无效。", false);
+  }
+  const portIndex = args.indexOf("--port");
+  if (portIndex < 0 || portIndex + 1 >= args.length ||
+      args.indexOf("--port", portIndex + 1) >= 0) {
+    throw commandError("invalid_arguments", "命令或参数无效。", false);
+  }
+  const portText = args[portIndex + 1];
+  if (!/^[0-9]{4,5}$/u.test(portText)) {
+    throw commandError("invalid_arguments", "调试端口无效。", false);
+  }
+  const port = Number(portText);
+  if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) {
+    throw commandError("invalid_arguments", "调试端口无效。", false);
+  }
+  const targetArguments = args.filter((_, index) =>
+    index !== portIndex && index !== portIndex + 1);
+  return { ...parseTargetOptions(targetArguments, true), port };
+}
+
+async function probeRendererPortForProcess(processId, executablePath, port) {
+  ensureWindows();
+  const before = await requireTrustedSnapshot(processId, executablePath);
+  if (before.rendererPort !== port) {
+    throw commandError(
+      "identity_changed",
+      "Renderer 调试端口与目标进程启动参数不一致。",
+      false,
+      "renderer_port.command_line_mismatch");
+  }
+  await waitForTrustedPort(processId, port, 30000);
+  const result = await probeRendererPort(port, { timeoutMs: 60000 });
+  await assertSnapshotUnchanged(before, executablePath);
+  assertPortOwner(await getPortListeners(port), processId);
+  return result;
+}
+
+async function executeRendererPortOperation(
+  processId,
+  executablePath,
+  port,
+  expression) {
+  ensureWindows();
+  const before = await requireTrustedSnapshot(processId, executablePath);
+  if (before.rendererPort !== port) {
+    throw commandError(
+      "identity_changed",
+      "Renderer 调试端口与目标进程启动参数不一致。",
+      false,
+      "renderer_port.command_line_mismatch");
+  }
+  await waitForTrustedPort(processId, port, 30000);
+  const operation = await executeRendererPortExpression(port, expression, {
+    timeoutMs: 60000,
+  });
+  await assertSnapshotUnchanged(before, executablePath);
+  assertPortOwner(await getPortListeners(port), processId);
+  return aggregateRendererPortResult(operation, processId);
+}
+
+function aggregateRendererPortResult(operation, processId) {
+  const runtimes = operation?.results?.map(result => result?.runtime) ?? [];
+  if (runtimes.length === 0 || runtimes.some(runtime =>
+    !runtime || runtime.runtimeVersion !== 1 ||
+    typeof runtime.active !== "boolean" ||
+    !Number.isSafeInteger(runtime.eligibleWindows) ||
+    !Number.isSafeInteger(runtime.appliedWindows) ||
+    !Number.isSafeInteger(runtime.pendingWindows) ||
+    !Number.isSafeInteger(runtime.auxiliaryWindows) ||
+    !Number.isSafeInteger(runtime.hookCount) ||
+    !Number.isSafeInteger(runtime.failures) ||
+    typeof runtime.knownExternalThemeActive !== "boolean" ||
+    !Array.isArray(runtime.pageModes))) {
+    throw commandError(
+      "invalid_response",
+      "Renderer 运行时返回结构无效。",
+      false,
+      "renderer_port.runtime_response_invalid");
+  }
+
+  const active = runtimes.filter(runtime => runtime.active);
+  const generations = new Set(active.map(runtime => runtime.generation));
+  const themeIds = new Set(active.map(runtime => runtime.themeId));
+  if (generations.size > 1 || themeIds.size > 1) {
+    throw commandError(
+      "invalid_response",
+      "Renderer 运行时状态不一致。",
+      false,
+      "renderer_port.runtime_state_inconsistent");
+  }
+
+  return {
+    runtimeVersion: 1,
+    active: active.length > 0,
+    generation: active[0]?.generation ?? runtimes[0].generation ?? null,
+    themeId: active[0]?.themeId ?? null,
+    eligibleWindows: sum("eligibleWindows"),
+    appliedWindows: sum("appliedWindows"),
+    pendingWindows: sum("pendingWindows"),
+    auxiliaryWindows: Math.max(
+      0,
+      operation.targetCount - operation.eligibleTargetCount) +
+      sum("auxiliaryWindows"),
+    hookCount: sum("hookCount"),
+    pageModes: [...new Set(runtimes.flatMap(runtime => runtime.pageModes))],
+    failures: sum("failures"),
+    processId,
+    inspectorOpenDuration: "00:00:00.0000000",
+    inspectorWasAlreadyOpen: false,
+    knownExternalThemeActive: runtimes.some(
+      runtime => runtime.knownExternalThemeActive),
+  };
+
+  function sum(property) {
+    return runtimes.reduce((total, runtime) => total + runtime[property], 0);
+  }
 }
 
 async function discover(executablePath) {
@@ -505,7 +664,8 @@ async function requireTrustedSnapshot(processId, executablePath) {
 async function assertSnapshotUnchanged(expected, executablePath) {
   const actual = await requireTrustedSnapshot(expected.processId, executablePath);
   if (actual.startedAtUtc !== expected.startedAtUtc ||
-      !samePath(actual.executablePath, expected.executablePath)) {
+      !samePath(actual.executablePath, expected.executablePath) ||
+      actual.rendererPort !== expected.rendererPort) {
     throw commandError(
       "identity_changed",
       "Codex 进程身份在操作期间发生变化。",
@@ -513,9 +673,28 @@ async function assertSnapshotUnchanged(expected, executablePath) {
   }
 }
 
-async function getPortListeners() {
-  const result = await invokeDiscovery("Port", { Port: String(inspectorPort) });
+async function getPortListeners(port = inspectorPort) {
+  const result = await invokeDiscovery("Port", { Port: String(port) });
   return result.listeners ?? [];
+}
+
+async function waitForTrustedPort(processId, port, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    const listeners = await getPortListeners(port);
+    if (listeners.length > 0) {
+      assertPortOwner(listeners, processId);
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw commandError(
+        "timeout",
+        "等待 Renderer 调试端口打开超时。",
+        true,
+        "renderer_port.open_timeout");
+    }
+    await delay(100);
+  }
 }
 
 async function openInspectorForProcess(processId, initialListeners) {
@@ -642,6 +821,9 @@ function toPublicProcess(processInfo) {
     startedAtUtc: processInfo.startedAtUtc,
     executablePath: processInfo.executablePath,
     browserId: null,
+    rendererPort: Number.isSafeInteger(processInfo.rendererPort)
+      ? processInfo.rendererPort
+      : null,
   };
 }
 
