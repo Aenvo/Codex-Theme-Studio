@@ -64,6 +64,8 @@ Portal 可能直接挂载到 `body`，必须保留宿主自身的定位与层叠
 Composer 表面由主题选择 `solid` 或 `blur`。`solid` 使用面板色的不透明 RGB，避免对话内容
 透入输入框；`blur` 保留面板 Alpha，并使用 `panelBlur` 对输入框背后的内容执行背景模糊。
 两种模式都只保留主题边框，不恢复新版宿主底部的大面积渐变阴影。
+Composer 的权限模式当前值、状态图标以及展开菜单中的对应强调项使用主题强调色；
+覆盖范围只锚定权限导航和它处于打开状态时的菜单，不覆盖全局 warning、error 或 Git 状态色。
 
 Renderer 监听 DOM 变化、hash/popstate 和低频页面模式检查。重复 ensure 在相同
 themeId/generation 下只修复缺失节点和同步 pageMode，不创建新 Style 或 Blob。

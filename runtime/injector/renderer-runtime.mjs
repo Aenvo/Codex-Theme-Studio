@@ -321,6 +321,26 @@ html.codex-theme-studio-active :is(${composerSurfaceSelector}) {
   -webkit-backdrop-filter: var(--cts-composer-backdrop-filter) !important;
   backdrop-filter: var(--cts-composer-backdrop-filter) !important;
 }
+html.codex-theme-studio-active
+  [data-composer-navigation-target="permissions"]
+  [data-composer-dropdown-foreground="warning"],
+html.codex-theme-studio-active
+  [data-composer-navigation-target="permissions"]
+  [data-composer-dropdown-foreground="warning"]
+  [data-composer-footer-collapse] {
+  --composer-dropdown-label-color: var(--cts-accent) !important;
+  --composer-dropdown-label-value-color: var(--cts-accent) !important;
+}
+html.codex-theme-studio-active
+  [data-composer-navigation-target="permissions"]
+  [data-composer-dropdown-foreground="warning"]
+  .text-warning,
+html.codex-theme-studio-active body:has(
+  [data-composer-navigation-target="permissions"][data-state="open"])
+  [data-radix-menu-content][role="menu"][data-state="open"]
+  [role="menuitem"] .text-warning {
+  color: var(--cts-accent) !important;
+}
 html.codex-theme-studio-active :is(${headerSelector}) {
   background-color: color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent) !important;
   border-color: var(--cts-border) !important;

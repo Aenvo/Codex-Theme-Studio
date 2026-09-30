@@ -47,6 +47,15 @@ test("applies once without overriding body portal positioning or stacking", () =
     /--app-color-text-accent: var\(--cts-accent\) !important;/);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
+    /\[data-composer-navigation-target="permissions"\][^{}]*\[data-composer-dropdown-foreground="warning"\][^{]*\{[^}]*--composer-dropdown-label-color:\s*var\(--cts-accent\) !important;[^}]*--composer-dropdown-label-value-color:\s*var\(--cts-accent\) !important;/s);
+  assert.doesNotMatch(
+    environment.findById("codex-theme-studio-style").textContent,
+    /--(?:app-)?color-text-warning:\s*var\(--cts-accent\)/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /\[data-composer-navigation-target="permissions"\][^{}]*\[data-composer-dropdown-foreground="warning"\][^{}]*\.text-warning,[^{]*body:has\([^)]*\[data-composer-navigation-target="permissions"\]\[data-state="open"\][^)]*\)[^{]*\[data-radix-menu-content\]\[role="menu"\]\[data-state="open"\][^{]*\[role="menuitem"\]\s*\.text-warning\s*\{[^}]*color:\s*var\(--cts-accent\) !important;/s);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
     /--color-token-primary: var\(--cts-accent\) !important;/);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
