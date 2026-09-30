@@ -57,6 +57,10 @@ Payload 由 `JSON.stringify` 整体序列化到固定程序，不把颜色、路
 支持裁切焦点、cover/contain/crop 和 blur。只有 crop 使用 focus；首页使用 home opacity/overlay；
 任务页支持 ambient、banner、off。
 
+主题背景层只通过 `body > #root` 将应用主根节点置于背景之上，不得统一改写
+`body` 其他直属节点的 `position` 或 `z-index`。文字选择菜单、提示和对话框等
+Portal 可能直接挂载到 `body`，必须保留宿主自身的定位与层叠规则。
+
 Composer 表面由主题选择 `solid` 或 `blur`。`solid` 使用面板色的不透明 RGB，避免对话内容
 透入输入框；`blur` 保留面板 Alpha，并使用 `panelBlur` 对输入框背后的内容执行背景模糊。
 两种模式都只保留主题边框，不恢复新版宿主底部的大面积渐变阴影。

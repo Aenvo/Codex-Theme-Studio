@@ -269,7 +269,7 @@ html.codex-theme-studio-active body {
   background: transparent !important;
   color: var(--cts-text);
 }
-html.codex-theme-studio-active body > :not(#codex-theme-studio-layer) {
+html.codex-theme-studio-active body > #root {
   position: relative;
   z-index: 1;
 }

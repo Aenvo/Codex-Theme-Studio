@@ -11,7 +11,7 @@ import {
   rendererWindowProbe,
 } from "./renderer-runtime.mjs";
 
-test("applies once to a complete main window and preserves pointer interaction", () => {
+test("applies once without overriding body portal positioning or stacking", () => {
   const environment = createEnvironment();
   environment.addMainFeatures();
 
@@ -24,6 +24,12 @@ test("applies once to a complete main window and preserves pointer interaction",
   assert.equal(environment.countById("codex-theme-studio-layer"), 1);
   assert.equal(environment.createdBlobUrls.length, 1);
   assert.match(environment.findById("codex-theme-studio-style").textContent, /pointer-events: none/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /body\s*>\s*#root\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*1;/s);
+  assert.doesNotMatch(
+    environment.findById("codex-theme-studio-style").textContent,
+    /body\s*>\s*:not\(#codex-theme-studio-layer\)/);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
     /:is\([^)]*main\.main-surface[^)]*main\[class\*='_MainContentSurface_'\][^)]*\)\s*\{\s*background: transparent !important;/);
