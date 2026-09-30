@@ -24,6 +24,7 @@ const taskModeMap = new Map([
   ["banner", "banner"],
   ["off", "off"],
 ]);
+const allowedComposerSurfaceModes = new Set(["solid", "blur"]);
 const allowedContentTypes = new Set([
   "image/png",
   "image/jpeg",
@@ -52,6 +53,7 @@ const artKeys = [
   "panelBlur",
   "cropScale",
 ];
+const optionalArtKeys = ["composerSurfaceMode"];
 
 export function prepareRendererPayload(input) {
   assertPlainObject(input, "payload_root");
@@ -89,7 +91,7 @@ export function prepareRendererPayload(input) {
   }));
 
   assertPlainObject(theme.art, "art");
-  assertExactKeys(theme.art, artKeys, "art");
+  assertRequiredAndOptionalKeys(theme.art, artKeys, optionalArtKeys, "art");
   if (typeof theme.art.file !== "string" || theme.art.file.length === 0) {
     throw validationError("invalid_art_file");
   }
@@ -111,6 +113,10 @@ export function prepareRendererPayload(input) {
   const rendererTaskMode = taskModeMap.get(theme.art.taskMode);
   if (!rendererTaskMode) {
     throw validationError("invalid_task_mode");
+  }
+  const composerSurfaceMode = theme.art.composerSurfaceMode ?? "blur";
+  if (!allowedComposerSurfaceModes.has(composerSurfaceMode)) {
+    throw validationError("invalid_composer_surface_mode");
   }
 
   assertPlainObject(image, "image");
@@ -148,6 +154,7 @@ export function prepareRendererPayload(input) {
       blur: theme.art.blur,
       panelBlur: theme.art.panelBlur,
       cropScale: usesCropFocus ? theme.art.cropScale : 1,
+      composerSurfaceMode,
     },
   };
 }
@@ -227,6 +234,16 @@ function assertExactKeys(value, expected, code) {
   const required = [...expected].sort();
   if (actual.length !== required.length ||
       actual.some((key, index) => key !== required[index])) {
+    throw validationError(`${code}_fields_invalid`);
+  }
+}
+
+function assertRequiredAndOptionalKeys(value, required, optional, code) {
+  const actual = Object.keys(value);
+  const actualSet = new Set(actual);
+  const allowed = new Set([...required, ...optional]);
+  if (required.some((key) => !actualSet.has(key)) ||
+      actual.some((key) => !allowed.has(key))) {
     throw validationError(`${code}_fields_invalid`);
   }
 }

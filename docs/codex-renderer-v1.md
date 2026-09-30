@@ -13,7 +13,7 @@ Injector 只从 UTF-8 JSON 标准输入读取主题，主题值不进入命令�
 
 - Schema v1、UUID、名称、枚举、颜色和数值范围；
 - PNG/JPEG/WebP Content-Type、Base64、32 MiB 受管图片上限和文件签名；
-- crop focus、cover/contain/crop、opacity、overlay、blur 和 variant；
+- crop focus、cover/contain/crop、opacity、overlay、blur、Composer 表面模式和 variant；
 - 旧 `safeArea` 字段继续校验以兼容 Schema v1，但不参与渲染。
 
 任务 3 的持久化枚举保持不变。Renderer 层确定映射：
@@ -56,6 +56,10 @@ Payload 由 `JSON.stringify` 整体序列化到固定程序，不把颜色、路
 装饰层和子层固定使用 `pointer-events: none`。背景图片从白名单字节创建 Blob，
 支持裁切焦点、cover/contain/crop 和 blur。只有 crop 使用 focus；首页使用 home opacity/overlay；
 任务页支持 ambient、banner、off。
+
+Composer 表面由主题选择 `solid` 或 `blur`。`solid` 使用面板色的不透明 RGB，避免对话内容
+透入输入框；`blur` 保留面板 Alpha，并使用 `panelBlur` 对输入框背后的内容执行背景模糊。
+两种模式都只保留主题边框，不恢复新版宿主底部的大面积渐变阴影。
 
 Renderer 监听 DOM 变化、hash/popstate 和低频页面模式检查。重复 ensure 在相同
 themeId/generation 下只修复缺失节点和同步 pageMode，不创建新 Style 或 Blob。

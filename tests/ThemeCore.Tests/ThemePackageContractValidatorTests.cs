@@ -44,6 +44,66 @@ public class ThemePackageContractValidatorTests
     }
 
     [Fact]
+    public void Serializer_RoundTripsBlurredComposerSurface()
+    {
+        var theme = CreateValidTheme("模糊输入框") with
+        {
+            Art = CreateValidTheme("模糊输入框").Art with
+            {
+                ComposerSurfaceMode = ThemeComposerSurfaceMode.Blur,
+            },
+        };
+        var serializer = new ThemeDocumentSerializer();
+
+        var serialized = serializer.Serialize(theme);
+        var read = serializer.Read(serialized.Value!);
+
+        Assert.True(serialized.IsSuccess);
+        Assert.Equal(ThemeDocumentReadStatus.Success, read.Status);
+        Assert.Equal(ThemeComposerSurfaceMode.Blur, read.Theme!.Art.ComposerSurfaceMode);
+    }
+
+    [Fact]
+    public void Serializer_DefaultsLegacyComposerSurfaceToBlur()
+    {
+        var serializer = new ThemeDocumentSerializer();
+        var json = """
+            {
+              "schemaVersion": 1,
+              "id": "1296cb77-2297-4992-af72-5c3cc40b32be",
+              "name": "Legacy theme",
+              "variant": "auto",
+              "palette": {
+                "background": "#100D14",
+                "panel": "#18131DCC",
+                "accent": "#B98BD2",
+                "text": "#EEE8F2",
+                "muted": "#A99EAE",
+                "border": "#302735"
+              },
+              "art": {
+                "file": "background.webp",
+                "focusX": 0.5,
+                "focusY": 0.5,
+                "safeArea": "auto",
+                "size": "cover",
+                "homeOpacity": 0.8,
+                "homeOverlay": 0.25,
+                "taskMode": "ambient",
+                "taskOpacity": 0.3,
+                "taskOverlay": 0.65,
+                "blur": 0
+              }
+            }
+            """;
+
+        var read = serializer.Read(System.Text.Encoding.UTF8.GetBytes(json));
+
+        Assert.Equal(ThemeDocumentReadStatus.Success, read.Status);
+        Assert.Equal(ThemeComposerSurfaceMode.Blur, read.Theme!.Art.ComposerSurfaceMode);
+    }
+
+    [Fact]
     public void Serializer_RejectsUnknownFieldInCurrentSchema()
     {
         var serializer = new ThemeDocumentSerializer();
@@ -169,6 +229,7 @@ public class ThemePackageContractValidatorTests
                 Blur = 65,
                 PanelBlur = 65,
                 CropScale = 3.1,
+                ComposerSurfaceMode = (ThemeComposerSurfaceMode)99,
             },
         };
 
@@ -178,6 +239,9 @@ public class ThemePackageContractValidatorTests
         Assert.Equal(
             4,
             issues.Count(issue => issue.Code == "theme.number.out_of_range"));
+        Assert.Contains(
+            issues,
+            issue => issue.Code == "theme.art.composer_surface_mode.invalid");
     }
 
     internal static ThemePackage CreateValidTheme(

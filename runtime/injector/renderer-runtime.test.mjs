@@ -35,13 +35,28 @@ test("applies once to a complete main window and preserves pointer interaction",
     /--color-token-dropdown-background: var\(--cts-panel\) !important;/);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
+    /--app-color-text-foreground: var\(--cts-text\) !important;/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /--app-color-text-accent: var\(--cts-accent\) !important;/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /--color-token-primary: var\(--cts-accent\) !important;/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /--color-token-text-link-foreground: var\(--cts-accent\) !important;/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /--app-color-background-button-primary: var\(--cts-accent\) !important;/);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
     /:is\([^)]*\.composer-surface-chrome[^)]*\[class\*='_ComposerLayoutRoot_'\][^)]*\)\s*\{/);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
     /:is\([^)]*\.composer-surface-chrome[^)]*\)\s*\{[^}]*box-shadow:\s*0 0 0 1px var\(--cts-border\) !important;/s);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
-    /:is\([^)]*\.composer-surface-chrome[^)]*\)\s*\{[^}]*backdrop-filter:\s*blur\(var\(--cts-panel-blur\)\) !important;/s);
+    /:is\([^)]*\.composer-surface-chrome[^)]*\)\s*\{[^}]*backdrop-filter:\s*var\(--cts-composer-backdrop-filter\) !important;/s);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
     /aside\s*\{[^}]*backdrop-filter:\s*blur\(var\(--cts-panel-blur\)\) !important;/s);
@@ -57,6 +72,9 @@ test("applies once to a complete main window and preserves pointer interaction",
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
     /\.sticky\.bottom-0\s*\[class\*="bg-gradient-to-t"\]\[class\*="from-token-main-surface-primary"\]\[class\*="to-transparent"\]\s*\{[^}]*background-color:\s*transparent !important;/s);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
+    /\.sticky\.bottom-0\s*>\s*\[class\*="bg-gradient-to-t"\]\[class\*="from-surface"\]\[class\*="via-surface"\]\s*\{[^}]*background-color:\s*transparent !important;[^}]*background-image:\s*none !important;/s);
   assert.doesNotMatch(
     environment.findById("codex-theme-studio-style").textContent,
     /\[data-page-mode="task-banner"\][^}]*\{[^}]*(?:mask-image|mask-size|mask-repeat|bottom:\s*auto|height:\s*min\(32vh, 320px\))/s);
@@ -82,11 +100,31 @@ test("applies once to a complete main window and preserves pointer interaction",
   assert.equal(
     environment.document.documentElement.style.getPropertyValue("--cts-panel-opacity"),
     "96.64%");
+  assert.equal(
+    environment.document.documentElement.style.getPropertyValue("--cts-composer-background"),
+    "color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent)");
+  assert.equal(
+    environment.document.documentElement.style.getPropertyValue("--cts-composer-backdrop-filter"),
+    "blur(var(--cts-panel-blur))");
   const layer = environment.findById("codex-theme-studio-layer");
   assert.equal(layer.children[0].style.opacity, "0.82");
   assert.equal(
     layer.children[1].style.backgroundColor,
     "rgba(18, 16, 24, 0.25)");
+});
+
+test("configures the composer to use an opaque panel when solid is requested", () => {
+  const environment = createEnvironment();
+  environment.addMainFeatures();
+
+  runRenderer(environment, createPayload("solid"), 1);
+
+  assert.equal(
+    environment.document.documentElement.style.getPropertyValue("--cts-composer-background"),
+    "#201A28");
+  assert.equal(
+    environment.document.documentElement.style.getPropertyValue("--cts-composer-backdrop-filter"),
+    "none");
 });
 
 test("leaves avatar overlay and incomplete auxiliary windows untouched", () => {
@@ -371,6 +409,12 @@ test("cleanup removes styles, classes, hooks, and the current Blob URL", () => {
     environment.document.documentElement.style.getPropertyValue("--cts-panel-blur"),
     "");
   assert.equal(
+    environment.document.documentElement.style.getPropertyValue("--cts-composer-background"),
+    "");
+  assert.equal(
+    environment.document.documentElement.style.getPropertyValue("--cts-composer-backdrop-filter"),
+    "");
+  assert.equal(
     environment.document.mainSurface.style.getPropertyValue("background"),
     "");
 });
@@ -418,8 +462,10 @@ test("renderer port apply ignores an incomplete auxiliary page", () => {
   assert.equal(environment.countById("codex-theme-studio-style"), 0);
 });
 
-function createPayload() {
-  return prepareRendererPayload(createInput());
+function createPayload(composerSurfaceMode = "blur") {
+  const input = createInput();
+  input.theme.art.composerSurfaceMode = composerSurfaceMode;
+  return prepareRendererPayload(input);
 }
 
 function runRenderer(environment, payload, generation) {

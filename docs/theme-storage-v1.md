@@ -17,8 +17,10 @@ DataRoot 迁移见[主题包与数据迁移格式 v1](theme-package-and-migratio
 - `art.safeArea` 仅作为旧主题兼容字段保留，Renderer 不再使用其值。
 - `art.size`：`cover`、`contain`、`crop`；只有 `crop` 使用 `focusX`、`focusY`。
 - `art.taskMode`：`ambient`、`hidden`、`full`。
+- `art.composerSurfaceMode`：`solid`、`blur`；旧主题缺少该字段时按 `blur` 读取。
 - `focusX`、`focusY`、首页/任务页透明度与遮罩均为 `0..1`。
-- `blur` 为 `0..64`。
+- `blur`、`panelBlur` 为 `0..64`；旧主题缺少 `panelBlur` 时按 `0` 读取。
+- `cropScale` 为 `1..3`，只在 `art.size` 为 `crop` 时参与渲染；旧主题缺少该字段时按 `1` 读取。
 - `art.file` 只允许相对路径以及 `.png`、`.jpg`、`.jpeg`、`.webp` 扩展名。
   用户图片必须先经过任务 4 的内容识别和安全重编码，主题只引用应用生成的
   受管资源；详见 [图片安全处理与预览管线](image-pipeline-v1.md)。

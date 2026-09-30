@@ -187,6 +187,8 @@ export function rendererBootstrap(request) {
     "--cts-blur",
     "--cts-panel-blur",
     "--cts-panel-opacity",
+    "--cts-composer-background",
+    "--cts-composer-backdrop-filter",
   ];
   const mainSurfaceSelector = Array.isArray(compatibility?.mainSurfaceSelectors)
     ? compatibility.mainSurfaceSelectors.join(", ")
@@ -226,6 +228,40 @@ html.codex-theme-studio-active {
   --codex-base-accent: var(--cts-accent) !important;
   --codex-base-ink: var(--cts-text) !important;
   --codex-base-surface: var(--cts-panel) !important;
+  --app-color-text-foreground: var(--cts-text) !important;
+  --app-color-text-foreground-secondary: var(--cts-muted) !important;
+  --app-color-text-foreground-tertiary: var(--cts-muted) !important;
+  --app-color-icon-primary: var(--cts-text) !important;
+  --app-color-icon-secondary: var(--cts-muted) !important;
+  --app-color-icon-tertiary: var(--cts-muted) !important;
+  --app-color-icon-accent: var(--cts-accent) !important;
+  --app-color-accent-blue: var(--cts-accent) !important;
+  --app-color-text-accent: var(--cts-accent) !important;
+  --app-color-text-tip-badge: var(--cts-accent) !important;
+  --color-token-foreground: var(--cts-text) !important;
+  --color-token-text-primary: var(--cts-text) !important;
+  --color-token-text-secondary: var(--cts-muted) !important;
+  --color-token-text-tertiary: var(--cts-muted) !important;
+  --color-token-description-foreground: var(--cts-muted) !important;
+  --color-token-primary: var(--cts-accent) !important;
+  --color-token-text-link-foreground: var(--cts-accent) !important;
+  --app-color-border: var(--cts-border) !important;
+  --app-color-border-focus: var(--cts-accent) !important;
+  --app-color-background-surface: var(--cts-panel) !important;
+  --app-color-background-control: var(--cts-panel) !important;
+  --app-color-background-elevated-primary: var(--cts-panel) !important;
+  --app-color-background-elevated-primary-opaque: var(--cts-panel) !important;
+  --app-color-background-elevated-secondary: var(--cts-panel) !important;
+  --app-color-background-elevated-secondary-opaque: var(--cts-panel) !important;
+  --app-color-background-accent: color-mix(in srgb, var(--cts-accent) 16%, transparent) !important;
+  --app-color-background-accent-hover: color-mix(in srgb, var(--cts-accent) 24%, transparent) !important;
+  --app-color-background-accent-active: color-mix(in srgb, var(--cts-accent) 32%, transparent) !important;
+  --app-color-background-button-primary: var(--cts-accent) !important;
+  --app-color-background-button-primary-hover: color-mix(in srgb, var(--cts-accent) 88%, var(--cts-text)) !important;
+  --app-color-background-button-primary-active: color-mix(in srgb, var(--cts-accent) 78%, var(--cts-text)) !important;
+  --app-color-background-button-primary-inactive: color-mix(in srgb, var(--cts-accent) 38%, transparent) !important;
+  --app-color-text-button-primary: var(--cts-background) !important;
+  --app-color-text-on-accent: var(--cts-background) !important;
 }
 html.codex-theme-studio-variant-light { color-scheme: light; }
 html.codex-theme-studio-variant-dark { color-scheme: dark; }
@@ -280,10 +316,10 @@ html.codex-theme-studio-active nav[class*="navigation"] {
   box-shadow: none !important;
 }
 html.codex-theme-studio-active :is(${composerSurfaceSelector}) {
-  background-color: color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent) !important;
+  background-color: var(--cts-composer-background) !important;
   box-shadow: 0 0 0 1px var(--cts-border) !important;
-  -webkit-backdrop-filter: blur(var(--cts-panel-blur)) !important;
-  backdrop-filter: blur(var(--cts-panel-blur)) !important;
+  -webkit-backdrop-filter: var(--cts-composer-backdrop-filter) !important;
+  backdrop-filter: var(--cts-composer-backdrop-filter) !important;
 }
 html.codex-theme-studio-active :is(${headerSelector}) {
   background-color: color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent) !important;
@@ -301,6 +337,11 @@ html.codex-theme-studio-active .sticky.bottom-0
 html.codex-theme-studio-active .sticky.bottom-0
   [class*="bg-gradient-to-t"][class*="from-token-main-surface-primary"][class*="to-transparent"] {
   background-color: transparent !important;
+}
+html.codex-theme-studio-active .sticky.bottom-0
+  > [class*="bg-gradient-to-t"][class*="from-surface"][class*="via-surface"] {
+  background-color: transparent !important;
+  background-image: none !important;
 }
 html.codex-theme-studio-active [class*="elevation-prominent"] {
   background-color: color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent) !important;
@@ -400,6 +441,17 @@ html.codex-theme-studio-active ::selection {
   setVariable(root, "--cts-blur", `${payload.art.blur}px`);
   setVariable(root, "--cts-panel-blur", `${payload.art.panelBlur}px`);
   setVariable(root, "--cts-panel-opacity", `${100 - (payload.art.panelBlur * 0.28)}%`);
+  const composerUsesBlur = payload.art.composerSurfaceMode === "blur";
+  setVariable(
+    root,
+    "--cts-composer-background",
+    composerUsesBlur
+      ? "color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent)"
+      : payload.palette.panel.slice(0, 7));
+  setVariable(
+    root,
+    "--cts-composer-backdrop-filter",
+    composerUsesBlur ? "blur(var(--cts-panel-blur))" : "none");
 
   document.head.append(style);
   document.body.prepend(layer);

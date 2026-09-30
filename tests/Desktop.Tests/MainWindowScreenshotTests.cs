@@ -149,8 +149,25 @@ public sealed class MainWindowScreenshotTests
                 780,
                 96,
                 Environment.GetEnvironmentVariable("CTS_EDITOR_SCREENSHOT_PATH"));
+            var originalComposerSurfaceMode = fixture.Editor.ComposerSurfaceMode;
+            var originalPanelBlur = fixture.Editor.PanelBlur;
+            fixture.Editor.ComposerSurfaceMode = Contracts.Models.ThemeComposerSurfaceMode.Solid;
+            fixture.Editor.PanelBlur = 14;
+            RenderWindow(
+                fixture.ViewModel,
+                1240,
+                780,
+                96,
+                Environment.GetEnvironmentVariable("CTS_EDITOR_SOLID_COMPOSER_SCREENSHOT_PATH"));
+            fixture.Editor.ComposerSurfaceMode = originalComposerSurfaceMode;
+            fixture.Editor.PanelBlur = originalPanelBlur;
             CaptureEditorGlassMatrix(fixture.ViewModel, fixture.Editor);
-            RenderWindow(fixture.ViewModel, 2560, 1440, 96, screenshotPath: null);
+            RenderWindow(
+                fixture.ViewModel,
+                2560,
+                1440,
+                96,
+                Environment.GetEnvironmentVariable("CTS_EDITOR_LARGE_SCREENSHOT_PATH"));
             fixture.ViewModel.NavigateCommand.Execute("Settings");
             RenderWindow(
                 fixture.ViewModel,
@@ -715,13 +732,28 @@ public sealed class MainWindowScreenshotTests
             Assert.Contains("主题编辑器", editorText);
             var previewGlassPanels = FindVisualChildren<PreviewGlassPanel>(root).ToArray();
             Assert.Equal(5, previewGlassPanels.Length);
-            Assert.All(previewGlassPanels, panel =>
+            var composerPanel = Assert.Single(
+                previewGlassPanels,
+                panel => AutomationProperties.GetName(panel) == "Codex 任务页模拟输入框");
+            var sharedGlassPanels = previewGlassPanels
+                .Where(panel => !ReferenceEquals(panel, composerPanel))
+                .ToArray();
+            Assert.Equal(4, sharedGlassPanels.Length);
+            Assert.All(sharedGlassPanels, panel =>
             {
                 Assert.Equal(1, panel.Opacity);
                 Assert.Equal(editor.PanelBlur, panel.BlurRadius);
                 Assert.Equal(editor.PanelSurfaceOpacity, panel.SurfaceOpacity, precision: 4);
                 Assert.NotNull(panel.BackdropSource);
             });
+            Assert.Equal(1, composerPanel.Opacity);
+            Assert.Equal(editor.ComposerBlur, composerPanel.BlurRadius);
+            Assert.Equal(editor.ComposerSurfaceOpacity, composerPanel.SurfaceOpacity, precision: 4);
+            Assert.NotNull(composerPanel.BackdropSource);
+            var composerMode = Assert.Single(
+                FindVisualChildren<ComboBox>(root),
+                comboBox => AutomationProperties.GetName(comboBox) == "输入框背景模式");
+            Assert.Equal(2, composerMode.Items.Count);
             Assert.DoesNotContain(
                 "所有修改先进入草稿；模拟预览不等同于真实 Codex 渲染验证。",
                 editorText);

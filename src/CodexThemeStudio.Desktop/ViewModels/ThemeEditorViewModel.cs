@@ -55,6 +55,9 @@ public sealed class ThemeEditorViewModel : ObservableObject
 
     public IReadOnlyList<ThemeTaskMode> TaskModes { get; } = Enum.GetValues<ThemeTaskMode>();
 
+    public IReadOnlyList<ThemeComposerSurfaceMode> ComposerSurfaceModes { get; } =
+        Enum.GetValues<ThemeComposerSurfaceMode>();
+
     public IColorHistoryService ColorHistoryService => colorHistory;
 
     public IEnumerable<string> ColorHistory => colorHistory.Colors;
@@ -224,6 +227,23 @@ public sealed class ThemeEditorViewModel : ObservableObject
         1 - (PanelBlur * PanelOpacityReductionPerPixel),
         0,
         1);
+
+    public ThemeComposerSurfaceMode ComposerSurfaceMode
+    {
+        get => draft?.Art.ComposerSurfaceMode ?? ThemeComposerSurfaceMode.Blur;
+        set => SetArt(draft is null ? null : draft.Art with { ComposerSurfaceMode = value });
+    }
+
+    public double ComposerBlur =>
+        ComposerSurfaceMode == ThemeComposerSurfaceMode.Blur ? PanelBlur : 0;
+
+    public double ComposerSurfaceOpacity =>
+        ComposerSurfaceMode == ThemeComposerSurfaceMode.Blur ? PanelSurfaceOpacity : 1;
+
+    public string ComposerPanelColor =>
+        ComposerSurfaceMode == ThemeComposerSurfaceMode.Solid
+            ? ToOpaqueColor(PanelColor)
+            : PanelColor;
 
     public string? PreviewImagePath
     {
@@ -455,6 +475,7 @@ public sealed class ThemeEditorViewModel : ObservableObject
             Blur = 0,
             PanelBlur = 10,
             CropScale = 1,
+            ComposerSurfaceMode = ThemeComposerSurfaceMode.Blur,
         };
         NotifyAll();
     }
@@ -525,6 +546,7 @@ public sealed class ThemeEditorViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(BackgroundColor));
         OnPropertyChanged(nameof(PanelColor));
+        OnPropertyChanged(nameof(ComposerPanelColor));
         OnPropertyChanged(nameof(AccentColor));
         OnPropertyChanged(nameof(TextColor));
         OnPropertyChanged(nameof(MutedColor));
@@ -547,9 +569,18 @@ public sealed class ThemeEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(Blur));
         OnPropertyChanged(nameof(PanelBlur));
         OnPropertyChanged(nameof(PanelSurfaceOpacity));
+        OnPropertyChanged(nameof(ComposerSurfaceMode));
+        OnPropertyChanged(nameof(ComposerBlur));
+        OnPropertyChanged(nameof(ComposerSurfaceOpacity));
+        OnPropertyChanged(nameof(ComposerPanelColor));
         OnPropertyChanged(nameof(PreviewOpacity));
         OnPropertyChanged(nameof(PreviewOverlay));
         OnPropertyChanged(nameof(TaskContentOverlay));
         OnPropertyChanged(nameof(IsTaskOverlayEnabled));
     }
+
+    private static string ToOpaqueColor(string color) =>
+        color.Length == 9 && color[0] == '#'
+            ? color[..7]
+            : color;
 }

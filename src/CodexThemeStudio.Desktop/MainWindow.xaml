@@ -2341,7 +2341,28 @@
                                     IsPickerOpen="{Binding Editor.IsColorPickerOpen, Mode=TwoWay}"
                                     Value="{Binding Editor.BorderColor, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                             </UniformGrid>
-                            <TextBlock Margin="0,0,0,4"
+                            <TextBlock Margin="0,0,0,4" Text="输入框背景" />
+                            <ComboBox AutomationProperties.Name="输入框背景模式"
+                                      ItemsSource="{Binding Editor.ComposerSurfaceModes}"
+                                      SelectedItem="{Binding Editor.ComposerSurfaceMode}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock>
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="实色" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding}" Value="{x:Static models:ThemeComposerSurfaceMode.Blur}">
+                                                            <Setter Property="Text" Value="背景模糊" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Margin="0,8,0,4"
                                        Text="{Binding Editor.PanelBlur, StringFormat=面板毛玻璃效果：{0:F0} px}" />
                             <Slider Minimum="0" Maximum="64"
                                     AutomationProperties.Name="面板毛玻璃效果"
@@ -2747,12 +2768,12 @@
                                                             HorizontalAlignment="Center"
                                                             AutomationProperties.Name="Codex 任务页模拟输入框"
                                                             BackdropSource="{Binding ElementName=PreviewBackdropSource}"
-                                                            Background="{Binding Editor.PanelColor, Converter={StaticResource CssColorBrushConverter}}"
-                                                            BlurRadius="{Binding Editor.PanelBlur}"
+                                                            Background="{Binding Editor.ComposerPanelColor, Converter={StaticResource CssColorBrushConverter}}"
+                                                            BlurRadius="{Binding Editor.ComposerBlur}"
                                                             BorderBrush="{Binding Editor.BorderColor, Converter={StaticResource CssColorBrushConverter}}"
                                                             BorderThickness="1"
                                                             CornerRadius="10"
-                                                            SurfaceOpacity="{Binding Editor.PanelSurfaceOpacity}">
+                                                            SurfaceOpacity="{Binding Editor.ComposerSurfaceOpacity}">
                                                         <Grid>
                                                             <TextBlock Foreground="{Binding Editor.MutedColor, Converter={StaticResource CssColorBrushConverter}}"
                                                                        FontSize="9"

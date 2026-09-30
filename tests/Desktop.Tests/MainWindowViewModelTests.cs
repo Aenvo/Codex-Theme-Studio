@@ -1243,6 +1243,38 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task Editor_ComposerSurface_UsesBlurDefaultAndPersistsSolidMode()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        var theme = fixture.Repository.Themes[fixture.Repository.Summaries[0].ThemeId];
+        fixture.Editor.Begin(theme, newTheme: false);
+        fixture.Editor.PanelColor = "#1C1C1CCC";
+        fixture.Editor.PanelBlur = 14;
+
+        Assert.Equal(ThemeComposerSurfaceMode.Blur, fixture.Editor.ComposerSurfaceMode);
+        Assert.Equal("#1C1C1CCC", fixture.Editor.ComposerPanelColor);
+        Assert.Equal(14, fixture.Editor.ComposerBlur);
+        Assert.Equal(fixture.Editor.PanelSurfaceOpacity, fixture.Editor.ComposerSurfaceOpacity);
+
+        fixture.Editor.ComposerSurfaceMode = ThemeComposerSurfaceMode.Solid;
+
+        Assert.Equal("#1C1C1C", fixture.Editor.ComposerPanelColor);
+        Assert.Equal(0, fixture.Editor.ComposerBlur);
+        Assert.Equal(1, fixture.Editor.ComposerSurfaceOpacity);
+
+        var saved = await fixture.Editor.SaveAsync(
+            saveCopy: false,
+            copyName: null,
+            CancellationToken.None);
+
+        Assert.True(saved.IsSuccess);
+        Assert.Equal(ThemeComposerSurfaceMode.Solid, saved.Value!.Art.ComposerSurfaceMode);
+
+        fixture.Editor.ResetDefaults();
+        Assert.Equal(ThemeComposerSurfaceMode.Blur, fixture.Editor.ComposerSurfaceMode);
+    }
+
+    [Fact]
     public void Editor_FocusControls_AreEnabledOnlyForCropMode()
     {
         using var fixture = new ViewModelFixture(themeCount: 1);

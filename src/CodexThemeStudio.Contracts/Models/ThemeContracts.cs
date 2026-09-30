@@ -32,6 +32,12 @@ public enum ThemeTaskMode
     Full,
 }
 
+public enum ThemeComposerSurfaceMode
+{
+    Blur = 0,
+    Solid,
+}
+
 public enum ThemeSourceType
 {
     LocalCreated = 0,
@@ -67,7 +73,8 @@ public sealed record ThemeArt(
     double TaskOverlay,
     double Blur,
     double PanelBlur = 0,
-    double CropScale = 1);
+    double CropScale = 1,
+    ThemeComposerSurfaceMode ComposerSurfaceMode = ThemeComposerSurfaceMode.Blur);
 
 public sealed record ThemePackage(
     int SchemaVersion,

@@ -168,6 +168,11 @@ public static class ThemePackageContractValidator
         ValidateEnum(art.SafeArea, "theme.art.safe_area.invalid", "art.safeArea", issues);
         ValidateEnum(art.Size, "theme.art.size.invalid", "art.size", issues);
         ValidateEnum(art.TaskMode, "theme.art.task_mode.invalid", "art.taskMode", issues);
+        ValidateEnum(
+            art.ComposerSurfaceMode,
+            "theme.art.composer_surface_mode.invalid",
+            "art.composerSurfaceMode",
+            issues);
     }
 
     private static void ValidateRange(

@@ -30,6 +30,7 @@ export function createInput(taskMode = "ambient") {
         blur: 4,
         panelBlur: 12,
         cropScale: 1,
+        composerSurfaceMode: "blur",
       },
     },
     image: {

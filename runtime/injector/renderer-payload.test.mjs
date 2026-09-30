@@ -18,6 +18,7 @@ test("keeps the bundled verification theme aligned with the payload schema", asy
   assert.equal(payload.themeId, fixture.theme.id);
   assert.equal(payload.art.panelBlur, 0);
   assert.equal(payload.art.cropScale, 1);
+  assert.equal(payload.art.composerSurfaceMode, "blur");
 });
 
 test("prepares a serialized payload and maps frozen Schema v1 task modes", () => {
@@ -32,6 +33,27 @@ test("prepares a serialized payload and maps frozen Schema v1 task modes", () =>
   assert.equal(full.palette.accent, "#CC66EE");
   assert.equal(full.art.panelBlur, 12);
   assert.equal(full.art.cropScale, 1);
+  assert.equal(full.art.composerSurfaceMode, "blur");
+});
+
+test("supports both composer surfaces and defaults legacy payloads to blur", () => {
+  const solid = createInput("ambient");
+  solid.theme.art.composerSurfaceMode = "solid";
+  const legacy = createInput("ambient");
+  delete legacy.theme.art.composerSurfaceMode;
+
+  assert.equal(
+    prepareRendererPayload(solid).art.composerSurfaceMode,
+    "solid");
+  assert.equal(
+    prepareRendererPayload(legacy).art.composerSurfaceMode,
+    "blur");
+
+  const invalid = createInput("ambient");
+  invalid.theme.art.composerSurfaceMode = "transparent";
+  assert.throws(
+    () => prepareRendererPayload(invalid),
+    (error) => error.diagnosticCode === "invalid_composer_surface_mode");
 });
 
 test("keeps the managed image and Base64 payload limits coordinated", () => {
