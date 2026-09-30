@@ -63,13 +63,13 @@ Choose a background and palette from the theme library, adjust composition, opac
 
 Do not run the app from inside the ZIP, and do not use GitHub's automatically generated `Source code (zip)` or `Source code (tar.gz)` archives as the application. Regular users need the Release Asset whose name contains `win-x64-portable.zip`.
 
-Version `1.3.3` is unsigned, so Windows may show an unknown-publisher warning. Do not run a package whose hash does not match, and do not bypass a warning by disabling security software or blindly allowlisting the app.
+Portable release packages are unsigned, so Windows may show an unknown-publisher warning. Do not run a package whose hash does not match, and do not bypass a warning by disabling security software or blindly allowlisting the app.
 
 ## Workflow
 
 1. **Create or import**: Start a theme or import a declarative `.cttheme` package that contains no executable code.
 2. **Edit and preview**: Choose a PNG, JPEG, or WebP background and tune composition plus six theme colors. Colors support `#RRGGBB` and CSS-order `#RRGGBBAA`.
-3. **Apply temporarily**: Start Codex first, then select “临时应用” (Temporary Apply). For a new EXE fingerprint, the app verifies an apply → clean → reapply cycle.
+3. **Apply temporarily**: Select a theme and choose “临时应用” (Temporary Apply). Start older Codex versions first; when the unified ChatGPT/Codex host needs a theme channel, the app asks before starting or gracefully restarting ChatGPT. For a new EXE fingerprint, the app verifies an apply → clean → reapply cycle.
 4. **Persist on demand**: Persistence is available only after that cycle succeeds. It installs a low-frequency Agent and a current-user startup entry, and always requires explicit user action.
 5. **Restore at any time**: “还原外观” (Restore Appearance) stops the temporary theme and, after confirmation, disables recognized persistence entries and Agents.
 
@@ -90,11 +90,12 @@ See the [user guide](./docs/user-guide.md) for complete usage, data locations, u
 
 ## Security and Compatibility Boundaries
 
-- Themes are applied through a short-lived loopback Inspector session, which must close after the operation. The project does not modify `WindowsApps`, `app.asar`, the Codex EXE, Appx, or digital signatures.
+- Older Codex versions use a short-lived local loopback Inspector session; port `9229` must no longer be listening after the operation. The unified ChatGPT/Codex host uses a managed launch of the official Store package and a random local loopback Renderer port. Before a graceful restart, the app asks for confirmation and reminds you to save unsent input. The random port remains open while that managed ChatGPT process runs, and other local processes under the same user may connect; see [risk R-26](./docs/risks/risk-register.md). The project does not modify `WindowsApps`, `app.asar`, the EXE, Appx, or digital signatures.
+- The unified host applies themes only to the active Codex page; Chat/Work pages and auxiliary windows remain isolated. Broader real-world coverage of slow startup, high load, and interrupted recovery is `To be confirmed`.
 - It does not read or record conversation content, authentication data, API keys, models, MCP configuration, or permission settings. Once ready, the app queries the public GitHub Releases API for stable updates but does not upload themes, images, or diagnostics.
 - Images are identified by content and limited to PNG, JPEG, and WebP. They are fully decoded, re-encoded into managed copies, and stripped of unnecessary metadata.
-- Live verification currently covers Store Codex `26.715.4045.0`, `26.715.10079.0`, `26.721.3404.0`, `26.727.6591.0`, `26.730.8199.0`, `26.803.5235.0`, `26.803.10989.0`, and `26.903.8094.0`. These are compatibility evidence, not an allowlist; unknown versions still require full capability probing.
-- Version `1.3.3` has not completed release acceptance in a clean Windows VM without preinstalled .NET/Node or in an environment with a working Defender installation. Real updater termination and power-loss boundaries are also untested. Keep a recoverable copy before first use or update.
+- The short-lived Inspector path for older Store Codex versions and the random-port path for the unified Store ChatGPT/Codex host `26.924.2738.0` have live local evidence; see the [compatibility records](./docs/compatibility/codex-versions.json) and [test plan](./docs/testing/runtime-compatibility-plan.md) for versions and coverage. This evidence does not qualify the formal release candidate and is not an allowlist; unknown versions still require full capability probing.
+- The current maintenance candidate has not completed release acceptance in a clean Windows VM without preinstalled .NET/Node or in an environment with a working Defender installation. Real updater termination and power-loss boundaries are also untested. Keep a recoverable copy before first use or update.
 
 Do not disclose security issues in a public Issue. See the [security policy](./SECURITY.md) for reporting instructions and supported versions.
 

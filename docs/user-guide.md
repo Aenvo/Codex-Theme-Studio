@@ -3,7 +3,7 @@
 ## 系统要求
 
 - Windows 10 或 Windows 11 x64。
-- 当前用户安装的 Microsoft Store Codex，或由用户明确选择的兼容 Codex EXE。
+- 当前用户注册的 Microsoft Store Codex/ChatGPT 统一宿主，或由用户明确选择的兼容 Codex EXE。
 - 解压后的普通可写目录。
 - 不需要预装 .NET、Node.js、npm 或 npx；正常使用不需要管理员权限。
 
@@ -49,12 +49,13 @@
 
 ## 临时显示和切换主题
 
-1. 先启动 Codex。默认自动检测当前用户的 Microsoft Store Codex；需要使用其他安装来源时，在“设置 → Codex 连接”选择目标 EXE 并确认来源警告。Theme Studio 已打开时，切回窗口会立即重新检测；若 Codex 仍在启动，程序每 2 秒重试一次，最长 20 秒，无需手动刷新。
+1. 默认自动检测当前用户的 Microsoft Store Codex/ChatGPT 统一宿主；使用旧版 Codex 前先启动它。需要使用其他安装来源时，在“设置 → Codex 连接”选择目标 EXE 并确认来源警告。Theme Studio 已打开时，切回窗口会立即重新检测；若目标仍在启动，程序每 2 秒重试一次，最长 20 秒，无需手动刷新。
 2. 在主题库选中主题，点击“临时显示”。
 3. 选中另一个主题并再次临时显示即可切换。
 
 临时显示只影响当前 Codex 实例，不创建启动项，不启动持久化 Agent。Codex 完全退出后效果消失。
-Codex 未运行时“临时应用”仍可点击，但只显示启动提示并开始短时检测，不会替用户启动 Codex，也不会执行注入或读取主题负载。
+如果统一宿主未运行，点击“临时应用”可在确认后使用原 Profile 启动官方 ChatGPT 并应用主题；如果已运行但缺少主题所需的随机回环通道，界面会先提示保存未发送输入，再经确认请求当前官方 ChatGPT 正常关闭、重新启动并应用。Theme Studio 不会强制结束进程；无法安全关闭时请手动关闭后重试。其他目标未运行时只显示启动提示和短时检测，不会擅自启动目标。
+统一宿主只对当前激活的 Codex 页面应用主题；Chat/Work 页面和辅助窗口不会显示该主题。受管启动的随机回环 Renderer 端口在 ChatGPT 进程存续期间保持监听，本机同用户进程可能连接；详见[风险登记 R-26](risks/risk-register.md)。旧版 Codex 的短时 Inspector 操作结束后仍须确认端口 `9229` 无监听。
 
 已验证版本、未知版本或新的 EXE 指纹在能力探测通过后即可临时显示。每个尚未取得本机资格的 EXE 指纹第一次临时显示都会自动执行“应用 → 清理 → 重新应用”验证，成功后主题保持可见，并开放“设为持久主题”。如果目标 EXE 内容发生变化，需要对新指纹重新确认来源并再次完成该闭环。
 
@@ -64,9 +65,9 @@ Codex 未运行时“临时应用”仍可点击，但只显示启动提示并�
 
 1. 选中要持久化的主题。
 2. 点击“设为持久主题”。
-
-取得资格后，即使 Codex 当前未运行，也可以完成 Agent 安装、快照激活和启动项注册；Agent 会保持空闲，并在下次发现可信 Codex 主进程后自动应用主题。
 3. 阅读确认信息后继续。
+
+取得资格后，即使 Codex 当前未运行，也可以完成 Agent 安装、快照激活和启动项注册；Agent 会保持空闲，并在下次发现可信 Codex 主进程后恢复主题。统一宿主的 Agent 仅在无随机端口的进程启动不超过 2 分钟时尝试受管接管；运行更久的实例保持 fail-closed，需回到 GUI 处理。
 
 应用会在 `%LOCALAPPDATA%\CodexThemeStudio\Agent\versions\<SHA-256>` 安装内容寻址的稳定 Agent 副本，并创建当前用户启动项：
 
@@ -75,13 +76,13 @@ HKCU\Software\Microsoft\Windows\CurrentVersion\Run
 CodexThemeStudio.PersistenceAgent
 ```
 
-默认快照位于 `%LOCALAPPDATA%\CodexThemeStudio\Runtime\Persistence`，配置位于 `%LOCALAPPDATA%\CodexThemeStudio\Agent\config.json`。目标选择与本机资格记录位于 `%LOCALAPPDATA%\CodexThemeStudio\Runtime`。Agent 只对路径、PID、启动时间和 EXE 指纹一致且已取得持久化资格的 Codex 主进程短时应用主题；GUI 可以退出。
+默认快照位于 `%LOCALAPPDATA%\CodexThemeStudio\Runtime\Persistence`，配置位于 `%LOCALAPPDATA%\CodexThemeStudio\Agent\config.json`。目标选择与本机资格记录位于 `%LOCALAPPDATA%\CodexThemeStudio\Runtime`。Agent 只对路径、PID、启动时间和 EXE 指纹一致且已取得持久化资格的 Codex 主进程应用主题；旧版短时 Inspector 与统一宿主随机端口路径采用各自的身份和端口校验；GUI 可以退出。
 
 ## 还原 Codex 外观
 
 “还原 Codex 外观”是临时主题与持久主题共用的停止入口，与当前选中的主题卡片无关：
 
-- 只有临时主题时，程序直接清理当前 Codex 运行时主题、停止当前进程内未来重注并关闭 Inspector。
+- 只有临时主题时，程序直接清理当前 Codex 运行时主题并停止当前进程内未来重注；旧版路径还会关闭短时 Inspector。统一宿主的受管随机端口随 ChatGPT 进程存续，不会因主题还原而单独关闭。
 - 检测到 Theme Studio 或 OkkSkin 持久化时，程序先显示确认框，明确列出要停用的提供方。
 - 确认后，程序禁用对应状态、移除已验证的当前用户启动项、停止精确匹配的 Agent，并还原当前 Codex。
 - 成功后，当前窗口和下一次启动的 Codex 都保持官方外观。
@@ -189,19 +190,20 @@ OkkSkin 停用只接受与 `%LOCALAPPDATA%\okkskin\OkkSkin.vbs` 和其中 `node.
 1. 先点击“还原 Codex 外观”。
 2. 在状态区域查看“已验证”“探测兼容”“来源未验证”或“能力不兼容”，并记录脱敏错误码。
 3. 在“设置 → 通用 → Codex 连接”确认目标路径和指纹；路径失效时可以恢复自动检测，EXE 更新后需重新确认来源。
-4. 完全退出并重新启动 Codex，再点击“重新检测”；能力通过后先执行一次临时显示以恢复新指纹的持久化资格。
-5. 不要修改 `WindowsApps`、`app.asar`、Codex EXE 或签名，也不要长期开放 Inspector。
+4. 点击“重新检测”；旧版 Codex 可完全退出后重新启动。统一宿主需要建立受管通道时，按界面提示保存未发送输入并确认正常重启；能力通过后先执行一次临时显示以恢复新指纹的持久化资格。
+5. 不要修改 `WindowsApps`、`app.asar`、Codex EXE 或签名，也不要手动长期开放旧版 Inspector。
 6. 在“设置 → 诊断”复制 Issue 摘要；需要更完整证据时再手动导出诊断包。不要附带真实对话截图或凭证。
 
-未知 Codex 版本不因版本号本身被拒绝，但能力缺失、目标不明确、Inspector 无法安全关闭或注入/清理验证失败仍会 fail-closed。已验证版本如果能力回退也会被拒绝。
+未知 Codex 版本不因版本号本身被拒绝，但能力缺失、目标不明确、旧版 Inspector 无法安全关闭、统一宿主随机端口身份不匹配或注入/清理验证失败仍会 fail-closed。已验证版本如果能力回退也会被拒绝。
 
-“Injector 返回了无效的结构化响应”表示本机发现脚本或 Injector 没有完成约定的 JSON 协议，不等同于 Codex 版本不兼容。先关闭 Theme Studio 后使用同一发布包重新启动并重新检测；如果仍出现该错误，请保留脱敏错误码和版本信息。不要通过长期开放 Inspector、修改 Codex 文件或跳过目标身份校验来绕过。
+“Injector 返回了无效的结构化响应”表示本机发现脚本或 Injector 没有完成约定的 JSON 协议，不等同于 Codex 版本不兼容。先关闭 Theme Studio 后使用同一发布包重新启动并重新检测；如果仍出现该错误，请保留脱敏错误码和版本信息。不要通过手动开放 Inspector、修改 Codex 文件或跳过目标身份校验来绕过。
 
 ## 已知限制
 
-- 当前真实验证的 Codex 版本为 Microsoft Store `26.715.4045.0`、`26.715.10079.0`、`26.721.3404.0`、`26.727.6591.0`、`26.730.8199.0`、`26.803.5235.0` 和 `26.803.10989.0` x64。
+- 旧版 Store Codex 的短时 Inspector 路径和 Store ChatGPT/Codex 统一宿主 `26.924.2738.0` 的随机端口路径已有本机实机证据；版本与验证范围见[兼容性记录](compatibility/codex-versions.json)和[测试方案](testing/runtime-compatibility-plan.md)。这些证据不等于正式候选包验收，也不构成运行白名单。
 - 手选非 Store EXE 可以在来源确认和完整能力探测通过后使用；这不是对第三方构建的安全背书。非 Store 真实实例验证目前为 `To be confirmed`。
-- 不支持目标路径无法精确匹配、多个合格主进程、非回环 Inspector、Inspector 残留、必需能力缺失或不完整主窗口。
+- 不支持目标路径无法精确匹配、多个合格主进程、非回环端口、旧版 Inspector 残留、统一宿主随机端口身份不匹配、必需能力缺失或不完整主窗口。
+- 统一宿主受管启动可能需要正常重启 ChatGPT；慢启动、高负载和恢复中断的扩展实机覆盖仍为 `To be confirmed`。随机回环端口在受管进程存续期间保持监听，并非认证机制。
 - 当前版本未签名；只提供用户主动触发、完整校验并可回滚的更新，不提供后台静默安装、在线主题商店或远端主题源。
 - 普通任务页真实渲染、刷新恢复、窗口隔离和 Restore 已验证；不同 Codex 更新仍需重新做兼容性验收。
 - 程序目录可移动，但自定义 DataRoot 和稳定 Agent 是独立位置。

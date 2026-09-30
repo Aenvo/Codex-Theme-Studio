@@ -16,7 +16,7 @@
 
 脚本不会修改 PATH、注册表、启动项或 Codex 配置。
 
-Node 按 `runtime/node`、`artifacts/cache`、最新本地发布包、系统 PATH 的顺序查找，但只有版本精确为 `v24.18.0` 才会接受。
+Node 按 `runtime/node`、`artifacts/cache`、兼容旧目录命名的本地发布包、系统 PATH 的顺序查找，但只有版本精确为 `v24.18.0` 才会接受。
 
 普通构建、测试和 Agent 自检固定选择 `win-x64`，并保持 framework-dependent；这会避免把其他平台的 native assets 复制到本地输出。正式发布仍由 `package.ps1` 分别生成 Desktop 和 Agent 的隔离 self-contained 暂存输出，再按 `agent-bundle-manifest.json` 去除最终 ZIP 中内容完全相同的运行时文件。
 
@@ -54,9 +54,12 @@ dotnet run --project .\src\CodexThemeStudio.Agent --runtime win-x64 --no-self-co
 node .\runtime\injector\index.mjs self-test
 node --test `
   .\runtime\injector\security.test.mjs `
+  .\runtime\injector\inspector-lifecycle.test.mjs `
   .\runtime\injector\renderer-payload.test.mjs `
   .\runtime\injector\renderer-runtime.test.mjs `
-  .\runtime\injector\main-runtime.test.mjs
+  .\runtime\injector\main-runtime.test.mjs `
+  .\runtime\injector\cdp-port.test.mjs `
+  .\runtime\updater\apply-update.test.mjs
 ```
 
 如果系统 `dotnet` 没有 8.0.423 SDK，使用 `build.ps1` 或先设置 `DOTNET_ROOT`。
@@ -88,7 +91,7 @@ Set-Location '.\Codex-Theme-Studio'
 
 不要把 `bin/`、`obj/`、`artifacts/work`、`artifacts/validation`、已解压发布目录或
 本地用户数据当作源码迁移。它们应由构建、验证或发布流程重新生成。本机保留的
-`1.1.7` 回滚包仅用于本机恢复，不替代 Git 历史或当前 `1.2.0` 验收记录。
+旧版回滚包仅用于本机恢复，不替代 Git 历史或当前版本的验收记录。
 
 ## 生成物清理
 
@@ -102,7 +105,7 @@ Set-Location '.\Codex-Theme-Studio'
 
 历史归档目录的批量移除不属于 `ArchivesOnly` 策略。此类操作必须先核对精确
 版本、Git 状态和恢复点，并使用已经验证的同卷回收站机制；不得永久删除或清空
-回收站。1.2.0 的本地保留策略是当前版本加已验收的 1.1.7 回滚包。
+回收站。
 
 实际执行必须显式提供 `-Execute`、确认短语、`-ReleaseRetention ArchivesOnly` 和一个位于项目外部、尚不存在的证据备份目录：
 
@@ -141,8 +144,9 @@ Injector 的目标发现明确由系统 `powershell.exe` 执行，因此运行�
   `close-inspector --pid <PID>`，以及任务 6 内部验证所需的 `prepare`、
   `renderer-probe`、`renderer-apply`、`renderer-ensure`、
   `renderer-status`、`renderer-cleanup`。`discover` 只读取 Store 包与进程身份；
-  `probe` 会短时打开经校验主进程的 Inspector，执行不读取页面文本的只读探针，
-  并在结束时关闭 Inspector。不要把 `probe` 用作常驻监控。
+  旧版 `probe` 路径会短时打开经校验主进程的 Inspector，执行不读取页面文本的只读探针，
+  并在结束时关闭 Inspector；统一宿主的受管随机回环 Renderer 通道另见兼容性测试方案。
+  不要把 `probe` 用作常驻监控。
 - Renderer 命令通过 UTF-8 JSON 标准输入接收声明式主题和受管图片，不接受
   命令行主题值。Desktop 和 Agent 已通过结构化服务封装临时应用、状态查询和
   完整还原语义。

@@ -7,7 +7,7 @@
 - Node.js Windows x64 `v24.18.0`。
 - Node 压缩包 SHA-256：
   `0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821`。
-- 当前维护 Release 版本号：`1.3.4`。
+- 发布版本以仓库根目录 `Directory.Build.props` 的 `Version` 为准；不要从本机归档目录推断维护基线。
 
 Node Runtime 只从 `https://nodejs.org/download/release/v24.18.0/` 获取。脚本会在解压前校验固定 SHA-256，并在打包前执行 `node.exe --version`。
 
@@ -19,7 +19,7 @@ Node Runtime 只从 `https://nodejs.org/download/release/v24.18.0/` 获取。脚
 .\package.ps1
 ```
 
-未传入 `-Version` 时，脚本以 `Directory.Build.props` 的 `Version` 作为发布版本；显式传入版本仅用于有意覆盖，可使用 `major.minor.patch` 或 SemVer 预发布格式（例如 `1.3.4-rc.1`）。
+未传入 `-Version` 时，脚本以 `Directory.Build.props` 的 `Version` 作为发布版本；显式传入版本仅用于有意生成预发布测试包，可使用 SemVer 预发布格式。正式候选包应直接使用源码中已同步的稳定版本运行 `package.ps1`，不传入 `-SkipVerification`。
 
 脚本按顺序执行：
 
@@ -42,42 +42,42 @@ Node Runtime 只从 `https://nodejs.org/download/release/v24.18.0/` 获取。脚
 ## 产物
 
 ```text
-artifacts/release/1.3.4/
-├─ Codex-Theme-Studio-1.3.4-win-x64-portable/
-├─ Codex-Theme-Studio-1.3.4-win-x64-portable.zip
+artifacts/release/<version>/
+├─ Codex-Theme-Studio-<version>-win-x64-portable/
+├─ Codex-Theme-Studio-<version>-win-x64-portable.zip
 ├─ SHA256SUMS.txt
 └─ release-manifest.json
 ```
 
 便携目录中的主程序是 `CodexThemeManager.exe`，产品元数据名称为 `Codex Theme Studio`。持久化组件的独有文件位于 `agent/`，共享运行时位于包根；`agent-bundle-manifest.json` 描述如何重建完整稳定 Agent。`runtime/updater/apply-update.mjs` 与包内 Node 组成外置更新 runner；`app-install-manifest.json` 是成功更新后清理旧程序文件的所有权依据。稳定安装后仍使用已冻结的 Agent 文件名、进程与启动项契约，不代表第二个产品。
 
-## 归档状态
-
-- 历史验收文档继续保留；本机发布归档保留既有回滚包和当前 `1.3.4`。
-- `1.1.8`、`1.1.9` 和 `1.1.10` 从未取得对应本地验收记录，已按可恢复方式移出项目目录。
-- 当前源码维护基线为 `1.3.4`。发布包必须通过本版本门禁；旧本机交接快照已移除，不再作为仓库真相源。
+历史版本的验收证据保留在 `docs/testing/`。本机 `artifacts/release/` 仅存放产物，不决定当前维护版本；归档清理遵循 `docs/building.md` 的可恢复流程。
 
 ## 发布前检查
 
 ```powershell
-Get-Content .\artifacts\release\1.3.4\SHA256SUMS.txt
-Get-AuthenticodeSignature `
-  .\artifacts\release\1.3.4\Codex-Theme-Studio-1.3.4-win-x64-portable\CodexThemeManager.exe
-Get-AuthenticodeSignature `
-  .\artifacts\release\1.3.4\Codex-Theme-Studio-1.3.4-win-x64-portable\agent\CodexThemeStudio.Agent.exe
+[xml]$props = Get-Content -Raw .\Directory.Build.props
+$version = [string]($props.Project.PropertyGroup.Version | Select-Object -First 1)
+$releaseRoot = Join-Path '.\artifacts\release' $version
+$packageName = "Codex-Theme-Studio-$version-win-x64-portable"
+$packageRoot = Join-Path $releaseRoot $packageName
+$zip = Join-Path $releaseRoot "$packageName.zip"
+Get-Content (Join-Path $releaseRoot 'SHA256SUMS.txt')
+Get-FileHash $zip -Algorithm SHA256
+Get-AuthenticodeSignature (Join-Path $packageRoot 'CodexThemeManager.exe')
+Get-AuthenticodeSignature (Join-Path $packageRoot 'agent\CodexThemeStudio.Agent.exe')
 ```
 
-该版本预期为 `NotSigned`，必须在用户文档中如实披露。
+核对实际 ZIP 哈希与 `SHA256SUMS.txt`、`release-manifest.json` 一致，Agent manifest、包内 `app-install-manifest.json` 与逐文件大小和哈希一致。当前发布流程预期主程序和 Agent 均为 `NotSigned`，必须在用户文档中如实披露。
 
 以上 EXE 命令适用于刚生成、尚未按 `ArchivesOnly` 清理的便携目录。若只保留归档文件，应先校验 ZIP，再解压到项目外的独立临时目录并对其中相同相对路径执行签名、许可证和内容检查；检查结束后按可恢复策略处理临时目录。
 
 同时确认便携目录根部包含第一方 `LICENSE`，`LICENSES/` 包含 `Lucide-LICENSE.txt` 等第三方许可证，并且界面图标不需要联网加载。
 
-病毒扫描使用本机 Microsoft Defender 的自定义扫描：
+在 Defender 服务、实时保护和签名库有效的环境中，沿用上方 PowerShell 会话中的 `$zip` 使用自定义扫描；若不可用，记录为未覆盖：
 
 ```powershell
-Start-MpScan -ScanType CustomScan -ScanPath `
-  .\artifacts\release\1.3.4\Codex-Theme-Studio-1.3.4-win-x64-portable.zip
+Start-MpScan -ScanType CustomScan -ScanPath $zip
 ```
 
 出现检测时停止分发并审查原因，不建议用户关闭安全软件或盲目加白。
@@ -88,33 +88,37 @@ Start-MpScan -ScanType CustomScan -ScanPath `
 `.\build.ps1 -Configuration Release`，不会创建 tag、打包 Release 资产或创建
 Release。同一分支的新 CI 会取消尚未完成的旧运行。
 
-版本提交审核完成后按以下顺序执行，每一步都是独立人工检查点：
+版本提交审核完成后按以下顺序执行，并核对每一步的结果：
 
-1. 从短期发布分支创建 Draft PR，确认 CI 通过后 Squash 合并到 `main`，删除远端短期分支，并确认仓库没有新增 tag。
+1. 将已验证的版本提交按授权推送到 `main`，确认该提交的 CI 完整通过；如使用 PR，也需确认合并后的 `main` CI。
 2. 手动运行 `Windows release` workflow。`workflow_dispatch` 只生成保留
    14 天的私有 Actions Artifact，不创建 Release。
 3. 下载 Artifact，复核 ZIP、`SHA256SUMS.txt`、Schema v3 `release-manifest.json`、包内 Schema v1 `app-install-manifest.json`、120 MB 上限和 `NotSigned` 状态。
-4. 完成有效 Defender 扫描和干净 Windows 验收后，人工创建并推送与
-   `Directory.Build.props` 精确匹配的带注释 tag。若本版本缺少 Defender、
-   干净 Windows 或真实中断边界证据，必须保持 Draft，明确披露所有缺失门禁，
-   并在公开前另行取得仅针对本版本的风险接受；风险接受不代表门禁通过，也不
-   自动适用于后续版本：
+4. 核对 tag 尚不存在、目标是通过 CI 的版本提交，并人工创建及推送与
+   `Directory.Build.props` 精确匹配的带注释 tag。若本版本缺少有效 Defender、
+   干净 Windows 或真实中断边界证据，后续 Release 必须保持 Draft，明确披露
+   所有缺失门禁，并在公开前另行取得仅针对本版本的风险接受；风险接受不代表
+   门禁通过，也不自动适用于后续版本：
 
 ```powershell
-git tag -a v1.3.4 -m 'release: Codex Theme Studio v1.3.4'
-git push origin v1.3.4
+[xml]$props = Get-Content -Raw .\Directory.Build.props
+$version = [string]($props.Project.PropertyGroup.Version | Select-Object -First 1)
+$tag = "v$version"
+git tag -a $tag -m "release: Codex Theme Studio $tag"
+git push origin $tag
 ```
 
-精确 tag 触发的 workflow 会创建标题为 `Codex Theme Studio v1.3.4` 的 Draft
+精确 tag 触发的 workflow 会创建标题为 `Codex Theme Studio v<version>` 的 Draft
 Release，并上传便携 ZIP、`SHA256SUMS.txt` 和 `release-manifest.json`。GitHub
 自动附带的 Source code ZIP/TAR 不是可运行产品。workflow 不会自动创建 tag，
 也不会把 Draft 公开发布。
 
-带注释 tag 使用 `release: Codex Theme Studio v1.3.4`；Draft Release Notes 由
-GitHub 自动生成，并附带未签名、哈希校验和非 OpenAI 官方产品说明。
+带注释 tag 使用 `release: Codex Theme Studio v<version>`；Draft Release Notes 由
+GitHub 自动生成，并附带未签名、哈希校验、未覆盖验收边界和非 OpenAI 官方产品说明。
 
-仓库公开后应立即启用 GitHub Private Vulnerability Reporting、Secret Scanning
-和 Push Protection。确认 Draft 的 tag、提交、三项产品资产、两个源码归档、
+公开仓库的 GitHub Private Vulnerability Reporting、Secret Scanning 和 Push Protection
+启用状态需逐项核对并记录；当前状态为 `To be confirmed`。确认 Draft 的 tag、提交、
+三项产品资产、两个源码归档、
 哈希、未签名披露和干净机证据均正确后，才由维护者人工发布 Draft。若使用
 本版本的风险接受路径，维护者必须复核全部未覆盖风险的公开披露并另行授权
 公开；Codex 仍不得自动公开。
@@ -135,8 +139,8 @@ GitHub 自动生成，并附带未签名、哈希校验和非 OpenAI 官方产�
 
 验收结论必须区分源码自动化、当前用户现场验证和真正干净环境验证；后两者不能由构建成功替代。
 
-## 1.3.4 公网自更新验收
+## 公网自更新验收
 
-最终代码已先以 `1.3.4-rc.1` 构建一次性便携包，只放入隔离目录，不创建公开 Release，并在当前主机完成主题应用、Agent 事务升级、完整 Codex 重启和持久化恢复回归。维护者人工公开 `v1.3.4` Draft 后，应从经过官方哈希验证的隔离 `v1.3.3` 便携副本执行一次真实程序内更新，核对自动发现、版本、成功通知、旧目录清理、未知文件保留及持久化 Agent 状态。`v1.3.2` 未生成 Release 资产，不能参与该升级路径。
+维护者人工公开本版本 Draft 后，应从经过官方哈希验证的上一稳定版隔离便携副本执行一次真实程序内更新，核对自动发现、版本、成功通知、旧目录清理、未知文件保留及持久化 Agent 状态。具体前置版本、实测结果和未覆盖边界写入对应版本的 `docs/testing/` 验收记录；历史版本结论不自动适用于新版本。
 
 首次公网验收失败时停止后续传播并保留 runner、result、backup 或 Preserved 证据；不得把 Draft、构建成功或本地 fixture 当作公网更新成功。Codex 不自动公开 Release。
