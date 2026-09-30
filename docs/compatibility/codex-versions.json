@@ -90,6 +90,16 @@
       "electronVersion": "152.0.7977.83",
       "rendererCompatibilityVersion": 1,
       "notes": "完成 Store 身份、精确 EXE、能力探测、主窗口与 avatar-overlay 隔离、Canary 应用和清理；用户确认修复包的主题可见生效，最终端口 9229 无监听。未执行持久化 enable/disable，也未更新持久化资格记录。"
+    },
+    {
+      "version": "26.924.2738.0",
+      "architecture": "x64",
+      "packageFamilyName": "OpenAI.Codex_2p2nqsd0c76g0",
+      "status": "verified",
+      "verifiedAtUtc": "2026-09-30T01:39:59Z",
+      "electronVersion": null,
+      "rendererCompatibilityVersion": 2,
+      "notes": "统一 ChatGPT/Codex 宿主使用官方 Store 包激活参数、原 Profile 和随机回环 Renderer 端口完成受管启动；旧版短时 9229 Inspector 路径继续保留。真实验收覆盖临时主题可见、持久主题切换、正常重启恢复及电脑重启后从菜单启动恢复。暂态 Renderer 未就绪改为保留同一受管进程并重试后，最终一次启动成功；Agent、Run 项、配置与运行时状态一致，9229 无监听。随机回环端口在该受管 ChatGPT 进程存续期间保持监听；Electron 精确版本为 To be confirmed。"
     }
   ]
 }

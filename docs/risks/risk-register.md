@@ -1,6 +1,6 @@
 # 当前风险登记表
 
-- 更新日期：2026-09-27
+- 更新日期：2026-09-30
 - 适用基线：Codex Theme Studio 1.3.4 本地维护发布
 - 历史任务风险和当时证据保留在 `task-11-known-issues.md`、`task-12-known-issues.md` 与对应验收记录中。
 - 2026-09-10，维护者明确接受 R-03、R-04 与 R-22 中列出的三项缺失门禁，仅用于生成 `v1.3.3` Draft Release；该接受不等于门禁通过、不关闭风险，也不授权自动公开 Release。
@@ -11,9 +11,9 @@
 | R-02 | 便携包未签名 | manifest 和 SHA256SUMS 提供完整性校验，README 明确披露未知发布者警告；不建议绕过安全软件 | Open |
 | R-03 | 本机没有有效病毒扫描证据 | Defender 服务、实时保护和签名库当前不可用；维护者已明确选择不在本机恢复 Defender，`v1.3.4` 必须在 README、验收记录和 Release Notes 披露，公开前仍需取得针对本版本全部缺失门禁的风险接受，后续应在有效环境复扫 | Open |
 | R-04 | 未在无开发 Runtime 的干净 Windows 用户或 VM 验收 | self-contained 文件、随包 Node、中文/空格路径启动及当前主机可运行性已有证据，但不能替代无预装 .NET/Node 的干净环境；`v1.3.4` 公开前必须披露并另行取得针对本版本的风险接受 | Open |
-| R-05 | Codex 完全重启后的 Agent 恢复 | `1.3.1-rc.1` 在 Store Codex `26.803.5235.0` 与 `26.803.10989.0` 上完成临时主题保持、完整 Codex 重启后持久主题恢复、持久主题切换和再次重启恢复；最终持久主题、Agent、Run 项与配置一致，`9229` 无监听 | Mitigated |
+| R-05 | Codex 完全重启后的 Agent 恢复 | `1.3.1-rc.1` 在 Store Codex `26.803.5235.0` 与 `26.803.10989.0` 上完成旧 Inspector 路径的完整重启恢复。2026-09-30 又在统一宿主 `26.924.2738.0` 上完成随机回环 Renderer 路径的持久主题切换、正常重启恢复及电脑重启后从菜单启动恢复；最终持久主题、Agent、Run 项与配置一致，`9229` 无监听 | Mitigated |
 | R-06 | 真实外置磁盘 DataRoot 迁移未覆盖 | 临时真实文件系统测试覆盖复制、哈希、SQLite 完整性、离线、取消和回滚；物理断连仍未覆盖 | Open |
-| R-07 | 能力探测可能无法覆盖未来 Codex 或第三方构建的全部行为差异 | 当前真实闭环证据覆盖 Store Codex `26.715.4045.0`、`26.715.10079.0`、`26.721.3404.0`、`26.727.6591.0`、`26.730.8199.0`、`26.803.5235.0`、`26.803.10989.0` 与 `26.903.8094.0` x64；其中最后一个已验证版本完成能力探测、Canary 应用/清理和人工可见效果确认，但未执行持久化启停。更新后的 ChatGPT `26.924.1866.0` 因 Inspector 激活通道不可用保持 fail-closed。能力缺失、身份变化、错误端口所有者和清理残留仍默认拒绝。非 Store 真实实例验证为 `To be confirmed` | Open |
+| R-07 | 能力探测可能无法覆盖未来 Codex 或第三方构建的全部行为差异 | 旧短时 9229 Inspector 路径的真实闭环证据覆盖 Store Codex `26.715.4045.0`、`26.715.10079.0`、`26.721.3404.0`、`26.727.6591.0`、`26.730.8199.0`、`26.803.5235.0`、`26.803.10989.0` 与 `26.903.8094.0` x64；统一宿主 `26.924.2738.0` 另以官方 Store 包激活参数和随机回环 Renderer 端口完成临时、持久、正常重启及电脑重启恢复验收。两条路径都继续校验精确 EXE、PID、创建时间、启动参数、回环端口所有者和 Renderer 结构；能力缺失、身份变化、错误端口所有者和应用/清理验证失败仍默认拒绝。非 Store 真实实例验证为 `To be confirmed` | Open |
 | R-08 | 第一方与第三方许可证范围可能混淆 | 根目录 `LICENSE` 将第一方源码声明为 Apache-2.0；README 与第三方 Notices 分别说明适用范围和商标边界 | Mitigated |
 | R-09 | 图片内容寻址缓存并发提交可能竞态 | 1.0.1 改为缓存先提交、主题资源最后提交，并对移动冲突进行有限重试和哈希复核；由并发压力回归覆盖 | Mitigated |
 | R-10 | 打包成功或失败残留大型工作目录 | 1.0.1 使用独立暂存发布目录，成功后回收本次工作目录，失败保留并报告诊断路径 | Mitigated |
@@ -31,4 +31,6 @@
 | R-22 | 自更新在文件锁、断电或新版启动失败时留下不可运行目录 | 外置 Node runner 只接收随机 token；请求通过 Schema v1 JSON 传递。应用目录在同盘以 rename 切换，旧目录保留到新版完成 120 秒健康检查；自动化已覆盖文件锁、启动超时、回滚及回滚失败。`v1.3.4` 尚未覆盖断电及真实杀进程边界，风险必须公开披露并另行接受 | Open |
 | R-23 | 更新清理误删用户放入便携目录的文件，或持久化 Agent 升级失败 | `app-install-manifest.json` 逐文件记录大小和 SHA-256；只删除旧清单拥有且哈希仍匹配的文件，其他文件移入 Preserved。Agent 使用事务式切换，失败继续运行旧版并提供重试 | Mitigated |
 | R-24 | 持久化 Agent 频繁打开 Inspector 可能放大新版 Codex/Electron 的 browser 主进程不稳定 | 2026-09-17 在 Store Codex `26.911.7940.0` 上观察到多次 browser crash；ProcDump 确认 `0x80000003` 与 `chrome.dll`，但终止转储缺少原始异常上下文，不能把 Theme Studio 写为已确认唯一根因。源码审计确认 1.3.3 在 10 秒轮询的安全间隔判断前执行能力探测，并在复核时再次打开 Inspector。1.3.4 将无侵入身份短路提前、把复核安全下限提高到 15 分钟、合并为单次 Renderer 状态检查，并在当前 PID 的 Inspector/应用失败后 fail-closed 熔断；`1.3.4-rc.1` 已在该 Codex 构建完成 Agent 事务升级、完整 Codex 重启、原主题恢复及跨旧 60 秒间隔验证，期间无重复 Inspector、9229 残留或新增应用错误 | Mitigated |
-| R-25 | ChatGPT `26.924.1866.0` 统一宿主未注册 Node Windows debug-handler，现有短时 Inspector 通道无法触达 Renderer | 兼容契约 v2 已按静态包内证据隔离 active Codex 页、inactive Chat/Work 页及新增辅助窗口，旧版单页回归保留；运行中探测将 `OpenFileMappingW` errno 2 明确报告为 `inspector_activation_unavailable`。用户手动启动的独立离线探测进一步确认 Store AUMID 激活参数未进入 Electron 主进程并报告 `inspect_cli_activation_unavailable`；精确 EXE 启动被 MSIX 拒绝，包清单没有主程序 execution alias。各路径结束后 9229 均无监听。真实主题应用、视觉效果、完整清理、持久化和旧版真实实例复验仍为 `To be confirmed`；安全通道已穷尽，在上游变化或另行批准新架构前保持 fail-closed，不授予该 EXE 指纹持久化资格 | Open |
+| R-25 | ChatGPT 统一宿主未注册 Node Windows debug-handler，旧短时 9229 Inspector 通道无法触达 Renderer | `26.924.1866.0` 的运行中 debug-handler、固定 9229 参数激活和精确 EXE 启动失败证据继续保留。后续实现改为仅对当前用户注册的官方 Store 包，在用户确认或持久化 Agent 的受限启动窗口内通过 AUMID 传入 `--remote-debugging-address=127.0.0.1` 与随机高位端口，并继续使用原 Profile；旧版仍走既有短时 Inspector。`26.924.2738.0` 已完成 Canary、临时主题、持久主题、正常重启和电脑重启恢复真实验收；暂态 `port_renderer_unavailable`、`port_renderer_unqualified` 与 `renderer_port.open_timeout` 不再永久熔断同一可信进程。未修改 WindowsApps、`app.asar`、EXE 或签名，9229 无监听。未来统一宿主参数或 Renderer 结构变化仍由 R-07 fail-closed 控制 | Mitigated |
+| R-26 | 统一宿主受管启动的随机回环 Renderer 端口在 ChatGPT 进程存续期间保持开放，可能扩大本机同用户进程的调试面 | 只绑定 `127.0.0.1` 随机高位端口；每次操作都核对官方 Store 身份、精确 EXE、PID、创建时间、主进程命令行中的端口、Browser ID、Page Target、`app://` 路由和 Windows 端口所有者，拒绝远程地址、端口复用和身份变化。随机端口不是认证机制，其他本机同用户进程仍可能发现并连接该 CDP 端点；最终用户披露、可接受风险范围及不依赖进程存续端口的替代方案为 `To be confirmed` | Open |
+| R-27 | 统一宿主首次应用或恢复主题需要受管关闭并重新启动官方 ChatGPT；未保存输入或暂态 Renderer 未就绪可能造成可见重启或重复启动 | GUI 在关闭前明确提示保存未发送输入并要求确认；关闭只针对精确 PID、创建时间与 EXE 匹配的主进程，优先 `CloseMainWindow`，随后只使用 Windows Restart Manager 正常关机请求，不调用强制终止。持久化 Agent 只允许对启动不超过 2 分钟的无端口实例自动接管，运行更久的实例 fail-closed 并要求回到 GUI；暂态 Renderer 就绪失败保留同一受管进程继续重试。`26.924.2738.0` 修复后真实冷启动一次成功，但慢启动、系统高负载和恢复中断的扩展实机覆盖仍为 `To be confirmed` | Open |

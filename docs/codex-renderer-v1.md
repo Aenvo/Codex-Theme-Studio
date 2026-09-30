@@ -117,5 +117,13 @@ composer/surface 标记。兼容配置 v2 已加入统一宿主 active/inactive 
 `OpenFileMappingW` 返回 errno 2。独立离线探测进一步确认：Store AUMID 激活能够重新启动
 应用，但附带的 `--inspect` 没有进入 Electron 主进程；直接启动精确 WindowsApps EXE
 被 MSIX 拒绝，包清单也没有 ChatGPT 主程序 execution alias。统一宿主 DOM 层已具备
-增量兼容，但真实 Renderer 应用、可见效果和持久化闭环仍为 `To be confirmed`，不得仅凭
-静态 DOM 与自动化结果记为最新版兼容通过。
+增量兼容；该阶段仅完成静态和旧通道边界诊断，不把结果记为真实注入成功。
+
+2026-09-30 在 Store ChatGPT `26.924.2738.0` 上改用官方包激活参数、原 Profile 与随机
+回环 Renderer 端口完成真实闭环。用户确认临时主题可见、持久主题切换成功、正常重启后
+恢复，并在电脑重启后从菜单启动仍恢复同一主题。统一宿主只对当前激活的 Codex 页面应用
+主题，Chat/Work 与辅助页面保持隔离；旧版单页 Renderer 路径继续由既有回归保护。
+暂态 Renderer 未就绪改为保留同一可信受管进程并继续重试后，真实冷启动一次成功。
+最终 Agent、Run 项、配置与运行时状态一致，9229 无监听；随机 Renderer 端口在受管
+ChatGPT 进程存续期间保持监听。Electron 精确版本及旧版真实实例的本轮复验为
+`To be confirmed`。

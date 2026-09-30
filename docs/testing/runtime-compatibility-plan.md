@@ -52,25 +52,27 @@
 - Inspector 关闭后等待端口稳定收敛，并放宽关闭确认门限以适配新版宿主时序；最终清理为 `active=false`、`hookCount=0`，端口 `9229` 无监听。
 - 未执行持久化 enable/disable、Codex 完整重启恢复或带私人内容的截图保存。
 
-## 2026-09-27 统一宿主适配状态
+## 2026-09-30 统一宿主适配结果
 
 - Store ChatGPT `26.924.1866.0` 的包内静态资源保留旧版 surface/composer 标记，并新增
-  `data-app-shell-active-page`；兼容契约 v2 采用增量选择器，不删除旧版单页路径。
-- 新版回归覆盖 Codex 激活页应用、inactive Chat 页隔离、切到 Chat 时暂停并恢复行内
-  背景、切回 Codex 时复用运行时，以及 global dictation/hotkey 辅助窗口隔离。
-- 真实 WPF 启动验证发现 GUI 进程曾按 CP936 解码 Injector 的 UTF-8 中文错误 JSON，导致
-  `inspector_activation_unavailable` 被误报为 `injector_response_invalid`；Desktop 现已显式
-  固定 stdout/stderr 为 UTF-8，并由包含中文错误消息的回归测试覆盖。
-- 当前运行实例不提供 Node 的 Windows debug-handler 映射；源码探测已将该事实稳定映射为
-  `inspector_activation_unavailable`，并确认失败后 9229 无监听。
-- 用户手动启动的独立离线探测器重新校验目标 EXE SHA-256 后，通过 AUMID 附带
-  `--inspect=127.0.0.1:9229` 激活 Store 应用；应用重新启动，但 Electron 主进程没有接收
-  该参数，结果为 `inspect_cli_activation_unavailable`。直接启动精确 WindowsApps EXE
-  被 MSIX 拒绝，包清单也没有 ChatGPT 主程序 execution alias。
-- 运行中 debug-handler、离线 Store 参数激活、精确 EXE 启动和主程序 execution alias
-  四条安全路径均不可用；WindowsApps/`app.asar` 修改、包调试设置、原生 DLL/进程注入和
-  长期开启 Inspector 不属于本次兼容范围，也不得作为回退方案。
-- 由于 Inspector 通道尚未建立，最新版真实“探测 → 应用 → 清理 → 重新应用”和视觉验收
-  均为 `To be confirmed`；不得更新 `docs/compatibility/codex-versions.json` 或授予持久化资格。
-- Store Codex `26.903.8094.0` 及更早版本继续由旧版 DOM 自动化回归和既有真实验收记录保护；
-  发布前仍需在至少一个旧版真实实例复验闭环，避免新通道方案破坏动态 Inspector 路径。
+  `data-app-shell-active-page`；兼容契约 v2 采用增量选择器，不删除旧版单页路径。新版回归
+  覆盖 Codex 激活页应用、inactive Chat 页隔离、切页暂停/恢复和辅助窗口隔离。
+- 旧固定 9229 路径的诊断继续有效：统一宿主不提供 Node Windows debug-handler，固定
+  `--inspect` AUMID 激活没有进入 Electron 主进程，精确 WindowsApps EXE 启动被 MSIX
+  拒绝。上述结果不再被解释为所有 Renderer 通道均已穷尽。
+- 新通道只接受当前用户注册的官方 Store 包；Theme Studio 通过 AUMID 传入
+  `--remote-debugging-address=127.0.0.1` 和随机高位端口，正式主题流程继续使用原 Profile。
+  端口操作校验精确 EXE、PID、创建时间、主进程命令行、Browser ID、Page Target、
+  `app://` 路由和 Windows 端口所有者；旧版本继续使用短时 9229 Inspector。
+- GUI 在关闭现有 ChatGPT 前要求用户确认并提示保存未发送输入；关闭只针对精确身份，
+  优先主窗口正常关闭，再使用 Windows Restart Manager 正常关机请求。持久化 Agent 只接管
+  启动不超过 2 分钟的新实例，运行更久的无端口实例保持 fail-closed。
+- `26.924.2738.0` 已完成随机端口 Canary、临时主题可见、持久主题切换、正常重启恢复和
+  电脑重启后从菜单启动恢复。暂态 `port_renderer_unavailable`、
+  `port_renderer_unqualified` 与 `renderer_port.open_timeout` 保留同一可信进程重试后，
+  修复版真实冷启动一次成功；最终 Agent、Run 项、配置与运行时状态一致，9229 无监听。
+- 随机 Renderer 端口在该受管 ChatGPT 进程存续期间保持监听，不等同于可短时关闭的旧
+  9229 Node Inspector；其本机同用户调试面记录为 R-26 Open。Electron 精确版本、非 Store
+  实例、慢启动/系统高负载扩展实机覆盖和本轮旧版真实实例复验仍为 `To be confirmed`。
+- WindowsApps/`app.asar` 修改、包调试设置、原生 DLL/进程注入仍不属于兼容范围，也不得
+  作为回退方案。
