@@ -75,6 +75,9 @@ export const rendererCompatibility = Object.freeze({
     "header[data-app-shell-header-edge-scroll]",
     "header[class*='_Header_']",
   ],
+  titlebarSelectors: [
+    "[class*='_ApplicationMenuTopBar_']",
+  ],
   topFadeSelectors: [
     ".app-shell-main-content-top-fade",
     "[data-app-shell-main-content-top-fade]",
@@ -199,6 +202,9 @@ export function rendererBootstrap(request) {
   const headerSelector = Array.isArray(compatibility?.headerSelectors)
     ? compatibility.headerSelectors.join(", ")
     : "header.app-header-tint";
+  const titlebarSelector = Array.isArray(compatibility?.titlebarSelectors)
+    ? compatibility.titlebarSelectors.join(", ")
+    : "[class*='_ApplicationMenuTopBar_']";
   const topFadeSelector = Array.isArray(compatibility?.topFadeSelectors)
     ? compatibility.topFadeSelectors.join(", ")
     : ".app-shell-main-content-top-fade";
@@ -353,6 +359,26 @@ html.codex-theme-studio-active[data-codex-theme-studio-page="home"] :is(${header
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   box-shadow: none !important;
+}
+html.codex-theme-studio-active[data-codex-theme-studio-page="home"] :is(${titlebarSelector}) {
+  position: relative !important;
+  isolation: isolate;
+  background-color: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.codex-theme-studio-active[data-codex-theme-studio-page="home"] :is(${titlebarSelector})::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 44px;
+  background: color-mix(in srgb, var(--cts-panel) 10%, transparent) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  backdrop-filter: blur(8px) !important;
+  pointer-events: none;
+  z-index: -1;
 }
 html.codex-theme-studio-active :is(${topFadeSelector}) {
   background: transparent !important;

@@ -77,6 +77,9 @@ test("applies once without overriding body portal positioning or stacking", () =
     /html\.codex-theme-studio-active\[data-codex-theme-studio-page="home"\]\s*:is\([^)]*header\.app-header-tint[^)]*\)\s*\{[^}]*background:\s*transparent !important;[^}]*border-color:\s*transparent !important;[^}]*backdrop-filter:\s*none !important;[^}]*box-shadow:\s*none !important;/s);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
+    /html\.codex-theme-studio-active\[data-codex-theme-studio-page="home"\]\s*:is\([^)]*\[class\*='_ApplicationMenuTopBar_'\][^)]*\)::before\s*\{[^}]*content:\s*"";[^}]*width:\s*100vw;[^}]*height:\s*44px;[^}]*background:\s*color-mix\(in srgb, var\(--cts-panel\) 10%, transparent\) !important;[^}]*backdrop-filter:\s*blur\(8px\) !important;[^}]*pointer-events:\s*none;/s);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
     /aside\s*\{[^}]*backdrop-filter:\s*blur\(var\(--cts-panel-blur\)\) !important;/s);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
@@ -315,6 +318,7 @@ test("recognizes current CSS-module shell and composer while retaining legacy se
   assert.match(css, /\.composer-surface-chrome/);
   assert.match(css, /\[class\*='_ComposerLayoutRoot_'\]/);
   assert.match(css, /header\[class\*='_Header_'\]/);
+  assert.match(css, /\[class\*='_ApplicationMenuTopBar_'\]/);
   assert.match(css, /\[class\*='_MainContentTopFade_'\]/);
 });
 
