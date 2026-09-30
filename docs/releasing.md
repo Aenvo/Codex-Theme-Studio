@@ -116,9 +116,8 @@ Release，并上传便携 ZIP、`SHA256SUMS.txt` 和 `release-manifest.json`。G
 带注释 tag 使用 `release: Codex Theme Studio v<version>`；Draft Release Notes 由
 GitHub 自动生成，并附带未签名、哈希校验、未覆盖验收边界和非 OpenAI 官方产品说明。
 
-公开仓库的 GitHub Private Vulnerability Reporting、Secret Scanning 和 Push Protection
-启用状态需逐项核对并记录；当前状态为 `To be confirmed`。确认 Draft 的 tag、提交、
-三项产品资产、两个源码归档、
+发布前逐项核对 GitHub Private Vulnerability Reporting、Secret Scanning 和 Push Protection
+的启用状态，并写入本版本验收记录。确认 Draft 的 tag、提交、三项产品资产、两个源码归档、
 哈希、未签名披露和干净机证据均正确后，才由维护者人工发布 Draft。若使用
 本版本的风险接受路径，维护者必须复核全部未覆盖风险的公开披露并另行授权
 公开；Codex 仍不得自动公开。

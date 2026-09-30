@@ -2,15 +2,14 @@
 
 ## 支持范围
 
-当前仅维护 `1.2.x` 系列。旧的本地归档、历史验收包和未正式发布的构建不承诺安全更新。
+当前维护 `1.3.x` 系列的正式发布版本。旧的本地归档、历史验收包和未正式发布的构建不承诺安全更新。
 
 ## 报告安全问题
 
 请勿通过公开 Issue 披露安全漏洞、利用方式、敏感日志或未修复细节。
 
-仓库公开并启用 GitHub Private Vulnerability Reporting 后，请在仓库的
-“Security”页面选择“Report a vulnerability”，通过私密漏洞报告提交。该渠道启用前，
-项目尚无公开的安全报告入口；请不要改用公开 Issue。
+本仓库已启用 GitHub Private Vulnerability Reporting。请在仓库的
+“Security”页面选择“Report a vulnerability”，通过私密漏洞报告提交。
 
 报告建议包含：
 

@@ -429,12 +429,32 @@ $agentBundleManifest = [ordered]@{
     ($agentBundleManifest | ConvertTo-Json -Depth 5),
     [Text.UTF8Encoding]::new($false))
 
-Copy-RequiredFile `
-    (Join-Path $projectRoot 'README.md') `
-    (Join-Path $packageDirectory 'README.md')
+foreach ($readmeName in @('README.md', 'README.en.md')) {
+    $packageReadmePath = Join-Path $packageDirectory $readmeName
+    Copy-RequiredFile `
+        (Join-Path $projectRoot $readmeName) `
+        $packageReadmePath
+    $readmeContent = [IO.File]::ReadAllText($packageReadmePath)
+    $readmeContent = $readmeContent.Replace(
+        'docs/assets/readme/app-icon.png',
+        'assets/app-icon.png')
+    $readmeContent = $readmeContent.Replace(
+        'docs/assets/readme/',
+        "https://raw.githubusercontent.com/Aenvo/Codex-Theme-Studio/v$Version/docs/assets/readme/")
+    [IO.File]::WriteAllText(
+        $packageReadmePath,
+        $readmeContent,
+        [Text.UTF8Encoding]::new($false))
+}
 Copy-RequiredFile `
     (Join-Path $projectRoot 'LICENSE') `
     (Join-Path $packageDirectory 'LICENSE')
+Copy-RequiredFile `
+    (Join-Path $projectRoot 'SECURITY.md') `
+    (Join-Path $packageDirectory 'SECURITY.md')
+Copy-RequiredFile `
+    (Join-Path $projectRoot 'design.md') `
+    (Join-Path $packageDirectory 'design.md')
 Copy-RequiredFile `
     (Join-Path $projectRoot 'docs\user-guide.md') `
     (Join-Path $packageDirectory 'docs\user-guide.md')
@@ -444,6 +464,15 @@ Copy-RequiredFile `
 Copy-RequiredFile `
     (Join-Path $projectRoot 'docs\releasing.md') `
     (Join-Path $packageDirectory 'docs\releasing.md')
+Copy-RequiredFile `
+    (Join-Path $projectRoot 'docs\risks\risk-register.md') `
+    (Join-Path $packageDirectory 'docs\risks\risk-register.md')
+Copy-RequiredFile `
+    (Join-Path $projectRoot 'docs\compatibility\codex-versions.json') `
+    (Join-Path $packageDirectory 'docs\compatibility\codex-versions.json')
+Copy-RequiredFile `
+    (Join-Path $projectRoot 'docs\testing\runtime-compatibility-plan.md') `
+    (Join-Path $packageDirectory 'docs\testing\runtime-compatibility-plan.md')
 Copy-RequiredFile `
     (Join-Path $projectRoot 'THIRD-PARTY-NOTICES.md') `
     (Join-Path $packageDirectory 'THIRD-PARTY-NOTICES.md')
