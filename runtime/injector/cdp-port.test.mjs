@@ -134,6 +134,61 @@ test("port expression returns only structurally qualified renderer results", asy
   }]);
 });
 
+test("unqualified renderer reports only sanitized structural evidence", async () => {
+  const client = new FakeClient({
+    targets: [
+      { targetId: "target-main", type: "page", url: "app://-/index.html?secret=ignored" },
+    ],
+    evaluationsByTarget: {
+      "target-main": {
+        qualified: false,
+        reason: "shell-features-missing",
+        pageMode: "home",
+        features: {
+          shell: true,
+          sidebar: false,
+          content: true,
+          composer: true,
+        },
+        unsafe: "must-not-be-copied",
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => executeRendererPortExpression(49152, "({})", {
+      timeoutMs: 0,
+      fetchMetadata: async () => ({
+        browserId,
+        webSocketUrl: `ws://127.0.0.1:49152/devtools/browser/${browserId}`,
+      }),
+      connectClient: async () => client,
+      retryDelayMs: 1,
+    }),
+    error => {
+      assert.equal(error?.diagnosticCode, "port_renderer_unqualified");
+      assert.deepEqual(error?.details, {
+        targetCount: 1,
+        candidateCount: 1,
+        routeTypes: ["app:index.html"],
+        evaluations: [{
+          qualified: false,
+          reason: "shell-features-missing",
+          pageMode: "home",
+          features: {
+            shell: true,
+            sidebar: false,
+            content: true,
+            composer: true,
+          },
+        }],
+      });
+      assert.equal(JSON.stringify(error.details).includes("secret"), false);
+      assert.equal(JSON.stringify(error.details).includes("must-not-be-copied"), false);
+      return true;
+    });
+});
+
 class FakeClient {
   closed = false;
   targetRequests = 0;

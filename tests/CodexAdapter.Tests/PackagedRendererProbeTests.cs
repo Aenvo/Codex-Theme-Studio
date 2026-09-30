@@ -29,6 +29,19 @@ public sealed class PackagedRendererProbeTests
             result);
     }
 
+    [Fact]
+    public void ActivationArguments_UseOfficialProfileWhenManagedProfileIsAbsent()
+    {
+        var result = PackagedRendererProbeRunner.BuildActivationArguments(
+            managedUserDataPath: null,
+            port: 49152);
+
+        Assert.Equal(
+            "--remote-debugging-address=127.0.0.1 --remote-debugging-port=49152",
+            result);
+        Assert.DoesNotContain("--user-data-dir", result, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(80)]
     [InlineData(65536)]
@@ -116,5 +129,42 @@ public sealed class PackagedRendererProbeTests
         Assert.Equal(
             "port_renderer_unqualified",
             PackagedRendererProbeRunner.ReadDiagnosticCode(response));
+    }
+
+    [Fact]
+    public void ProbeFailure_FormatsSanitizedStructuralEvidence()
+    {
+        const string response = """
+            {
+              "status": "error",
+              "error": {
+                "code": "port_renderer_unqualified",
+                "diagnosticCode": "port_renderer_unqualified",
+                "details": {
+                  "targetCount": 3,
+                  "candidateCount": 1,
+                  "routeTypes": ["app:index.html", "avatar-overlay"],
+                  "evaluations": [{
+                    "qualified": false,
+                    "reason": "shell-features-missing",
+                    "pageMode": "home",
+                    "features": {
+                      "shell": true,
+                      "sidebar": false,
+                      "content": true,
+                      "composer": true
+                    }
+                  }]
+                }
+              }
+            }
+            """;
+
+        var failure = PackagedRendererProbeRunner.ReadProbeFailure(response);
+
+        Assert.Equal("port_renderer_unqualified", failure.DiagnosticCode);
+        Assert.Equal(
+            "Renderer 回环端口探针失败。 页面 3，候选 1，路由 app:index.html,avatar-overlay，结构 shell-features-missing[shell=1,sidebar=0,content=1,composer=1]。",
+            failure.UserMessage);
     }
 }

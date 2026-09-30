@@ -362,12 +362,15 @@ public sealed class PersistenceAgentEngine
             cancellationToken);
         if (!inspection.IsSuccess)
         {
-            await BlockCurrentProcessAsync(
-                state.Value,
-                process,
-                installed.ExecutableSha256,
-                inspection.Error!.DiagnosticCode,
-                cancellationToken);
+            if (!IsTransientRendererReadinessFailure(inspection.Error!))
+            {
+                await BlockCurrentProcessAsync(
+                    state.Value,
+                    process,
+                    installed.ExecutableSha256,
+                    inspection.Error!.DiagnosticCode,
+                    cancellationToken);
+            }
             await TryCloseInspectorAsync(process);
             return identityMatches
                 ? Success(
@@ -477,12 +480,15 @@ public sealed class PersistenceAgentEngine
                 cancellationToken);
             if (!apply.IsSuccess)
             {
-                await BlockCurrentProcessAsync(
-                    state.Value,
-                    process,
-                    installed.ExecutableSha256,
-                    apply.Error!.DiagnosticCode,
-                    cancellationToken);
+                if (!IsTransientRendererReadinessFailure(apply.Error!))
+                {
+                    await BlockCurrentProcessAsync(
+                        state.Value,
+                        process,
+                        installed.ExecutableSha256,
+                        apply.Error!.DiagnosticCode,
+                        cancellationToken);
+                }
                 return OperationResult<ThemeRuntimeStatus>.Failure(apply.Error!);
             }
 
@@ -555,6 +561,12 @@ public sealed class PersistenceAgentEngine
             },
             cancellationToken);
     }
+
+    private static bool IsTransientRendererReadinessFailure(OperationError error) =>
+        error.DiagnosticCode is
+            "port_renderer_unavailable" or
+            "port_renderer_unqualified" or
+            "renderer_port.open_timeout";
 
     private static TimeSpan GetSafeVerifyInterval(
         PersistenceAgentConfiguration configuration)
@@ -769,15 +781,44 @@ public sealed class PersistenceAgentRunner
                     configuration.Value.NodeExecutablePath,
                     configuration.Value.InjectorScriptPath,
                     targetSelection: new CodexTargetSelectionService());
-                var cycle = cycleRunner is null
-                    ? await new PersistenceAgentEngine(
-                            new PersistenceSnapshotStore(),
-                            client,
-                            client,
-                            client,
-                            new PersistenceAgentStateStore(configuration.Value.StateFilePath))
-                        .RunCycleAsync(configuration.Value, operationToken)
-                    : await cycleRunner(configuration.Value, operationToken);
+                OperationResult<ThemeRuntimeStatus> cycle;
+                if (cycleRunner is not null)
+                {
+                    cycle = await cycleRunner(configuration.Value, operationToken);
+                }
+                else
+                {
+                    var engine = new PersistenceAgentEngine(
+                        new PersistenceSnapshotStore(),
+                        client,
+                        client,
+                        client,
+                        new PersistenceAgentStateStore(configuration.Value.StateFilePath));
+                    cycle = await engine.RunCycleAsync(
+                        configuration.Value,
+                        operationToken);
+                    if (!cycle.IsSuccess &&
+                        string.Equals(
+                            cycle.Error!.DiagnosticCode,
+                            "inspector_activation_unavailable",
+                            StringComparison.Ordinal))
+                    {
+                        var restart = await client.RestartOrLaunchOfficialAsync(
+                            maximumExistingProcessAge: TimeSpan.FromMinutes(2),
+                            operationToken);
+                        if (restart.IsSuccess)
+                        {
+                            cycle = await engine.RunCycleAsync(
+                                configuration.Value,
+                                operationToken);
+                        }
+                        else
+                        {
+                            cycle = OperationResult<ThemeRuntimeStatus>.Failure(
+                                restart.Error!);
+                        }
+                    }
+                }
                 var signature = cycle.IsSuccess
                     ? $"state:{cycle.Value!.State}"
                     : $"error:{cycle.Error!.DiagnosticCode ?? cycle.Error.Code.ToString()}";

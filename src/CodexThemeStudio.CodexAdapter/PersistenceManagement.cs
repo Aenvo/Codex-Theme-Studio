@@ -748,6 +748,12 @@ public sealed class AgentProcessController : IAgentProcessController
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        var stopped = await SignalStopAsync(cancellationToken);
+        if (!stopped.IsSuccess)
+        {
+            return stopped;
+        }
+
         var released = await WaitForMutexStateAsync(
             expectedActive: false,
             startupTimeout,

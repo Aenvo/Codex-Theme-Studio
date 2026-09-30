@@ -10,7 +10,7 @@ namespace CodexThemeStudio.CodexAdapter;
 public sealed record PackagedRendererProbeProgress(
     string Stage,
     int Port,
-    string ManagedUserDataPath,
+    string? ManagedUserDataPath,
     int? ActivatedProcessId = null);
 
 public sealed record PackagedRendererPortProbeResult(
@@ -23,7 +23,7 @@ public sealed record PackagedRendererPortProbeResult(
     bool CanaryApplied,
     bool CanaryCleaned,
     string LaunchTransport,
-    string ManagedUserDataPath,
+    string? ManagedUserDataPath,
     bool ManagedProfilePopulated);
 
 public sealed class PackagedRendererProbeRunner(
@@ -36,10 +36,11 @@ public sealed class PackagedRendererProbeRunner(
     public async Task<OperationResult<PackagedRendererPortProbeResult>> RunAsync(
         string applicationUserModelId,
         string expectedExecutablePath,
-        string managedUserDataPath,
+        string? managedUserDataPath,
         TimeSpan waitForProcessExit,
         Func<PackagedRendererProbeProgress, Task>? reportProgress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool terminateLaunchedProcessOnFailure = true)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -59,18 +60,21 @@ public sealed class PackagedRendererProbeRunner(
                 "packaged_renderer.arguments_invalid");
         }
 
-        string profilePath;
-        try
+        string? profilePath = null;
+        if (managedUserDataPath is not null)
         {
-            profilePath = PrepareManagedUserDataPath(managedUserDataPath);
-        }
-        catch (Exception exception) when (
-            exception is ArgumentException or IOException or UnauthorizedAccessException)
-        {
-            return Failure(
-                OperationErrorCode.ValidationFailed,
-                "隔离用户数据目录无效。",
-                "packaged_renderer.user_data_path_invalid");
+            try
+            {
+                profilePath = PrepareManagedUserDataPath(managedUserDataPath);
+            }
+            catch (Exception exception) when (
+                exception is ArgumentException or IOException or UnauthorizedAccessException)
+            {
+                return Failure(
+                    OperationErrorCode.ValidationFailed,
+                    "隔离用户数据目录无效。",
+                    "packaged_renderer.user_data_path_invalid");
+            }
         }
 
         var stopped = await WaitForProcessExitAsync(
@@ -129,10 +133,11 @@ public sealed class PackagedRendererProbeRunner(
             var stderr = await stderrTask.ConfigureAwait(false);
             if (node.ExitCode != 0)
             {
+                var failure = ReadProbeFailure(stderr);
                 return Failure(
                     OperationErrorCode.ExternalToolFailure,
-                    "Renderer 回环端口探针失败。",
-                    ReadDiagnosticCode(stderr));
+                    failure.UserMessage,
+                    failure.DiagnosticCode);
             }
 
             var probe = ParseProbe(stdout);
@@ -145,7 +150,8 @@ public sealed class PackagedRendererProbeRunner(
             }
 
             completed = true;
-            var profilePopulated = IsDirectoryPopulated(profilePath);
+            var profilePopulated = profilePath is not null &&
+                IsDirectoryPopulated(profilePath);
             await PublishProgressAsync(
                 reportProgress,
                 new PackagedRendererProbeProgress(
@@ -203,21 +209,30 @@ public sealed class PackagedRendererProbeRunner(
                 node.Dispose();
             }
 
-            if (!completed && launchedProcessId is { } processId)
+            if (!completed &&
+                terminateLaunchedProcessOnFailure &&
+                launchedProcessId is { } processId)
             {
                 TryTerminateExpectedProcess(processId, expectedPath);
             }
         }
     }
 
-    internal static string BuildActivationArguments(string managedUserDataPath, int port)
+    internal static string BuildActivationArguments(string? managedUserDataPath, int port)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(managedUserDataPath);
         if (port is < 1024 or > 65535)
         {
             throw new ArgumentOutOfRangeException(nameof(port));
         }
 
+        var arguments = "--remote-debugging-address=127.0.0.1 " +
+            $"--remote-debugging-port={port}";
+        if (managedUserDataPath is null)
+        {
+            return arguments;
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(managedUserDataPath);
         var fullPath = Path.GetFullPath(managedUserDataPath);
         if (!Path.IsPathFullyQualified(fullPath) ||
             fullPath.IndexOfAny(['\0', '"']) >= 0)
@@ -227,9 +242,7 @@ public sealed class PackagedRendererProbeRunner(
                 nameof(managedUserDataPath));
         }
 
-        return "--remote-debugging-address=127.0.0.1 " +
-               $"--remote-debugging-port={port} " +
-               $"\"--user-data-dir={fullPath}\"";
+        return $"{arguments} \"--user-data-dir={fullPath}\"";
     }
 
     private Process StartProbeProcess(int processId, string executablePath, int port)
@@ -368,28 +381,98 @@ public sealed class PackagedRendererProbeRunner(
     }
 
     internal static string ReadDiagnosticCode(string value)
+        => ReadProbeFailure(value).DiagnosticCode;
+
+    internal static ProbeFailure ReadProbeFailure(string value)
     {
         try
         {
             using var document = JsonDocument.Parse(value);
             var error = document.RootElement.GetProperty("error");
-            if (error.TryGetProperty("diagnosticCode", out var diagnosticCode) &&
+            var diagnostic = error.TryGetProperty("diagnosticCode", out var diagnosticCode) &&
                 diagnosticCode.ValueKind == JsonValueKind.String &&
-                !string.IsNullOrWhiteSpace(diagnosticCode.GetString()))
-            {
-                return diagnosticCode.GetString()!;
-            }
-
-            return error.TryGetProperty("code", out var code) &&
+                !string.IsNullOrWhiteSpace(diagnosticCode.GetString())
+                ? diagnosticCode.GetString()!
+                : error.TryGetProperty("code", out var code) &&
                    code.ValueKind == JsonValueKind.String &&
                    !string.IsNullOrWhiteSpace(code.GetString())
-                ? code.GetString()!
-                : "packaged_renderer.port_probe_failed";
+                    ? code.GetString()!
+                    : "packaged_renderer.port_probe_failed";
+            return new ProbeFailure(
+                diagnostic,
+                BuildProbeFailureMessage(error));
         }
-        catch (JsonException)
+        catch (Exception exception) when (
+            exception is JsonException or InvalidOperationException or KeyNotFoundException)
         {
-            return "packaged_renderer.port_probe_failed";
+            return new ProbeFailure(
+                "packaged_renderer.port_probe_failed",
+                "Renderer 回环端口探针失败。");
         }
+    }
+
+    private static string BuildProbeFailureMessage(JsonElement error)
+    {
+        const string fallback = "Renderer 回环端口探针失败。";
+        if (!error.TryGetProperty("details", out var details) ||
+            details.ValueKind != JsonValueKind.Object ||
+            !details.TryGetProperty("targetCount", out var targetCount) ||
+            !details.TryGetProperty("candidateCount", out var candidateCount) ||
+            targetCount.ValueKind != JsonValueKind.Number ||
+            candidateCount.ValueKind != JsonValueKind.Number)
+        {
+            return fallback;
+        }
+
+        var routes = details.TryGetProperty("routeTypes", out var routeTypes) &&
+            routeTypes.ValueKind == JsonValueKind.Array
+            ? string.Join(",", routeTypes.EnumerateArray()
+                .Where(item => item.ValueKind == JsonValueKind.String)
+                .Select(item => item.GetString())
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Take(8))
+            : string.Empty;
+        var evaluations = details.TryGetProperty("evaluations", out var evaluationArray) &&
+            evaluationArray.ValueKind == JsonValueKind.Array
+            ? evaluationArray.EnumerateArray().Take(8).ToArray()
+            : [];
+        var structures = evaluations.Select(FormatEvaluation)
+            .Where(value => !string.IsNullOrWhiteSpace(value));
+        var routeSummary = string.IsNullOrWhiteSpace(routes) ? "无" : routes;
+        var structureSummary = string.Join(";", structures);
+        return $"{fallback} 页面 {targetCount.GetInt32()}，候选 " +
+            $"{candidateCount.GetInt32()}，路由 {routeSummary}" +
+            (string.IsNullOrWhiteSpace(structureSummary)
+                ? "。"
+                : $"，结构 {structureSummary}。");
+    }
+
+    private static string FormatEvaluation(JsonElement evaluation)
+    {
+        if (evaluation.ValueKind != JsonValueKind.Object)
+        {
+            return string.Empty;
+        }
+
+        var reason = evaluation.TryGetProperty("reason", out var reasonValue) &&
+            reasonValue.ValueKind == JsonValueKind.String
+            ? reasonValue.GetString() ?? "unknown"
+            : "unknown";
+        if (!evaluation.TryGetProperty("features", out var features) ||
+            features.ValueKind != JsonValueKind.Object)
+        {
+            return reason;
+        }
+
+        static int Flag(JsonElement parent, string name) =>
+            parent.TryGetProperty(name, out var value) &&
+            value.ValueKind == JsonValueKind.True
+                ? 1
+                : 0;
+        return $"{reason}[shell={Flag(features, "shell")}," +
+            $"sidebar={Flag(features, "sidebar")}," +
+            $"content={Flag(features, "content")}," +
+            $"composer={Flag(features, "composer")}]";
     }
 
     private static async Task<string> ReadLimitedAsync(
@@ -496,4 +579,8 @@ public sealed class PackagedRendererProbeRunner(
         IReadOnlyList<string> RouteTypes,
         bool CanaryApplied,
         bool CanaryCleaned);
+
+    internal sealed record ProbeFailure(
+        string DiagnosticCode,
+        string UserMessage);
 }

@@ -224,7 +224,7 @@ public sealed class AppServices
             Path.Combine(Environment.CurrentDirectory, "runtime"),
         };
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        for (var index = 0; directory is not null && index < 6; index++)
+        for (var index = 0; directory is not null && index < 7; index++)
         {
             candidates.Add(Path.Combine(directory.FullName, "runtime"));
             directory = directory.Parent;

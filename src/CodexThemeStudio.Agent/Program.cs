@@ -287,20 +287,17 @@ async Task<OperationResult<ThemedLaunchResult>> LaunchThemedCodexAsync(
 
     if (processes.Count == 0)
     {
-        var configDirectory = Path.GetDirectoryName(
-            Path.GetFullPath(configurationPath))!;
-        var stableRoot = Path.GetDirectoryName(configDirectory)!;
-        var profilePath = Path.Combine(stableRoot, "ManagedChatGPTProfile");
         var launch = await new PackagedRendererProbeRunner(
                 launchConfiguration.NodeExecutablePath,
                 launchConfiguration.InjectorScriptPath)
             .RunAsync(
                 $"{ProcessIdentityPolicy.OfficialPackageFamilyName}!App",
                 installation.ExecutablePath,
-                profilePath,
-                TimeSpan.Zero,
+                managedUserDataPath: null,
+                waitForProcessExit: TimeSpan.Zero,
                 reportProgress: null,
-                cancellationToken)
+                cancellationToken: cancellationToken,
+                terminateLaunchedProcessOnFailure: false)
             .ConfigureAwait(false);
         if (!launch.IsSuccess)
         {

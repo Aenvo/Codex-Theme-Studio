@@ -81,6 +81,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly Guid diagnosticSessionId;
     private readonly ExternalThemeCatalogService? externalThemeCatalog;
     private readonly ICodexDiscoveryService? codexDiscovery;
+    private readonly IChatGptThemeLaunchService? chatGptThemeLauncher;
     private readonly IUpdateService? updateService;
     private readonly IUpdateDialogService? updateDialogs;
     private readonly IUpdateInstaller? updateInstaller;
@@ -177,7 +178,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         IUpdateDialogService? updateDialogs = null,
         IUpdateInstaller? updateInstaller = null,
         Func<long, OperationResult>? updatePreflight = null,
-        Action? requestApplicationShutdown = null)
+        Action? requestApplicationShutdown = null,
+        IChatGptThemeLaunchService? chatGptThemeLauncher = null)
     {
         this.repository = repository;
         this.runtime = runtime;
@@ -198,6 +200,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         this.diagnosticSessionId = diagnosticSessionId ?? Guid.NewGuid();
         this.externalThemeCatalog = externalThemeCatalog;
         this.codexDiscovery = codexDiscovery;
+        this.chatGptThemeLauncher = chatGptThemeLauncher ??
+            codexDiscovery as IChatGptThemeLaunchService;
         this.updateService = updateService;
         this.updateDialogs = updateDialogs;
         this.updateInstaller = updateInstaller;
@@ -1934,6 +1938,21 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
         if (!hasLiveCodexIdentity)
         {
+            if (runtimeStatus?.State == ThemeRuntimeState.NotRunning &&
+                chatGptThemeLauncher is not null)
+            {
+                var confirmed = await ConfirmManagedChatGptLaunchAsync(
+                    isRestart: false,
+                    lifetime.Token);
+                if (!confirmed)
+                {
+                    return;
+                }
+
+                await ApplyAfterManagedLaunchAsync(selected, lifetime.Token);
+                return;
+            }
+
             var message = runtimeStatus?.State switch
             {
                 ThemeRuntimeState.NotRunning =>
@@ -1966,6 +1985,35 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     theme.Value!,
                     runtimeStatus?.ThemeId is not null,
                     cancellationToken);
+                if (!result.IsSuccess &&
+                    ShouldOfferManagedChatGptRestart(result.Error!) &&
+                    chatGptThemeLauncher is not null)
+                {
+                    var confirmed = await ConfirmManagedChatGptLaunchAsync(
+                        isRestart: true,
+                        cancellationToken);
+                    if (!confirmed)
+                    {
+                        return;
+                    }
+
+                    var launch = await chatGptThemeLauncher
+                        .RestartOrLaunchOfficialAsync(
+                            maximumExistingProcessAge: null,
+                            cancellationToken)
+                        .ConfigureAwait(true);
+                    if (!launch.IsSuccess)
+                    {
+                        NotifyError(launch.Error!);
+                        return;
+                    }
+
+                    result = await ApplyTemporaryWithRetryAsync(
+                        theme.Value!,
+                        switchExisting: false,
+                        cancellationToken);
+                }
+
                 if (!result.IsSuccess)
                 {
                     NotifyError(result.Error!);
@@ -1980,6 +2028,73 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 NotifyRuntimeResult(result.Value!);
             });
     }
+
+    private async Task ApplyAfterManagedLaunchAsync(
+        ThemeCardViewModel selected,
+        CancellationToken cancellationToken)
+    {
+        await RunOperationAsync(
+            "正在启动 ChatGPT 并应用主题…",
+            async operationToken =>
+            {
+                var theme = await repository.GetAsync(
+                    selected.ThemeId,
+                    operationToken);
+                if (!theme.IsSuccess)
+                {
+                    NotifyError(theme.Error!);
+                    return;
+                }
+
+                var launch = await chatGptThemeLauncher!
+                    .RestartOrLaunchOfficialAsync(
+                        maximumExistingProcessAge: null,
+                        operationToken)
+                    .ConfigureAwait(true);
+                if (!launch.IsSuccess)
+                {
+                    NotifyError(launch.Error!);
+                    return;
+                }
+
+                var result = await ApplyTemporaryWithRetryAsync(
+                    theme.Value!,
+                    switchExisting: false,
+                    operationToken);
+                if (!result.IsSuccess)
+                {
+                    NotifyError(result.Error!);
+                    return;
+                }
+
+                ApplyRuntimeStatus(result.Value! with
+                {
+                    IsPersistenceEnabled = IsPersistenceEnabled,
+                });
+                MarkThemeStates();
+                NotifyRuntimeResult(result.Value!);
+            });
+    }
+
+    private Task<bool> ConfirmManagedChatGptLaunchAsync(
+        bool isRestart,
+        CancellationToken cancellationToken) =>
+        dialogs.ChooseActionAsync(
+            isRestart
+                ? "重新启动 ChatGPT 并应用主题"
+                : "启动 ChatGPT 并应用主题",
+            isRestart
+                ? "最新版 ChatGPT 需要在启动时建立仅限本机的随机回环通道。继续后，Theme Studio 会请求当前官方 ChatGPT 正常关闭，再使用原 Profile 重新启动并应用主题。请先保存尚未发送的输入；不会修改 WindowsApps、app.asar 或 ChatGPT.exe。"
+                : "Theme Studio 将使用原 Profile 启动官方 ChatGPT，并建立仅限本机的随机回环通道后应用主题。不会创建隔离实例，也不会修改 WindowsApps、app.asar 或 ChatGPT.exe。",
+            "取消",
+            isRestart ? "重新启动并应用" : "启动并应用",
+            cancellationToken);
+
+    private static bool ShouldOfferManagedChatGptRestart(OperationError error) =>
+        string.Equals(
+            error.DiagnosticCode,
+            "inspector_activation_unavailable",
+            StringComparison.Ordinal);
 
     private async Task<OperationResult<ThemeRuntimeStatus>>
         ApplyTemporaryWithRetryAsync(
@@ -2060,11 +2175,48 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     return;
                 }
 
-                var result = IsPersistenceEnabled
+                var switchPersistentTheme = IsPersistenceEnabled;
+                var result = switchPersistentTheme
                     ? await persistence.SwitchAsync(theme.Value!, cancellationToken)
                     : await persistence.EnableAsync(theme.Value!, cancellationToken);
+                if (!result.IsSuccess &&
+                    ShouldOfferManagedChatGptRestart(result.Error!) &&
+                    chatGptThemeLauncher is not null)
+                {
+                    var confirmed = await ConfirmManagedChatGptLaunchAsync(
+                        isRestart: true,
+                        cancellationToken);
+                    if (!confirmed)
+                    {
+                        return;
+                    }
+
+                    var launch = await chatGptThemeLauncher
+                        .RestartOrLaunchOfficialAsync(
+                            maximumExistingProcessAge: null,
+                            cancellationToken)
+                        .ConfigureAwait(true);
+                    if (!launch.IsSuccess)
+                    {
+                        NotifyError(launch.Error!);
+                        return;
+                    }
+
+                    result = switchPersistentTheme
+                        ? await persistence.SwitchAsync(
+                            theme.Value!,
+                            cancellationToken)
+                        : await persistence.EnableAsync(
+                            theme.Value!,
+                            cancellationToken);
+                }
+
                 if (!result.IsSuccess)
                 {
+                    await RefreshRuntimeStatusAsync(
+                        CodexStatusRefreshMode.PreferCache,
+                        cancellationToken);
+                    await LoadThemesAsync(cancellationToken, selected.ThemeId);
                     NotifyError(result.Error!);
                     return;
                 }

@@ -902,6 +902,7 @@ function outputFailure(error) {
       retryable: Boolean(error?.retryable),
       userMessage: error?.userMessage ?? "Injector 操作失败。",
       diagnosticCode: error?.diagnosticCode,
+      details: error?.details,
     },
   })}\n`);
   process.exitCode = 2;

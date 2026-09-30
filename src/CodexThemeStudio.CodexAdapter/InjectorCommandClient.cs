@@ -11,7 +11,8 @@ namespace CodexThemeStudio.CodexAdapter;
 public sealed class InjectorCommandClient :
     ICodexDiscoveryService,
     ICodexInspectorService,
-    IInjectorRendererClient
+    IInjectorRendererClient,
+    IChatGptThemeLaunchService
 {
     private const int MaxOutputCharacters = 256 * 1024;
     private readonly string nodeExecutablePath;
@@ -112,6 +113,318 @@ public sealed class InjectorCommandClient :
         catch (JsonException)
         {
             return InvalidResponse<CodexDiscoverySnapshot>("discover_payload_invalid");
+        }
+    }
+
+    public async Task<OperationResult<CodexProcessInfo>> RestartOrLaunchOfficialAsync(
+        TimeSpan? maximumExistingProcessAge,
+        CancellationToken cancellationToken)
+    {
+        var discovery = await DiscoverAsync(cancellationToken).ConfigureAwait(false);
+        if (!discovery.IsSuccess)
+        {
+            return OperationResult<CodexProcessInfo>.Failure(discovery.Error!);
+        }
+
+        var snapshot = discovery.Value!;
+        if (!ProcessIdentityPolicy.IsOfficialInstallation(snapshot.Installation))
+        {
+            return OperationResult<CodexProcessInfo>.Failure(
+                OperationErrorCode.ValidationFailed,
+                "受管主题启动仅支持当前用户注册的官方 Microsoft Store ChatGPT。",
+                "themed_launch.official_store_required");
+        }
+
+        if (snapshot.Processes.Count > 1)
+        {
+            return OperationResult<CodexProcessInfo>.Failure(
+                OperationErrorCode.Conflict,
+                "检测到多个 ChatGPT 主进程，未执行受管主题启动。",
+                "themed_launch.multiple_processes");
+        }
+
+        if (snapshot.Processes.SingleOrDefault() is { } existing)
+        {
+            if (existing.RendererPort is not null)
+            {
+                return OperationResult<CodexProcessInfo>.Success(existing);
+            }
+
+            if (maximumExistingProcessAge is { } maximumAge &&
+                snapshot.ObservedAtUtc - existing.StartedAtUtc > maximumAge)
+            {
+                return OperationResult<CodexProcessInfo>.Failure(
+                    OperationErrorCode.Conflict,
+                    "ChatGPT 已运行一段时间，持久化 Agent 不会在后台自动关闭它。请在 Theme Studio 中确认重启后再应用主题。",
+                    "themed_launch.process_not_recent");
+            }
+
+            var close = await EnsureExactProcessExitedAsync(
+                    existing,
+                    snapshot.Installation.ExecutablePath,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!close.IsSuccess)
+            {
+                return OperationResult<CodexProcessInfo>.Failure(close.Error!);
+            }
+        }
+
+        var launch = await new PackagedRendererProbeRunner(
+                nodeExecutablePath,
+                injectorScriptPath)
+            .RunAsync(
+                $"{ProcessIdentityPolicy.OfficialPackageFamilyName}!App",
+                snapshot.Installation.ExecutablePath,
+                managedUserDataPath: null,
+                waitForProcessExit: TimeSpan.FromSeconds(30),
+                reportProgress: null,
+                cancellationToken: cancellationToken,
+                terminateLaunchedProcessOnFailure: false)
+            .ConfigureAwait(false);
+        if (!launch.IsSuccess)
+        {
+            return OperationResult<CodexProcessInfo>.Failure(launch.Error!);
+        }
+
+        try
+        {
+            using var process = Process.GetProcessById(launch.Value!.ProcessId);
+            var executablePath = Path.GetFullPath(process.MainModule!.FileName);
+            if (!string.Equals(
+                    executablePath,
+                    Path.GetFullPath(snapshot.Installation.ExecutablePath),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return OperationResult<CodexProcessInfo>.Failure(
+                    OperationErrorCode.CodexIdentityMismatch,
+                    "受管启动后的 ChatGPT 进程身份不匹配。",
+                    "themed_launch.process_identity_mismatch");
+            }
+
+            return OperationResult<CodexProcessInfo>.Success(
+                new CodexProcessInfo(
+                    process.Id,
+                    process.StartTime.ToUniversalTime(),
+                    executablePath,
+                    launch.Value.BrowserId,
+                    launch.Value.Port));
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or
+            InvalidOperationException or
+            System.ComponentModel.Win32Exception or
+            NotSupportedException)
+        {
+            return OperationResult<CodexProcessInfo>.Failure(
+                OperationErrorCode.ProcessExited,
+                "受管启动后的 ChatGPT 进程未能完成身份复核。",
+                "themed_launch.process_recheck_failed");
+        }
+    }
+
+    internal static OperationResult RequestExactProcessClose(
+        CodexProcessInfo expected,
+        string expectedExecutablePath)
+    {
+        Process process;
+        try
+        {
+            process = Process.GetProcessById(expected.ProcessId);
+        }
+        catch (ArgumentException)
+        {
+            return OperationResult.Success();
+        }
+
+        using (process)
+        {
+            try
+            {
+                var executablePath = Path.GetFullPath(process.MainModule!.FileName);
+                var startedAtUtc = process.StartTime.ToUniversalTime();
+                if (!string.Equals(
+                        executablePath,
+                        Path.GetFullPath(expectedExecutablePath),
+                        StringComparison.OrdinalIgnoreCase) ||
+                    Math.Abs((startedAtUtc - expected.StartedAtUtc).TotalSeconds) > 2)
+                {
+                    return OperationResult.Failure(
+                        OperationErrorCode.IdentityChanged,
+                        "ChatGPT 进程身份已经变化，未执行关闭或重启。",
+                        "themed_launch.process_identity_changed");
+                }
+
+                if (process.HasExited || process.CloseMainWindow())
+                {
+                    return OperationResult.Success();
+                }
+
+                return OperationResult.Failure(
+                    OperationErrorCode.Conflict,
+                    "无法请求 ChatGPT 正常关闭。请手动关闭 ChatGPT 后重试；Theme Studio 不会强制结束进程。",
+                    "themed_launch.graceful_close_unavailable");
+            }
+            catch (Exception exception) when (
+                exception is ArgumentException or
+                InvalidOperationException or
+                System.ComponentModel.Win32Exception or
+                NotSupportedException)
+            {
+                return OperationResult.Failure(
+                    OperationErrorCode.ExternalToolFailure,
+                    "无法安全确认并关闭当前 ChatGPT。请手动关闭后重试。",
+                    "themed_launch.graceful_close_failed");
+            }
+        }
+    }
+
+    internal static async Task<OperationResult> RequestExactProcessCloseWhenReadyAsync(
+        CodexProcessInfo expected,
+        string expectedExecutablePath,
+        TimeSpan readinessTimeout,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + readinessTimeout;
+        while (true)
+        {
+            var result = RequestExactProcessClose(expected, expectedExecutablePath);
+            if (result.IsSuccess ||
+                !string.Equals(
+                    result.Error!.DiagnosticCode,
+                    "themed_launch.graceful_close_unavailable",
+                    StringComparison.Ordinal) ||
+                DateTimeOffset.UtcNow >= deadline)
+            {
+                return result;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    internal static async Task<OperationResult> EnsureExactProcessExitedAsync(
+        CodexProcessInfo expected,
+        string expectedExecutablePath,
+        CancellationToken cancellationToken)
+    {
+        var close = await RequestExactProcessCloseWhenReadyAsync(
+                expected,
+                expectedExecutablePath,
+                TimeSpan.FromSeconds(5),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!close.IsSuccess &&
+            !string.Equals(
+                close.Error!.DiagnosticCode,
+                "themed_launch.graceful_close_unavailable",
+                StringComparison.Ordinal))
+        {
+            return close;
+        }
+
+        if (close.IsSuccess &&
+            await WaitForExactProcessExitAsync(
+                    expected,
+                    expectedExecutablePath,
+                    TimeSpan.FromSeconds(5),
+                    cancellationToken)
+                .ConfigureAwait(false) is { IsSuccess: true, Value: true })
+        {
+            return OperationResult.Success();
+        }
+
+        var shutdown = RestartManagerProcessShutdown.Request(
+            expected,
+            expectedExecutablePath);
+        if (!shutdown.IsSuccess)
+        {
+            return shutdown;
+        }
+
+        var exit = await WaitForExactProcessExitAsync(
+                expected,
+                expectedExecutablePath,
+                TimeSpan.FromSeconds(30),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!exit.IsSuccess)
+        {
+            return OperationResult.Failure(exit.Error!);
+        }
+
+        return exit.Value
+            ? OperationResult.Success()
+            : OperationResult.Failure(
+                OperationErrorCode.Conflict,
+                "ChatGPT 未响应 Windows 正常关机请求。请手动退出 ChatGPT 后重试；Theme Studio 不会强制结束进程。",
+                "themed_launch.restart_manager_process_still_running");
+    }
+
+    private static async Task<OperationResult<bool>> WaitForExactProcessExitAsync(
+        CodexProcessInfo expected,
+        string expectedExecutablePath,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        Process process;
+        try
+        {
+            process = Process.GetProcessById(expected.ProcessId);
+        }
+        catch (ArgumentException)
+        {
+            return OperationResult<bool>.Success(true);
+        }
+
+        using (process)
+        {
+            try
+            {
+                var executablePath = Path.GetFullPath(process.MainModule!.FileName);
+                var startedAtUtc = process.StartTime.ToUniversalTime();
+                if (!string.Equals(
+                        executablePath,
+                        Path.GetFullPath(expectedExecutablePath),
+                        StringComparison.OrdinalIgnoreCase) ||
+                    Math.Abs((startedAtUtc - expected.StartedAtUtc).TotalSeconds) > 2)
+                {
+                    return OperationResult<bool>.Failure(
+                        OperationErrorCode.IdentityChanged,
+                        "ChatGPT 进程身份已经变化，未继续关闭或重启。",
+                        "themed_launch.process_identity_changed");
+                }
+
+                if (process.HasExited)
+                {
+                    return OperationResult<bool>.Success(true);
+                }
+
+                using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken);
+                timeoutSource.CancelAfter(timeout);
+                try
+                {
+                    await process.WaitForExitAsync(timeoutSource.Token).ConfigureAwait(false);
+                    return OperationResult<bool>.Success(true);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    return OperationResult<bool>.Success(false);
+                }
+            }
+            catch (Exception exception) when (
+                exception is ArgumentException or
+                InvalidOperationException or
+                System.ComponentModel.Win32Exception or
+                NotSupportedException)
+            {
+                return OperationResult<bool>.Failure(
+                    OperationErrorCode.ExternalToolFailure,
+                    "无法复核 ChatGPT 退出状态。请手动退出后重试。",
+                    "themed_launch.process_exit_recheck_failed");
+            }
         }
     }
 

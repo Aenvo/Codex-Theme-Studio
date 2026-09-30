@@ -360,6 +360,34 @@ public sealed class PersistenceAgentTests
     }
 
     [Fact]
+    public async Task Agent_TransientRendererReadinessFailureRetriesCurrentProcess()
+    {
+        var fixture = new AgentFixture();
+        fixture.Renderer.StatusResult =
+            OperationResult<RendererRuntimeResult>.Failure(
+                OperationErrorCode.ExternalToolFailure,
+                "Renderer 页面尚未达到可注入结构。",
+                "port_renderer_unqualified");
+
+        var first = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+        fixture.Renderer.StatusResult =
+            OperationResult<RendererRuntimeResult>.Success(
+                new RendererRuntimeResult(1, false, null, null, 0, 0, 1, 0));
+        var second = await fixture.Engine.RunCycleAsync(
+            fixture.Configuration,
+            CancellationToken.None);
+
+        Assert.False(first.IsSuccess);
+        Assert.True(second.IsSuccess);
+        Assert.Equal(ThemeRuntimeState.Persistent, second.Value!.State);
+        Assert.Equal(2, fixture.Renderer.StatusCount);
+        Assert.Equal(1, fixture.Renderer.ApplyCount);
+        Assert.Null(fixture.State.State.BlockedProcessId);
+    }
+
+    [Fact]
     public async Task Agent_FirstCycleAdoptsMatchingGuiRuntimeWithoutReapply()
     {
         var fixture = new AgentFixture();

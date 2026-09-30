@@ -16,7 +16,23 @@ const rendererCompatibilityProbeExpression =
 const canaryExpression = `(async () => {
   const structure = ${rendererCompatibilityProbeExpression};
   if (!structure?.eligible) {
-    return { qualified: false, applied: false, cleaned: true };
+    return {
+      qualified: false,
+      applied: false,
+      cleaned: true,
+      reason: typeof structure?.reason === "string"
+        ? structure.reason
+        : "unknown",
+      features: {
+        shell: structure?.features?.shell === true,
+        sidebar: structure?.features?.sidebar === true,
+        content: structure?.features?.content === true,
+        composer: structure?.features?.composer === true,
+      },
+      pageMode: typeof structure?.pageMode === "string"
+        ? structure.pageMode
+        : "unknown",
+    };
   }
   const id = "codex-theme-studio-port-canary";
   const className = "codex-theme-studio-port-canary";
@@ -84,6 +100,12 @@ export async function executeRendererPortExpression(port, expression, {
   try {
     const deadline = Date.now() + timeoutMs;
     let sawCandidate = false;
+    let lastObservation = {
+      targetCount: 0,
+      candidateCount: 0,
+      routeTypes: [],
+      evaluations: [],
+    };
     while (true) {
       const targets = await getCandidateTargets(client, timeoutMs);
       sawCandidate ||= targets.candidates.length > 0;
@@ -91,6 +113,7 @@ export async function executeRendererPortExpression(port, expression, {
       for (const target of targets.candidates) {
         results.push(await evaluateExpression(client, target, expression));
       }
+      lastObservation = summarizeAttempt(targets, results);
 
       const qualified = results.filter(result => result.qualified === true);
       if (qualified.length > 0) {
@@ -104,15 +127,40 @@ export async function executeRendererPortExpression(port, expression, {
       }
 
       if (Date.now() >= deadline) {
-        throw retryableError(sawCandidate
+        const error = retryableError(sawCandidate
           ? "port_renderer_unqualified"
           : "port_renderer_unavailable");
+        error.details = lastObservation;
+        throw error;
       }
       await delay(Math.min(retryDelayMs, Math.max(1, deadline - Date.now())));
     }
   } finally {
     client.close();
   }
+}
+
+function summarizeAttempt(targets, results) {
+  const normalizeReason = (value) =>
+    typeof value === "string" && /^[a-z0-9-]{1,64}$/u.test(value)
+      ? value
+      : "unknown";
+  return {
+    targetCount: targets.all.length,
+    candidateCount: targets.candidates.length,
+    routeTypes: classifyAppRoutes(targets.all.map(target => target.url ?? "")),
+    evaluations: results.slice(0, 8).map(result => ({
+      qualified: result?.qualified === true,
+      reason: normalizeReason(result?.reason),
+      pageMode: normalizeReason(result?.pageMode),
+      features: {
+        shell: result?.features?.shell === true,
+        sidebar: result?.features?.sidebar === true,
+        content: result?.features?.content === true,
+        composer: result?.features?.composer === true,
+      },
+    })),
+  };
 }
 
 async function evaluateExpression(client, target, expression) {

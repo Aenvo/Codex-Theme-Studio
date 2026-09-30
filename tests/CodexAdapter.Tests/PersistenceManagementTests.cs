@@ -135,6 +135,78 @@ public sealed class PersistenceManagementTests
     }
 
     [Fact]
+    public async Task AgentController_StartStopsExistingAgentBeforeStartingReplacement()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var mutexName = $@"Local\CodexThemeStudio.Tests.Controller.{suffix}";
+        var stopEventName =
+            $@"Local\CodexThemeStudio.Tests.Controller.Stop.{suffix}";
+        var existingReady = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var existingStopped = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var replacementRelease = new ManualResetEventSlim();
+        Task replacementWorker = Task.CompletedTask;
+        var existingWorker = Task.Run(() =>
+        {
+            using var mutex = new Mutex(
+                initiallyOwned: true,
+                mutexName,
+                out var createdNew);
+            using var stopEvent = new EventWaitHandle(
+                false,
+                EventResetMode.ManualReset,
+                stopEventName);
+            Assert.True(createdNew);
+            existingReady.TrySetResult();
+            Assert.True(stopEvent.WaitOne(TimeSpan.FromSeconds(2)));
+            existingStopped.TrySetResult();
+        });
+        await existingReady.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var controller = new AgentProcessController(
+            mutexName,
+            stopEventName,
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromMilliseconds(10),
+            _ =>
+            {
+                replacementWorker = Task.Run(() =>
+                {
+                    using var mutex = new Mutex(
+                        initiallyOwned: true,
+                        mutexName,
+                        out var createdNew);
+                    Assert.True(createdNew);
+                    Assert.True(replacementRelease.Wait(TimeSpan.FromSeconds(2)));
+                });
+                return Process.GetCurrentProcess();
+            });
+
+        try
+        {
+            var result = await controller.StartAsync(
+                @"C:\Agent\CodexThemeStudio.Agent.exe",
+                @"C:\Agent\config.json",
+                CancellationToken.None);
+
+            Assert.True(result.IsSuccess);
+            await existingStopped.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            replacementRelease.Set();
+            await existingWorker.WaitAsync(TimeSpan.FromSeconds(2));
+            await replacementWorker.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+    }
+
+    [Fact]
     public void StartupCommand_QuotesPathsWithSpacesAndChinese()
     {
         var command = WindowsRunStartupManager.BuildCommand(

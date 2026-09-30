@@ -46,10 +46,16 @@ function Get-ProcessSnapshot {
         [int]$TargetProcessId,
 
         [Parameter(Mandatory = $true)]
-        [string]$TargetExecutablePath
+        [string]$TargetExecutablePath,
+
+        [AllowNull()]
+        [object]$ProcessRecord = $null
     )
 
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $TargetProcessId"
+    $process = $ProcessRecord
+    if ($null -eq $process) {
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $TargetProcessId"
+    }
     if ($null -eq $process -or
         [string]::IsNullOrWhiteSpace([string]$process.ExecutablePath)) {
         return $null
@@ -154,7 +160,8 @@ switch ($Mode) {
                 ForEach-Object {
                     Get-ProcessSnapshot `
                         -TargetProcessId ([int]$_.ProcessId) `
-                        -TargetExecutablePath ([string]$target.executablePath)
+                        -TargetExecutablePath ([string]$target.executablePath) `
+                        -ProcessRecord $_
                 } |
                 Where-Object { $null -ne $_ -and $_.identityValid }
         )

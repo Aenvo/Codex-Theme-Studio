@@ -561,6 +561,54 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task TemporaryApply_OffersManagedRestartWhenInspectorActivationIsUnavailable()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 1,
+            enableThemeLauncher: true);
+        await fixture.ViewModel.InitializeAsync();
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+        fixture.Runtime.ApplyResults.Enqueue(
+            OperationResult<ThemeRuntimeStatus>.Failure(
+                OperationErrorCode.InspectorUnavailable,
+                "当前 ChatGPT 构建不允许启用 Inspector。",
+                "inspector_activation_unavailable"));
+
+        fixture.ViewModel.ApplyTemporaryCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.Equal(1, fixture.Launcher.LaunchCalls);
+        Assert.Equal(2, fixture.Runtime.ApplyCalls);
+        var action = Assert.Single(fixture.Dialogs.Actions);
+        Assert.Equal("重新启动 ChatGPT 并应用主题", action.Title);
+        Assert.Contains("原 Profile", action.Message, StringComparison.Ordinal);
+        Assert.True(fixture.ViewModel.SelectedTheme.IsTemporary);
+    }
+
+    [Fact]
+    public async Task TemporaryApply_CancelledManagedRestartLeavesOriginalFailureUnreported()
+    {
+        using var fixture = new ViewModelFixture(
+            themeCount: 1,
+            enableThemeLauncher: true);
+        fixture.Dialogs.ActionResult = false;
+        await fixture.ViewModel.InitializeAsync();
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+        fixture.Runtime.ApplyResults.Enqueue(
+            OperationResult<ThemeRuntimeStatus>.Failure(
+                OperationErrorCode.InspectorUnavailable,
+                "当前 ChatGPT 构建不允许启用 Inspector。",
+                "inspector_activation_unavailable"));
+
+        fixture.ViewModel.ApplyTemporaryCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.Equal(0, fixture.Launcher.LaunchCalls);
+        Assert.Equal(1, fixture.Runtime.ApplyCalls);
+        Assert.NotEqual("Error", fixture.ViewModel.NotificationKind);
+    }
+
+    [Fact]
     public async Task OfflineActionsRemainClickableAndExplainUnavailableWork()
     {
         using var fixture = new ViewModelFixture(themeCount: 1);
@@ -618,6 +666,37 @@ public sealed class MainWindowViewModelTests
 
         Assert.Equal(1, fixture.Persistence.EnableCalls);
         Assert.True(fixture.ViewModel.IsPersistenceEnabled);
+    }
+
+    [Fact]
+    public async Task SetPersistent_WhenEnableFailsRefreshesRolledBackThemeState()
+    {
+        using var fixture = new ViewModelFixture(themeCount: 1);
+        fixture.Repository.Summaries[0] = fixture.Repository.Summaries[0] with
+        {
+            IsCurrentPersistent = true,
+        };
+        await fixture.ViewModel.InitializeAsync();
+        await fixture.ViewModel.WaitForBackgroundInitializationAsync();
+        fixture.ViewModel.SelectedTheme = Assert.Single(fixture.ViewModel.Themes);
+        Assert.True(fixture.ViewModel.SelectedTheme.IsPersistent);
+        fixture.Repository.Summaries[0] = fixture.Repository.Summaries[0] with
+        {
+            IsCurrentPersistent = false,
+        };
+        fixture.Persistence.EnableResult =
+            OperationResult<ThemeRuntimeStatus>.Failure(
+                OperationErrorCode.Timeout,
+                "旧持久化 Agent 尚未完全退出。",
+                "persistence.agent.stop_timeout");
+
+        fixture.ViewModel.SetPersistentCommand.Execute(null);
+        await WaitUntilAsync(() => !fixture.ViewModel.IsBusy);
+
+        Assert.False(Assert.Single(fixture.ViewModel.Themes).IsPersistent);
+        Assert.False(fixture.ViewModel.IsPersistenceEnabled);
+        Assert.Equal("Error", fixture.ViewModel.NotificationKind);
+        Assert.Contains("尚未完全退出", fixture.ViewModel.NotificationMessage);
     }
 
     [Fact]
@@ -1240,6 +1319,7 @@ internal sealed class ViewModelFixture : IDisposable
         bool externalThemeActive = false,
         bool managedPersistenceEnabled = false,
         bool enablePresenceDiscovery = false,
+        bool enableThemeLauncher = false,
         IUpdateService? updateService = null,
         IUpdateDialogService? updateDialogs = null,
         string appVersion = "1.1.7")
@@ -1252,6 +1332,7 @@ internal sealed class ViewModelFixture : IDisposable
         Dialogs = new FakeDialogs();
         Diagnostics = new FakeDiagnosticService();
         Discovery = new FakeCodexDiscoveryService();
+        Launcher = new FakeChatGptThemeLaunchService();
         Editor = new ThemeEditorViewModel(
             Repository,
             new FakeImagePipeline(),
@@ -1318,7 +1399,8 @@ internal sealed class ViewModelFixture : IDisposable
             openExternalUrl: url => OpenedExternalUrl = url,
             codexDiscovery: enablePresenceDiscovery ? Discovery : null,
             updateService: updateService,
-            updateDialogs: updateDialogs);
+            updateDialogs: updateDialogs,
+            chatGptThemeLauncher: enableThemeLauncher ? Launcher : null);
     }
 
     public FakeThemeRepository Repository { get; }
@@ -1334,6 +1416,8 @@ internal sealed class ViewModelFixture : IDisposable
     public FakeDiagnosticService Diagnostics { get; }
 
     public FakeCodexDiscoveryService Discovery { get; }
+
+    public FakeChatGptThemeLaunchService Launcher { get; }
 
     public string? CopiedText { get; private set; }
 
@@ -1717,6 +1801,28 @@ internal sealed class FakeCodexDiscoveryService : ICodexDiscoveryService
     }
 }
 
+internal sealed class FakeChatGptThemeLaunchService : IChatGptThemeLaunchService
+{
+    public int LaunchCalls { get; private set; }
+
+    public OperationResult<CodexProcessInfo>? Result { get; set; }
+
+    public Task<OperationResult<CodexProcessInfo>> RestartOrLaunchOfficialAsync(
+        TimeSpan? maximumExistingProcessAge,
+        CancellationToken cancellationToken)
+    {
+        LaunchCalls++;
+        return Task.FromResult(Result ??
+            OperationResult<CodexProcessInfo>.Success(
+                new CodexProcessInfo(
+                    4321,
+                    DateTimeOffset.UtcNow,
+                    FakeCodexDiscoveryService.ExecutablePath,
+                    Guid.NewGuid().ToString(),
+                    49152)));
+    }
+}
+
 internal sealed class FakePersistenceService : IPersistenceService
 {
     public int EnableCalls { get; private set; }
@@ -1724,6 +1830,8 @@ internal sealed class FakePersistenceService : IPersistenceService
     public int DisableCalls { get; private set; }
 
     public OperationResult<ThemeRuntimeStatus>? DisableResult { get; set; }
+
+    public OperationResult<ThemeRuntimeStatus>? EnableResult { get; set; }
 
     public ThemeRuntimeStatus Status { get; set; } =
         new(
@@ -1745,6 +1853,11 @@ internal sealed class FakePersistenceService : IPersistenceService
         CancellationToken cancellationToken)
     {
         EnableCalls++;
+        if (EnableResult is not null)
+        {
+            return Task.FromResult(EnableResult);
+        }
+
         Status = Status with
         {
             State = ThemeRuntimeState.Persistent,
@@ -1865,7 +1978,16 @@ internal sealed class FakeDialogs : IUserDialogService
 {
     public bool ConfirmResult { get; set; } = true;
 
+    public bool ActionResult { get; set; } = true;
+
     public List<(string Title, string Message)> Confirmations { get; } = [];
+
+    public List<(
+        string Title,
+        string Message,
+        string SecondaryText,
+        string PrimaryText)> Actions
+    { get; } = [];
 
     public int RequestTextCalls { get; private set; }
 
@@ -1910,6 +2032,17 @@ internal sealed class FakeDialogs : IUserDialogService
 
     public void ShowInformation(string title, string message)
     {
+    }
+
+    public Task<bool> ChooseActionAsync(
+        string title,
+        string message,
+        string secondaryText,
+        string primaryText,
+        CancellationToken cancellationToken)
+    {
+        Actions.Add((title, message, secondaryText, primaryText));
+        return Task.FromResult(ActionResult);
     }
 }
 
