@@ -1,7 +1,7 @@
 # 当前风险登记表
 
 - 更新日期：2026-10-01
-- 适用基线：Codex Theme Studio 1.3.5；本地正式候选包、远程 CI、私有预检、tag 构建及 Draft Release 附件均已复核。
+- 适用基线：Codex Theme Studio 1.3.5 已公开并为 GitHub Latest；本地正式候选包、远程 CI、私有预检、tag 构建、Draft 附件及公开状态均已复核。
 - 历史任务风险和当时证据保留在 `task-11-known-issues.md`、`task-12-known-issues.md` 与对应验收记录中。
 - 1.3.4 及统一宿主测试包的现场记录只证明对应构建和宿主；1.3.5 最终发布实包的统一宿主现场闭环仍未覆盖。
 - 2026-09-10，维护者明确接受 R-03、R-04 与 R-22 中列出的三项缺失门禁，仅用于生成 `v1.3.3` Draft Release；该接受不等于门禁通过、不关闭风险，也不授权自动公开 Release。
@@ -24,10 +24,10 @@
 | R-13 | Injector 运行脚本误用 PowerShell 7/.NET Core API，或原子写入在句柄释放前移动文件 | 运行时发现固定以 Windows PowerShell 5.1 为最低基线；自动化测试真实执行精确 EXE `Discover` 和边界 `Snapshot` 并解析单一 JSON。资格、目标选择及其他原子写入均以流作用域结束后再 `Move/Replace`，关键路径有跨实例读取回归 | Mitigated |
 | R-14 | 统一“还原外观”需要修改第三方 OkkSkin 的当前用户启动项、状态和 Agent；身份误判可能影响无关进程，部分失败可能导致下次 Codex 再次应用主题 | 仅接受无 Reparse Point 的已知状态与启动器、精确 Run 命令和精确 `node.exe … agent.mjs` 命令行；状态原子改为禁用并保留未知字段和缓存；任一残留返回 Partial。自动化边界测试已加入，真实 Codex 完整重启验收仍为 `To be confirmed` | Open |
 | R-15 | 启动兼容缓存可能被误解为当前进程、窗口或可见效果已经验证 | Schema v2 只缓存构建级资格；启动始终重新发现并计算 EXE SHA-256，不缓存 PID、端口、Target、Renderer 或活动主题；应用与持久化继续执行操作级实时 fail-closed 校验 | Mitigated |
-| R-16 | 旧本机交接快照或历史归档可能被误认为当前实施状态 | `Directory.Build.props` 决定源码维护版本；1.3.5 本地候选包已核对 FileVersion、Build Info、Agent/安装清单与 ZIP 摘要。最终 tag `v1.3.5` 指向 `084e26c`，tag 工作流与三项 Draft 附件已独立复核。根目录旧交接快照已可恢复移出并由 `.gitignore` 阻止再次误提交，历史验收文档只保留证据边界 | Mitigated |
+| R-16 | 旧本机交接快照或历史归档可能被误认为当前实施状态 | `Directory.Build.props` 决定源码维护版本；1.3.5 本地候选包已核对 FileVersion、Build Info、Agent/安装清单与 ZIP 摘要。最终 tag `v1.3.5` 指向 `084e26c`，tag 工作流与三项正式附件已独立复核；公开 Latest API 返回本版本。根目录旧交接快照已可恢复移出并由 `.gitignore` 阻止再次误提交，历史验收文档只保留证据边界 | Mitigated |
 | R-17 | 去重后的便携包依赖 Agent bundle manifest；路径逃逸、清单篡改或复制中断可能生成不完整稳定 Agent | Schema v1 对路径、大小、SHA-256、重复目标和重解析点 fail-closed；安装先写随机暂存目录，复核全部文件后原子切换，既有内容寻址版本复用前重新校验 | Mitigated |
-| R-18 | 自动化 Release 可能在签名、病毒扫描或干净环境验收前公开 | CI 仅有 `contents: read`；Release 构建阶段只读，只有人工推送精确 tag 后的独立 job 取得 `contents: write` 并创建 Draft。公开发布仍需人工复核 SHA-256 与 NotSigned；缺少 Defender 或干净 Windows 证据时必须明确披露并取得独立风险接受，不能记为门禁通过 | Mitigated |
-| R-19 | 公开仓库可能意外暴露凭证、个人数据或尚未修复的漏洞 | 2026-09-30 只读 GitHub API 核对：Private Vulnerability Reporting 为 `enabled: true`，`security_and_analysis.secret_scanning` 与 `security_and_analysis.secret_scanning_push_protection` 均为 `enabled`。`.gitignore` 拦截常见环境文件、密钥、日志和数据库；安全问题使用私密漏洞报告，不通过公开 Issue 披露。防护不能排除后续误提交或历史泄露，发布前仍须复查当前树与历史 | Open |
+| R-18 | 自动化 Release 可能在签名、病毒扫描或干净环境验收前公开 | CI 仅有 `contents: read`；Release 构建阶段只读，只有人工推送精确 tag 后的独立 job 取得 `contents: write` 并创建 Draft。`v1.3.5` 在附件 SHA-256 与 NotSigned 复核、缺失验收披露及维护者本版本风险接受后，才按该次授权公开；风险接受不等于门禁通过 | Mitigated |
+| R-19 | 公开仓库可能意外暴露凭证、个人数据或尚未修复的漏洞 | 2026-10-01 只读 GitHub API 核对：Private Vulnerability Reporting 为 `enabled: true`，`security_and_analysis.secret_scanning` 与 `security_and_analysis.secret_scanning_push_protection` 均为 `enabled`。当前 Git 历史 Gitleaks 唯一命中为旧 XAML 图标的 `x:Key` 误报，未发现凭证；`.gitignore` 拦截常见环境文件、密钥、日志和数据库。防护不能排除后续误提交或历史泄露；安全问题使用私密漏洞报告，不通过公开 Issue 披露 | Open |
 | R-20 | 编辑器永久删除无引用受管背景时，错误的可达性判断可能造成不可恢复的数据损失 | 删除范围只来自当前编辑会话追踪；存储层再次校验可信 DataRoot、精确主题 UUID、普通文件/目录、无重解析点、`theme.json` 当前 `art.file` 引用和空目录条件。共享缓存、索引主题、应用回收站主题、未知孤立目录及完整未索引主题均排除；临时真实文件系统测试覆盖直接删除和保护分支 | Mitigated |
 | R-21 | 更新资产被替换、损坏或构造为路径逃逸 ZIP | 只接受三个精确 Release 资产；GitHub asset digest、Schema v3 release manifest 与 SHA256SUMS 必须一致。ZIP 条目数、压缩/展开大小、绝对路径、`..`、ADS、大小写重复路径及链接均 fail-closed | Mitigated |
 | R-22 | 自更新在文件锁、断电或新版启动失败时留下不可运行目录 | 外置 Node runner 只接收随机 token；请求通过 Schema v1 JSON 传递。应用目录在同盘以 rename 切换，旧目录保留到新版完成 120 秒健康检查；自动化已覆盖文件锁、启动超时、回滚及回滚失败。`v1.3.5` 的真实终止与断电边界未覆盖，已在本版本风险接受中承认并须公开披露 | Open |

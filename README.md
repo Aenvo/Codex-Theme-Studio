@@ -61,6 +61,8 @@
 3. 对照 `SHA256SUMS.txt` 校验 ZIP，然后完整解压到普通可写目录，例如 `%USERPROFILE%\Apps\Codex Theme Studio`。
 4. 双击 `CodexThemeManager.exe`。
 
+当前公开稳定版为 [v1.3.5](https://github.com/Aenvo/Codex-Theme-Studio/releases/tag/v1.3.5)。已安装旧稳定版的用户可以在应用内主动检查更新；公开更新 API 已能发现本版本，但从旧版到 1.3.5 的真实程序内安装尚未完成隔离环境验收。
+
 不要直接在压缩包中运行，也不要下载 GitHub 自动附带的 `Source code (zip)` / `Source code (tar.gz)` 作为应用程序。普通用户需要 Release Assets 中名称包含 `win-x64-portable.zip` 的便携包。
 
 便携发布包未进行代码签名，Windows 可能显示未知发布者警告。哈希不一致时不要运行，也不要通过关闭安全软件或盲目加入白名单绕过警告。
@@ -94,8 +96,8 @@
 - 统一宿主只对当前激活的 Codex 页面应用主题；Chat/Work 页面和辅助窗口保持隔离。慢启动、高负载与恢复中断的扩展实机覆盖仍为 `To be confirmed`。
 - 不读取或记录对话正文、认证信息、API Key、模型、MCP 或权限配置。应用就绪后会访问公开 GitHub Release API 检查稳定更新，但不会上传主题、图片或诊断材料。
 - 图片只接受按内容识别的 PNG、JPEG 和 WebP，完整解码后重新编码为受管副本，并移除不必要元数据。
-- 旧版 Store Codex 的短时 Inspector 路径和 Store ChatGPT/Codex 统一宿主 `26.924.2738.0` 的随机端口路径已有本机实机证据；版本与验证范围见[兼容性记录](./docs/compatibility/codex-versions.json)及[测试方案](./docs/testing/runtime-compatibility-plan.md)。这些证据不等于正式候选包验收，也不是运行白名单；未知版本仍需完整能力探测。
-- 当前维护候选尚未在无预装 .NET/Node 的干净 Windows VM 或有效 Defender 环境完成发布验收，真实 updater 进程终止与断电边界也未覆盖。首次使用或更新前请保留可恢复副本。
+- 旧版 Store Codex 的短时 Inspector 路径和 Store ChatGPT/Codex 统一宿主 `26.924.2738.0` 的随机端口路径已有本机实机证据；版本与验证范围见[兼容性记录](./docs/compatibility/codex-versions.json)及[测试方案](./docs/testing/runtime-compatibility-plan.md)。这些证据不能替代 1.3.5 发布实包的现场验收，也不是运行白名单；未知版本仍需完整能力探测。
+- 1.3.5 公开版尚未在无预装 .NET/Node 的干净 Windows VM 或有效 Defender 环境完成验收；最终实包的统一宿主现场闭环、真实 updater 进程终止与断电边界也未覆盖。首次使用或更新前请保留可恢复副本。
 
 安全问题请勿通过公开 Issue 披露；报告方式和支持范围见[安全政策](./SECURITY.md)。
 
