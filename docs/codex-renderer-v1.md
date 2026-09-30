@@ -66,6 +66,8 @@ Composer 表面由主题选择 `solid` 或 `blur`。`solid` 使用面板色的�
 两种模式都只保留主题边框，不恢复新版宿主底部的大面积渐变阴影。
 Composer 的权限模式当前值、状态图标以及展开菜单中的对应强调项使用主题强调色；
 覆盖范围只锚定权限导航和它处于打开状态时的菜单，不覆盖全局 warning、error 或 Git 状态色。
+首页顶部 Header 保留宿主结构、窗口拖拽区域和操作按钮，但不绘制主题面板背景、边框、
+背景模糊或阴影；任务页 Header 继续使用主题面板样式。
 
 Renderer 监听 DOM 变化、hash/popstate 和低频页面模式检查。重复 ensure 在相同
 themeId/generation 下只修复缺失节点和同步 pageMode，不创建新 Style 或 Blob。

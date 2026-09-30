@@ -347,6 +347,13 @@ html.codex-theme-studio-active :is(${headerSelector}) {
   -webkit-backdrop-filter: blur(var(--cts-panel-blur)) !important;
   backdrop-filter: blur(var(--cts-panel-blur)) !important;
 }
+html.codex-theme-studio-active[data-codex-theme-studio-page="home"] :is(${headerSelector}) {
+  background: transparent !important;
+  border-color: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
 html.codex-theme-studio-active :is(${topFadeSelector}) {
   background: transparent !important;
 }

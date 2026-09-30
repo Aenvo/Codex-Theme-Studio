@@ -74,6 +74,9 @@ test("applies once without overriding body portal positioning or stacking", () =
     /:is\([^)]*\.composer-surface-chrome[^)]*\)\s*\{[^}]*backdrop-filter:\s*var\(--cts-composer-backdrop-filter\) !important;/s);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
+    /html\.codex-theme-studio-active\[data-codex-theme-studio-page="home"\]\s*:is\([^)]*header\.app-header-tint[^)]*\)\s*\{[^}]*background:\s*transparent !important;[^}]*border-color:\s*transparent !important;[^}]*backdrop-filter:\s*none !important;[^}]*box-shadow:\s*none !important;/s);
+  assert.match(
+    environment.findById("codex-theme-studio-style").textContent,
     /aside\s*\{[^}]*backdrop-filter:\s*blur\(var\(--cts-panel-blur\)\) !important;/s);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
