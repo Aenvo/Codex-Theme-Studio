@@ -400,6 +400,12 @@ html.codex-theme-studio-active[data-codex-theme-studio-page="home"] :is(${titleb
 html.codex-theme-studio-active :is(${topFadeSelector}) {
   background: transparent !important;
 }
+html.codex-theme-studio-active
+  [data-scroll-collapse][data-expand-search][data-sticky][data-collapsible]::before {
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
 html.codex-theme-studio-active .sticky.bottom-0
   [class*="bg-gradient-to-t"][class*="from-token-main-surface-primary"] {
   background-image: none !important;
