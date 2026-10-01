@@ -328,6 +328,10 @@ html.codex-theme-studio-active :is(${composerSurfaceSelector}) {
   -webkit-backdrop-filter: var(--cts-composer-backdrop-filter) !important;
   backdrop-filter: var(--cts-composer-backdrop-filter) !important;
 }
+html.codex-theme-studio-active[data-codex-theme-studio-page="home"]
+  [data-composer-utility-bar-variant="home"][data-composer-radius-variant="default"] {
+  border-radius: var(--composer-radius, 22px) !important;
+}
 html.codex-theme-studio-active [data-automation-card] > button {
   background-color: color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent) !important;
   -webkit-backdrop-filter: blur(var(--cts-panel-blur)) !important;
