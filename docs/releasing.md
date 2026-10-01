@@ -3,7 +3,7 @@
 ## 固定输入
 
 - Windows 10/11 x64。
-- .NET SDK `8.0.423`，运行时补丁 `8.0.29`。
+- .NET SDK 基准 `8.0.423`；`global.json` 的 `latestPatch` 允许同一 feature band 内的后续 SDK 补丁。`BUILD-INFO.md` 记录实际选择的 SDK 与自包含包内 .NET 8 Runtime 补丁，不把 SDK 基准或 SQLite 包版本当作运行时版本。
 - Node.js Windows x64 `v24.18.0`。
 - Node 压缩包 SHA-256：
   `0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821`。

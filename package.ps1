@@ -233,6 +233,10 @@ if (Test-Path -LiteralPath $finalReleaseRoot) {
 
 $dotnet = Resolve-DotNet
 $dotnetRoot = Split-Path -Parent $dotnet
+$selectedSdkVersion = (& $dotnet --version).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($selectedSdkVersion)) {
+    throw 'Could not determine the selected .NET SDK version.'
+}
 $workRoot = Join-Path $artifactRoot ("work\package-" + [guid]::NewGuid().ToString('N'))
 $desktopPublish = Join-Path $workRoot 'desktop'
 $agentPublish = Join-Path $workRoot 'agent'
@@ -555,6 +559,31 @@ if (-not (Test-Path -LiteralPath $agentExecutable -PathType Leaf)) {
     throw "Published Agent executable is missing: $agentExecutable"
 }
 
+$packagedRuntimeVersions = @()
+foreach ($runtimeConfigPath in @(
+    (Join-Path $packageDirectory 'CodexThemeStudio.Desktop.runtimeconfig.json'),
+    (Join-Path $agentPackageRoot 'CodexThemeStudio.Agent.runtimeconfig.json'))) {
+    $runtimeOptions = (Get-Content -Raw -LiteralPath $runtimeConfigPath |
+        ConvertFrom-Json).runtimeOptions
+    if (-not $runtimeOptions.includedFrameworks -or
+        $runtimeOptions.framework -or $runtimeOptions.frameworks) {
+        throw "Published runtime is not self-contained: $runtimeConfigPath"
+    }
+    foreach ($framework in $runtimeOptions.includedFrameworks) {
+        if ($framework.name -notin @(
+            'Microsoft.NETCore.App', 'Microsoft.WindowsDesktop.App') -or
+            $framework.version -notmatch '^8\.0\.\d+$') {
+            throw "Unexpected published runtime framework: $runtimeConfigPath"
+        }
+        $packagedRuntimeVersions += [string]$framework.version
+    }
+}
+$packagedRuntimeVersions = @($packagedRuntimeVersions | Select-Object -Unique)
+if ($packagedRuntimeVersions.Count -ne 1) {
+    throw 'Desktop and Agent must include the same .NET runtime patch.'
+}
+$packagedRuntimeVersion = $packagedRuntimeVersions[0]
+
 $buildInfo = @"
 # Build information
 
@@ -562,7 +591,8 @@ $buildInfo = @"
 - Version: $Version
 - Target: Windows x64
 - Configuration: Release
-- .NET: self-contained, runtime 8.0.29
+- .NET SDK: $selectedSdkVersion (baseline $requiredSdkVersion, global.json rollForward $($globalJson.sdk.rollForward))
+- .NET: self-contained, runtime $packagedRuntimeVersion
 - Node.js: v$nodeVersion
 - Node.js archive SHA-256: $nodeArchiveSha256
 - Signing: unsigned

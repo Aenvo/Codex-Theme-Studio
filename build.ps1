@@ -108,7 +108,7 @@ $env:DOTNET_NOLOGO = '1'
 
 Push-Location $projectRoot
 try {
-    Write-Host "Using .NET SDK $requiredSdkVersion"
+    Write-Host "Required .NET SDK baseline $requiredSdkVersion"
     Write-Host "Using runtime identifier $runtimeIdentifier"
     Invoke-Checked $dotnet @(
         'restore',

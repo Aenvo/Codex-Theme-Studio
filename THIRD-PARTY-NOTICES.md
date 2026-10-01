@@ -8,7 +8,7 @@ Codex Theme Studio 是独立实现的非 OpenAI 官方产品。发布包不包�
 
 | 组件 | 版本 | 许可证 |
 | --- | --- | --- |
-| Microsoft .NET / Windows Desktop Runtime | 8.0.29 | MIT 与 .NET Runtime 第三方 Notices |
+| Microsoft .NET / Windows Desktop Runtime | 8.0（随包实际补丁见 BUILD-INFO.md） | MIT 与 .NET Runtime 第三方 Notices |
 | Node.js Windows x64 Runtime | 24.18.0 | Node.js License（MIT 与随附第三方条款） |
 | Microsoft.Data.Sqlite | 8.0.29 | MIT |
 | Microsoft.Data.Sqlite.Core | 8.0.29 | MIT |

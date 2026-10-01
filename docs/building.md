@@ -8,7 +8,7 @@
 - `.NET SDK 8.0.423`。
 - 构建与 Injector 自检严格使用 Node.js `24.18.0`；正式便携包使用相同的随包 Runtime。
 
-项目根目录的 `global.json` 固定 SDK 版本，`eng/runtime-baseline.json` 固定 Node、下载哈希和 RID。`build.ps1` 按以下顺序查找 SDK：
+项目根目录的 `global.json` 固定 SDK 基准与 `latestPatch` 前滚策略，允许同一 feature band 内选择后续补丁；`eng/runtime-baseline.json` 固定 Node、下载哈希和 RID。发布包的 `BUILD-INFO.md` 从实际选择的 SDK 与包内 runtimeconfig 记录真实版本。`build.ps1` 按以下顺序查找 SDK：
 
 1. `DOTNET_ROOT`。
 2. `%LOCALAPPDATA%\CodexThemeStudio\devtools\dotnet-8.0.423`。

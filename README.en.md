@@ -103,7 +103,7 @@ Do not disclose security issues in a public Issue. See the [security policy](./S
 
 ## Development and Documentation
 
-The pinned toolchain uses .NET SDK `8.0.423` and Node.js `24.18.0`. Run these commands from the repository root:
+The toolchain baseline is .NET SDK `8.0.423` (with the patch roll-forward policy in `global.json`), and Node.js is pinned to `24.18.0`. Run these commands from the repository root:
 
 ```powershell
 .\build.ps1

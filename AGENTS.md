@@ -42,7 +42,7 @@ src/
 
 ## 4. 固定工具链与标准命令
 
-- .NET SDK 版本由 `global.json` 固定。
+- .NET SDK 基准与补丁前滚策略由 `global.json` 固定；Build Info 必须记录实际选择的 SDK 与包内 Runtime 版本。
 - Node.js 版本、Node 压缩包哈希和 RID 由 `eng/runtime-baseline.json` 固定。
 - NuGet 版本由 `Directory.Packages.props` 和各项目 `packages.lock.json` 固定。
 - 不新增依赖、框架或测试工具，除非当前变更确有需要并已核对许可证、锁文件与发布影响。
