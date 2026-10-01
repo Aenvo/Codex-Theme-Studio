@@ -61,7 +61,7 @@ Choose a background and palette from the theme library, adjust composition, opac
 3. Verify the ZIP against `SHA256SUMS.txt`, then fully extract it to a normal writable directory such as `%USERPROFILE%\Apps\Codex Theme Studio`.
 4. Double-click `CodexThemeManager.exe`.
 
-The current public stable release is [v1.3.5](https://github.com/Aenvo/Codex-Theme-Studio/releases/tag/v1.3.5). Users of an older stable version can check for updates in the app. The public update API now exposes this version, but a real in-app installation from the previous release has not been accepted in an isolated environment.
+The current source version is `1.3.6`, with release validation in progress. The public stable release is available from [GitHub Latest](https://github.com/Aenvo/Codex-Theme-Studio/releases/latest). Users of stable version `1.3.0` or later can check for updates in the app; see the [1.3.6 acceptance record](./docs/testing/1.3.6-release-acceptance.md) for release and update verification status. A real in-app upgrade has not been accepted in an isolated environment.
 
 Do not run the app from inside the ZIP, and do not use GitHub's automatically generated `Source code (zip)` or `Source code (tar.gz)` archives as the application. Regular users need the Release Asset whose name contains `win-x64-portable.zip`.
 
@@ -96,8 +96,8 @@ See the [user guide](./docs/user-guide.md) for complete usage, data locations, u
 - The unified host applies themes only to the active Codex page; Chat/Work pages and auxiliary windows remain isolated. Broader real-world coverage of slow startup, high load, and interrupted recovery is `To be confirmed`.
 - It does not read or record conversation content, authentication data, API keys, models, MCP configuration, or permission settings. Once ready, the app queries the public GitHub Releases API for stable updates but does not upload themes, images, or diagnostics.
 - Images are identified by content and limited to PNG, JPEG, and WebP. They are fully decoded, re-encoded into managed copies, and stripped of unnecessary metadata.
-- The short-lived Inspector path for older Store Codex versions and the random-port path for the unified Store ChatGPT/Codex host `26.924.2738.0` have live local evidence; see the [compatibility records](./docs/compatibility/codex-versions.json) and [test plan](./docs/testing/runtime-compatibility-plan.md) for versions and coverage. This evidence does not replace live acceptance of the v1.3.5 release package and is not an allowlist; unknown versions still require full capability probing.
-- The public v1.3.5 release has not been accepted in a clean Windows VM without preinstalled .NET/Node or in an environment with a working Defender installation. The final package's live unified-host cycle and real updater termination and power-loss boundaries are also untested. Keep a recoverable copy before first use or update.
+- The short-lived Inspector path for older Store Codex versions and the random-port path for the unified Store ChatGPT/Codex host `26.924.2738.0` have live local evidence. The current source styles also received visible checks on `26.928.2636.0`; see the [compatibility records](./docs/compatibility/codex-versions.json) and [test plan](./docs/testing/runtime-compatibility-plan.md) for versions and coverage. This evidence does not replace the final 1.3.6 package's live apply, clean, reapply, and persistence cycle and is not an allowlist; unknown versions still require full capability probing.
+- Version 1.3.6 has not been accepted in a clean Windows VM without preinstalled .NET/Node or in an environment with a working Defender installation. The final package's live unified-host cycle and real updater termination and power-loss boundaries are also untested. Keep a recoverable copy before first use or update.
 
 Do not disclose security issues in a public Issue. See the [security policy](./SECURITY.md) for reporting instructions and supported versions.
 

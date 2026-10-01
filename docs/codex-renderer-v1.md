@@ -30,7 +30,7 @@ Payload 由 `JSON.stringify` 整体序列化到固定程序，不把颜色、路
 
 ## 窗口识别
 
-兼容配置版本为 2，集中定义在 `renderer-runtime.mjs`。判定顺序：
+当前兼容配置版本为 3，集中定义在 `renderer-runtime.mjs`；Payload 与 Runtime 协议版本仍为 1。判定顺序：
 
 1. 主进程仅考虑 `app://` 窗口；
 2. 排除 avatar、global dictation、hotkey 和已知宠物辅助窗口；
@@ -64,11 +64,20 @@ Portal 可能直接挂载到 `body`，必须保留宿主自身的定位与层叠
 Composer 表面由主题选择 `solid` 或 `blur`。`solid` 使用面板色的不透明 RGB，避免对话内容
 透入输入框；`blur` 保留面板 Alpha，并使用 `panelBlur` 对输入框背后的内容执行背景模糊。
 两种模式都只保留主题边框，不恢复新版宿主底部的大面积渐变阴影。
+首页空对话输入框的 `home` utility bar 与 `default` radius 组合沿用宿主
+`--composer-radius`（缺失时回退到 22px）；不通过裁切 Composer 来修复四角溢出，
+以保留下拉菜单显示空间。主内容容器使用 `overflow: clip` 约束边缘绘制，
+对话底部的重复实色与渐变遮罩保持透明。
 Composer 的权限模式当前值、状态图标以及展开菜单中的对应强调项使用主题强调色；
 覆盖范围只锚定权限导航和它处于打开状态时的菜单，不覆盖全局 warning、error 或 Git 状态色。
 首页顶部 Header 保留宿主结构、窗口拖拽区域和操作按钮，但不绘制主题面板背景、边框、
-背景模糊或阴影；任务页 Header 继续使用主题面板样式。
-首页系统 Titlebar 使用覆盖完整窗口宽度的低透明度主题面板灰色蒙层和轻量背景模糊；
+背景模糊或阴影；任务页应用菜单 Header 同样透明。资料库与插件页共享的
+`data-scroll-collapse`、`data-expand-search`、`data-sticky`、`data-collapsible`
+工具栏伪元素也保持透明，并移除它的背景模糊。
+定时任务的 `[data-automation-card] > button` 和右侧 `[data-summary-panel-variant]`
+统一使用 `--cts-panel`、`--cts-panel-opacity` 与 `--cts-panel-blur`；右侧摘要分组标题及
+其伪元素不重复绘制底色，面板颜色和毛玻璃由外层承载。
+首页系统 Titlebar 使用覆盖完整窗口宽度的低透明度主题面板色蒙层和轻量背景模糊；
 蒙层完整覆盖 44px 内容起点且不使用底部透明过渡，不拉伸 Sidebar、不改变宿主拖拽与按钮命中区域，
 并提升浅色背景上的菜单和窗口按钮对比度；
 任务页 Titlebar 保持宿主透明样式。
@@ -143,3 +152,10 @@ composer/surface 标记。兼容配置 v2 已加入统一宿主 active/inactive 
 最终 Agent、Run 项、配置与运行时状态一致，9229 无监听；随机 Renderer 端口在受管
 ChatGPT 进程存续期间保持监听。Electron 精确版本及旧版真实实例的本轮复验为
 `To be confirmed`。
+
+2026-10-01 在 Store ChatGPT/Codex `26.928.2636.0` 上核对 1.3.6 源码样式：
+任务顶部透明；六个定时任务卡片跟随面板颜色、透明度及毛玻璃；右侧摘要分组底色统一；
+资料库与插件页顶部遮罩移除；首页空对话输入框四角截图确认溢出消失。
+上述检查沿用当前受管 Renderer 通道，仅更新当前窗口样式并使用局部视觉证据，
+不读取或保存私人对话正文；不等于最终发布实包的完整注入、清理或持久化验收。
+本版本构建、发布和未覆盖边界见 [1.3.6 验收记录](testing/1.3.6-release-acceptance.md)。

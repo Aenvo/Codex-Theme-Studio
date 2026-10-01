@@ -113,6 +113,8 @@ Release，并上传便携 ZIP、`SHA256SUMS.txt` 和 `release-manifest.json`。G
 自动附带的 Source code ZIP/TAR 不是可运行产品。workflow 不会自动创建 tag，
 也不会把 Draft 公开发布。
 
+随包 README、用户指南及兼容性方案中的版本验收记录链接会指向该 tag 下的公开仓库文档；验收记录不作为便携运行时文件打入包。
+
 带注释 tag 使用 `release: Codex Theme Studio v<version>`；Draft Release Notes 由
 GitHub 自动生成，并附带未签名、哈希校验、未覆盖验收边界和非 OpenAI 官方产品说明。
 

@@ -473,6 +473,26 @@ Copy-RequiredFile `
 Copy-RequiredFile `
     (Join-Path $projectRoot 'docs\testing\runtime-compatibility-plan.md') `
     (Join-Path $packageDirectory 'docs\testing\runtime-compatibility-plan.md')
+foreach ($documentName in @(
+    'README.md', 'README.en.md', 'docs\user-guide.md',
+    'docs\testing\runtime-compatibility-plan.md')) {
+    $documentPath = Join-Path $packageDirectory $documentName
+    $documentContent = [IO.File]::ReadAllText($documentPath)
+    $documentContent = [regex]::Replace(
+        $documentContent,
+        '\]\((?:\.?\.?/)*(?:docs/)?(?:testing/)?(?<file>\d+\.\d+\.\d+-release-acceptance\.md)\)',
+        [System.Text.RegularExpressions.MatchEvaluator]{
+            param($match)
+            $acceptanceFile = $match.Groups['file'].Value
+            $sourceAcceptance = Join-Path $projectRoot "docs\testing\$acceptanceFile"
+            if (-not (Test-Path -LiteralPath $sourceAcceptance -PathType Leaf)) {
+                throw "Release acceptance document is missing: $acceptanceFile"
+            }
+            return "](https://github.com/Aenvo/Codex-Theme-Studio/blob/v$Version/docs/testing/$acceptanceFile)"
+        })
+    [IO.File]::WriteAllText(
+        $documentPath, $documentContent, [Text.UTF8Encoding]::new($false))
+}
 Copy-RequiredFile `
     (Join-Path $projectRoot 'THIRD-PARTY-NOTICES.md') `
     (Join-Path $packageDirectory 'THIRD-PARTY-NOTICES.md')
