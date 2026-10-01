@@ -74,7 +74,7 @@ test("applies once without overriding body portal positioning or stacking", () =
     /:is\([^)]*\.composer-surface-chrome[^)]*\)\s*\{[^}]*backdrop-filter:\s*var\(--cts-composer-backdrop-filter\) !important;/s);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
-    /html\.codex-theme-studio-active\[data-codex-theme-studio-page="home"\]\s*:is\([^)]*header\.app-header-tint[^)]*\)\s*\{[^}]*background:\s*transparent !important;[^}]*border-color:\s*transparent !important;[^}]*backdrop-filter:\s*none !important;[^}]*box-shadow:\s*none !important;/s);
+    /html\.codex-theme-studio-active\[data-codex-theme-studio-page="home"\]\s*:is\([^)]*header\.app-header-tint[^)]*\),\s*html\.codex-theme-studio-active\[data-codex-theme-studio-page\^="task-"\]\s*header\[data-app-shell-application-menu-bar\]\[data-app-shell-header-edge-scroll\]\s*\{[^}]*background:\s*transparent !important;[^}]*border-color:\s*transparent !important;[^}]*backdrop-filter:\s*none !important;[^}]*box-shadow:\s*none !important;/s);
   assert.match(
     environment.findById("codex-theme-studio-style").textContent,
     /html\.codex-theme-studio-active\[data-codex-theme-studio-page="home"\]\s*:is\([^)]*\[class\*='_ApplicationMenuTopBar_'\][^)]*\)::before\s*\{[^}]*content:\s*"";[^}]*width:\s*100vw;[^}]*height:\s*44px;[^}]*background:\s*color-mix\(in srgb, var\(--cts-panel\) 10%, transparent\) !important;[^}]*backdrop-filter:\s*blur\(8px\) !important;[^}]*pointer-events:\s*none;/s);

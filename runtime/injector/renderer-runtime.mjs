@@ -282,6 +282,7 @@ html.codex-theme-studio-active body > #root {
 html.codex-theme-studio-active :is(${mainSurfaceSelector}) {
   background: transparent !important;
   box-shadow: none !important;
+  overflow: clip !important;
 }
 html.codex-theme-studio-active[data-codex-theme-studio-page="task-off"] :is(${mainSurfaceSelector}) {
   background: var(--cts-background) !important;
@@ -327,6 +328,11 @@ html.codex-theme-studio-active :is(${composerSurfaceSelector}) {
   -webkit-backdrop-filter: var(--cts-composer-backdrop-filter) !important;
   backdrop-filter: var(--cts-composer-backdrop-filter) !important;
 }
+html.codex-theme-studio-active [data-automation-card] > button {
+  background-color: color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent) !important;
+  -webkit-backdrop-filter: blur(var(--cts-panel-blur)) !important;
+  backdrop-filter: blur(var(--cts-panel-blur)) !important;
+}
 html.codex-theme-studio-active
   [data-composer-navigation-target="permissions"]
   [data-composer-dropdown-foreground="warning"],
@@ -353,7 +359,18 @@ html.codex-theme-studio-active :is(${headerSelector}) {
   -webkit-backdrop-filter: blur(var(--cts-panel-blur)) !important;
   backdrop-filter: blur(var(--cts-panel-blur)) !important;
 }
-html.codex-theme-studio-active[data-codex-theme-studio-page="home"] :is(${headerSelector}) {
+html.codex-theme-studio-active
+  header[data-app-shell-application-menu-bar][data-app-shell-header-edge-scroll] {
+  border-start-start-radius: var(--radius-xl-base, 12px) !important;
+  border-start-end-radius: var(--radius-xl-base, 12px) !important;
+}
+html.codex-theme-studio-active [data-app-shell-page-sidebar="true"]
+  header[data-app-shell-application-menu-bar][data-app-shell-header-edge-scroll] {
+  border-start-start-radius: 0 !important;
+}
+html.codex-theme-studio-active[data-codex-theme-studio-page="home"] :is(${headerSelector}),
+html.codex-theme-studio-active[data-codex-theme-studio-page^="task-"]
+  header[data-app-shell-application-menu-bar][data-app-shell-header-edge-scroll] {
   background: transparent !important;
   border-color: transparent !important;
   -webkit-backdrop-filter: none !important;
@@ -396,13 +413,24 @@ html.codex-theme-studio-active .sticky.bottom-0
   background-color: transparent !important;
   background-image: none !important;
 }
-html.codex-theme-studio-active [class*="elevation-prominent"] {
+html.codex-theme-studio-active [data-thread-scroll-footer]
+  > .pointer-events-none.absolute.bg-surface,
+html.codex-theme-studio-active [data-app-action-timeline-scroll] .sticky.bottom-0
+  > .pointer-events-none.absolute[class*="bg-gradient-to-t"][class~="from-surface"] {
+  background: transparent !important;
+}
+html.codex-theme-studio-active [class*="elevation-prominent"],
+html.codex-theme-studio-active [data-summary-panel-variant] {
   background-color: color-mix(in srgb, var(--cts-panel) var(--cts-panel-opacity), transparent) !important;
   -webkit-backdrop-filter: blur(var(--cts-panel-blur)) !important;
   backdrop-filter: blur(var(--cts-panel-blur)) !important;
   box-shadow:
     0 0 0 1px var(--cts-border),
     0 18px 50px rgba(0, 0, 0, 0.42) !important;
+}
+html.codex-theme-studio-active [data-summary-panel-variant] header.bg-surface-elevated-secondary,
+html.codex-theme-studio-active [data-summary-panel-variant] header.bg-surface-elevated-secondary::before {
+  background-color: transparent !important;
 }
 html.codex-theme-studio-active :where(input, textarea, [contenteditable="true"])::placeholder {
   color: var(--cts-muted) !important;
