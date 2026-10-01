@@ -1,7 +1,7 @@
 # 当前风险登记表
 
 - 更新日期：2026-10-01
-- 适用基线：Codex Theme Studio 1.3.6 发布准备中；本版本构建、远程 CI、正式附件、公开状态与旧版更新链路以 `../testing/1.3.6-release-acceptance.md` 为准，不从历史版本推断。
+- 适用基线：Codex Theme Studio 1.3.6 已公开为稳定 Latest；本版本构建、远程 CI、正式附件、公开状态与旧版更新链路以 `../testing/1.3.6-release-acceptance.md` 为准，不从历史版本推断。
 - 历史任务风险和当时证据保留在 `task-11-known-issues.md`、`task-12-known-issues.md` 与对应验收记录中。
 - 1.3.4 及统一宿主测试包的现场记录只证明对应构建和宿主；1.3.6 最终发布实包的统一宿主现场闭环仍未覆盖；本次源码样式预览的范围见对应验收记录。
 - 2026-09-10，维护者明确接受 R-03、R-04 与 R-22 中列出的三项缺失门禁，仅用于生成 `v1.3.3` Draft Release；该接受不等于门禁通过、不关闭风险，也不授权自动公开 Release。
@@ -10,7 +10,7 @@
 
 | ID | 风险 | 当前控制或证据 | 状态 |
 | --- | --- | --- | --- |
-| R-01 | .NET 8 将于 2026-11-10 结束支持 | SDK 固定为 8.0.423，发布为 self-contained；跨越 EOL 前必须用新 ADR 评估迁移到受支持 LTS | Open |
+| R-01 | .NET 8 将于 2026-11-10 结束支持 | SDK 基准为 8.0.423，`global.json` 的 `latestPatch` 允许同一 feature band 内的后续 SDK 补丁；发布为 self-contained，实际 SDK 与随包 Runtime 补丁见 Build Info。跨越 EOL 前必须用新 ADR 评估迁移到受支持 LTS | Open |
 | R-02 | 便携包未签名 | manifest 和 SHA256SUMS 提供完整性校验，README 明确披露未知发布者警告；不建议绕过安全软件 | Open |
 | R-03 | 本机没有有效病毒扫描证据 | 上次验收时 Defender 服务、实时保护和签名库不可用；维护者已明确选择不在本机恢复 Defender。`v1.3.6` 未取得有效扫描结果；已在本版本风险说明中披露该缺口，发布说明须披露，后续仍需在有效环境复扫 | Open |
 | R-04 | 未在无开发 Runtime 的干净 Windows 用户或 VM 验收 | 既有 self-contained 文件、随包 Node、中文/空格路径启动及当前主机可运行性证据不能替代 `v1.3.6` 在无预装 .NET/Node 干净环境的验收；本版本未覆盖，已在本版本风险说明中披露并须公开披露 | Open |
@@ -25,9 +25,9 @@
 | R-13 | Injector 运行脚本误用 PowerShell 7/.NET Core API，或原子写入在句柄释放前移动文件 | 运行时发现固定以 Windows PowerShell 5.1 为最低基线；自动化测试真实执行精确 EXE `Discover` 和边界 `Snapshot` 并解析单一 JSON。资格、目标选择及其他原子写入均以流作用域结束后再 `Move/Replace`，关键路径有跨实例读取回归 | Mitigated |
 | R-14 | 统一“还原外观”需要修改第三方 OkkSkin 的当前用户启动项、状态和 Agent；身份误判可能影响无关进程，部分失败可能导致下次 Codex 再次应用主题 | 仅接受无 Reparse Point 的已知状态与启动器、精确 Run 命令和精确 `node.exe … agent.mjs` 命令行；状态原子改为禁用并保留未知字段和缓存；任一残留返回 Partial。自动化边界测试已加入，真实 Codex 完整重启验收仍为 `To be confirmed` | Open |
 | R-15 | 启动兼容缓存可能被误解为当前进程、窗口或可见效果已经验证 | Schema v2 只缓存构建级资格；启动始终重新发现并计算 EXE SHA-256，不缓存 PID、端口、Target、Renderer 或活动主题；应用与持久化继续执行操作级实时 fail-closed 校验 | Mitigated |
-| R-16 | 旧本机交接快照或历史归档可能被误认为当前实施状态 | `Directory.Build.props` 决定源码维护版本；1.3.5 本地候选包已核对 FileVersion、Build Info、Agent/安装清单与 ZIP 摘要。最终 tag `v1.3.5` 指向 `084e26c`，tag 工作流与三项正式附件已独立复核；公开 Latest API 返回本版本。根目录旧交接快照已可恢复移出并由 `.gitignore` 阻止再次误提交，历史验收文档只保留证据边界 | Mitigated |
+| R-16 | 旧本机交接快照或历史归档可能被误认为当前实施状态 | `Directory.Build.props` 决定源码维护版本。历史 `v1.3.5` 指向 `084e26c`，保留原标签与附件；当前 `v1.3.6` 指向 `f9e5ec2`，CI、私有预检、tag 构建、三项正式附件和中文说明均已复核，公开 Latest API 与订阅源返回 1.3.6。包内文档保留 tag 构建时快照，最新发布证据见当前验收记录。根目录旧交接快照已可恢复移出并由 `.gitignore` 阻止再次误提交，历史验收文档只保留证据边界 | Mitigated |
 | R-17 | 去重后的便携包依赖 Agent bundle manifest；路径逃逸、清单篡改或复制中断可能生成不完整稳定 Agent | Schema v1 对路径、大小、SHA-256、重复目标和重解析点 fail-closed；安装先写随机暂存目录，复核全部文件后原子切换，既有内容寻址版本复用前重新校验 | Mitigated |
-| R-18 | 自动化 Release 可能在签名、病毒扫描或干净环境验收前公开 | CI 仅有 `contents: read`；Release 构建阶段只读，只有人工推送精确 tag 后的独立 job 取得 `contents: write` 并创建 Draft。`v1.3.5` 在附件 SHA-256 与 NotSigned 复核、缺失验收披露及维护者本版本风险接受后，才按该次授权公开；风险接受不等于门禁通过 | Mitigated |
+| R-18 | 自动化 Release 可能在签名、病毒扫描或干净环境验收前公开 | CI 仅有 `contents: read`；Release 构建阶段只读，只有维护者授权推送精确 tag 后的独立 job 取得 `contents: write` 并创建 Draft。`v1.3.5` 和 `v1.3.6` 均在附件 SHA-256 与 NotSigned 复核、缺失验收披露及对应版本的维护者授权后公开；1.3.6 中文说明保留未覆盖范围。本版本授权不等于缺失门禁通过 | Mitigated |
 | R-19 | 公开仓库可能意外暴露凭证、个人数据或尚未修复的漏洞 | 2026-10-01 只读 GitHub API 核对：Private Vulnerability Reporting 为 `enabled: true`，`security_and_analysis.secret_scanning` 与 `security_and_analysis.secret_scanning_push_protection` 均为 `enabled`。当前 Git 历史 Gitleaks 唯一命中为旧 XAML 图标的 `x:Key` 误报，未发现凭证；`.gitignore` 拦截常见环境文件、密钥、日志和数据库。防护不能排除后续误提交或历史泄露；安全问题使用私密漏洞报告，不通过公开 Issue 披露 | Open |
 | R-20 | 编辑器永久删除无引用受管背景时，错误的可达性判断可能造成不可恢复的数据损失 | 删除范围只来自当前编辑会话追踪；存储层再次校验可信 DataRoot、精确主题 UUID、普通文件/目录、无重解析点、`theme.json` 当前 `art.file` 引用和空目录条件。共享缓存、索引主题、应用回收站主题、未知孤立目录及完整未索引主题均排除；临时真实文件系统测试覆盖直接删除和保护分支 | Mitigated |
 | R-21 | 更新资产被替换、损坏或构造为路径逃逸 ZIP | 只接受三个精确 Release 资产；GitHub asset digest、Schema v3 release manifest 与 SHA256SUMS 必须一致。ZIP 条目数、压缩/展开大小、绝对路径、`..`、ADS、大小写重复路径及链接均 fail-closed | Mitigated |
@@ -37,3 +37,4 @@
 | R-25 | ChatGPT 统一宿主未注册 Node Windows debug-handler，旧短时 9229 Inspector 通道无法触达 Renderer | `26.924.1866.0` 的运行中 debug-handler、固定 9229 参数激活和精确 EXE 启动失败证据继续保留。后续实现改为仅对当前用户注册的官方 Store 包，在用户确认或持久化 Agent 的受限启动窗口内通过 AUMID 传入 `--remote-debugging-address=127.0.0.1` 与随机高位端口，并继续使用原 Profile；旧版仍走既有短时 Inspector。`26.924.2738.0` 已完成 Canary、临时主题、持久主题、正常重启和电脑重启恢复真实验收；暂态 `port_renderer_unavailable`、`port_renderer_unqualified` 与 `renderer_port.open_timeout` 不再永久熔断同一可信进程。未修改 WindowsApps、`app.asar`、EXE 或签名，9229 无监听。未来统一宿主参数或 Renderer 结构变化仍由 R-07 fail-closed 控制 | Mitigated |
 | R-26 | 统一宿主受管启动的随机回环 Renderer 端口在 ChatGPT 进程存续期间保持开放，可能扩大本机同用户进程的调试面 | 只绑定 `127.0.0.1` 随机高位端口；每次操作都核对官方 Store 身份、精确 EXE、PID、创建时间、主进程命令行中的端口、Browser ID、Page Target、`app://` 路由和 Windows 端口所有者，拒绝远程地址、端口复用和身份变化。随机端口不是认证机制，其他本机同用户进程仍可能发现并连接该 CDP 端点；README 与用户指南已披露端口存续和本机连接风险。`v1.3.6` 实包端口复验与不依赖进程存续端口的替代方案未覆盖；维护者已针对本版本授权公开并知悉已披露的本机连接风险 | Open |
 | R-27 | 统一宿主首次应用或恢复主题需要受管关闭并重新启动官方 ChatGPT；未保存输入或暂态 Renderer 未就绪可能造成可见重启或重复启动 | GUI 在关闭前明确提示保存未发送输入并要求确认；关闭只针对精确 PID、创建时间与 EXE 匹配的主进程，优先 `CloseMainWindow`，随后只使用 Windows Restart Manager 正常关机请求，不调用强制终止。持久化 Agent 只允许对启动不超过 2 分钟的无端口实例自动接管，运行更久的实例 fail-closed 并要求回到 GUI；暂态 Renderer 就绪失败保留同一受管进程继续重试。README 与用户指南已披露受管重启，`26.924.2738.0` 修复后真实冷启动一次成功；`v1.3.6` 实包现场闭环及慢启动、系统高负载和恢复中断的扩展覆盖未完成，维护者已针对本版本授权公开，该缺口继续披露 | Open |
+| R-28 | GitHub 匿名 API 限流或网络流中断可能阻止用户下载更新 | 检查遇到 403/429 可通过订阅源发现稳定版，但下载仍须取得 API 资产摘要，不绕过三重校验。2026-10-01 共享代理 API 实测 403，匿名直连 API 200；正式 1.3.5 更新组件改用测试进程的直连 API 后，经历一次未复现的暂存 IOException，随后同一路由完整下载并核验 1.3.6 的 312 条安装清单。该 I/O 失败的确切原因为 `To be confirmed`。用户指南与中文发布说明提供稍后重试、发布页手动下载及摘要核对方法；不把发现新版写成安装完成，也不改变用户全局代理 | Open |

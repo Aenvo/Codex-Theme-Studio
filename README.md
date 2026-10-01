@@ -61,7 +61,7 @@
 3. 对照 `SHA256SUMS.txt` 校验 ZIP，然后完整解压到普通可写目录，例如 `%USERPROFILE%\Apps\Codex Theme Studio`。
 4. 双击 `CodexThemeManager.exe`。
 
-当前源码维护版本为 `1.3.6`，正在进行发布验证；公开稳定版以 [GitHub 最新版](https://github.com/Aenvo/Codex-Theme-Studio/releases/latest)为准。已安装 `1.3.0` 或更高稳定版的用户可以在应用内主动检查更新；本轮发布及更新验收状态见 [1.3.6 验收记录](./docs/testing/1.3.6-release-acceptance.md)。真实程序内升级尚未完成隔离环境验收。
+当前维护版本 `1.3.6` 已作为公开稳定 Latest 发布，修复详情和便携包见 [1.3.6 发布页](https://github.com/Aenvo/Codex-Theme-Studio/releases/tag/v1.3.6)。已安装 `1.3.0` 或更高稳定版的用户可以在“设置 → 关于 → 检查更新”主动获取更新；GitHub API 限流或下载中断时，可稍后重试或从发布页手动下载。本轮发布及更新验收状态见 [1.3.6 验收记录](./docs/testing/1.3.6-release-acceptance.md)。真实程序内升级尚未完成隔离环境验收。
 
 不要直接在压缩包中运行，也不要下载 GitHub 自动附带的 `Source code (zip)` / `Source code (tar.gz)` 作为应用程序。普通用户需要 Release Assets 中名称包含 `win-x64-portable.zip` 的便携包。
 

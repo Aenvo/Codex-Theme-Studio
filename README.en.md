@@ -61,7 +61,7 @@ Choose a background and palette from the theme library, adjust composition, opac
 3. Verify the ZIP against `SHA256SUMS.txt`, then fully extract it to a normal writable directory such as `%USERPROFILE%\Apps\Codex Theme Studio`.
 4. Double-click `CodexThemeManager.exe`.
 
-The current source version is `1.3.6`, with release validation in progress. The public stable release is available from [GitHub Latest](https://github.com/Aenvo/Codex-Theme-Studio/releases/latest). Users of stable version `1.3.0` or later can check for updates in the app; see the [1.3.6 acceptance record](./docs/testing/1.3.6-release-acceptance.md) for release and update verification status. A real in-app upgrade has not been accepted in an isolated environment.
+The current version `1.3.6` is published as the public stable Latest. See the [1.3.6 release](https://github.com/Aenvo/Codex-Theme-Studio/releases/tag/v1.3.6) for fixes and the portable package. Users of stable version `1.3.0` or later can check for updates under Settings → About → Check for updates. If the GitHub API is rate limited or a download is interrupted, retry later or download manually from the release page. See the [1.3.6 acceptance record](./docs/testing/1.3.6-release-acceptance.md) for release and update verification status. A real in-app upgrade has not been accepted in an isolated environment.
 
 Do not run the app from inside the ZIP, and do not use GitHub's automatically generated `Source code (zip)` or `Source code (tar.gz)` archives as the application. Regular users need the Release Asset whose name contains `win-x64-portable.zip`.
 
